@@ -45,6 +45,14 @@ def limpiar_huerfanas(conn, gracia_min: int = 2) -> int:
     return len(ids)
 
 
+def _ultima_ejecucion(conn) -> dict | None:
+    e = conn.execute("SELECT * FROM ejecuciones WHERE estado <> 'en_curso' ORDER BY id DESC LIMIT 1").fetchone()
+    if e:
+        e["etapas"] = conn.execute("""SELECT etapa, estado, error, resumen FROM ejecucion_etapas
+                                      WHERE ejecucion_id = %s ORDER BY orden""", (e["id"],)).fetchall()
+    return e
+
+
 def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) -> dict:
     zona = ZoneInfo(cfg["zona_horaria"])
     interrumpidas = limpiar_huerfanas(conn)
@@ -84,6 +92,12 @@ def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) 
             "calibrado": v["hiperparametros"].get("calibrado", False)},
         "crs_modo_ajuste": cfg["crs"]["ajuste_favorito"]["modo"],
         "ejecuciones_interrumpidas": interrumpidas,
+        "ultima_ejecucion": _ultima_ejecucion(conn),
+        # Ligas activas sin partidos jugados cargados: sus nombres no se pueden resolver todavía
+        "ligas_sin_historico": [r["codigo"] for r in conn.execute("""
+            SELECT l.codigo FROM ligas l WHERE l.activa AND l.codigo = ANY(%s) AND NOT EXISTS (
+                SELECT 1 FROM partidos p WHERE p.liga_id = l.id AND p.estado = 'finalizado')
+            ORDER BY l.codigo""", (cfg["ligas_activas"],))],
         # Cobertura de xG en ligas que lo usan: si cae, el modelo usa solo goles en esos partidos.
         "cobertura_xg": conn.execute("""
             SELECT l.codigo AS liga, count(*) AS partidos, count(p.xg_local) AS con_xg,
@@ -159,6 +173,16 @@ def dia(conn, cfg: dict, d: date, ahora: datetime) -> list[dict]:
                                             referencia_sustituta=s["p_mercado_consenso"])
                         fila.update(ev=e, umbral=u.valor, clasificacion=clasificar(e, u) if vig else "cuota_no_vigente")
                 item["mercados"].append(fila)
+            # Datos para las gráficas: 1X2 modelo vs mercado, mejor oportunidad y marcadores
+            por_sel = {m["seleccion"]: m for m in item["mercados"]}
+            item["p1x2"] = {"modelo": [por_sel.get(k, {}).get("p_modelo") for k in ("1X2:1", "1X2:X", "1X2:2")],
+                            "mercado": [por_sel.get(k, {}).get("p_mercado") for k in ("1X2:1", "1X2:X", "1X2:2")],
+                            "ajustada": [por_sel.get(k, {}).get("p_adj") for k in ("1X2:1", "1X2:X", "1X2:2")]}
+            con_ev = [m for m in item["mercados"] if m.get("ev") is not None and m.get("cuota_vigente")
+                      and not m["filtrado_crs"]]
+            item["mejor"] = max(con_ev, key=lambda m: m["ev"]) if con_ev else None
+            mat = np.array(pr["matriz"]).reshape(11, 11)
+            item["marcadores"] = [[float(mat[i, j]) for j in range(6)] for i in range(6)]
         item["picks"] = conn.execute("""
             SELECT p.id, p.seleccion, p.cuota_sugerida, p.ev, p.stake_u, p.creado_en, p.crs_total, p.crs_alerta,
                    (SELECT tipo FROM pick_eventos e WHERE e.pick_id = p.id ORDER BY creado_en DESC LIMIT 1) AS estado,

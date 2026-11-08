@@ -200,9 +200,12 @@ def post_evento_pick(pick_id: int, e: EventoPick, conn=Depends(conexion)):
 
 @app.get("/alias/pendientes")
 def get_alias(conn=Depends(conexion)):
-    return conn.execute("""SELECT a.*, l.codigo AS liga, e.nombre AS sugerencia FROM alias_pendientes a
+    return conn.execute("""SELECT a.*, l.codigo AS liga, e.nombre AS sugerencia,
+                                  NOT EXISTS (SELECT 1 FROM partidos p WHERE p.liga_id = a.liga_id
+                                              AND p.estado = 'finalizado') AS liga_sin_historico
+                           FROM alias_pendientes a
                            JOIN ligas l ON l.id = a.liga_id LEFT JOIN equipos e ON e.id = a.sugerencia_id
-                           WHERE NOT a.resuelto ORDER BY a.veces DESC""").fetchall()
+                           WHERE NOT a.resuelto ORDER BY l.codigo, a.veces DESC""").fetchall()
 
 
 class ResolverAlias(BaseModel):
@@ -219,6 +222,10 @@ def post_alias(aid: int, r: ResolverAlias, conn=Depends(conexion)):
     if (r.equipo_id is None) == (not r.crear_nuevo):
         raise HTTPException(422, "indica equipo_id o crear_nuevo, no ambos")
     eid = r.equipo_id
+    if r.crear_nuevo and not conn.execute("SELECT 1 FROM partidos WHERE liga_id = %s AND estado = 'finalizado' LIMIT 1",
+                                          (a["liga_id"],)).fetchone():
+        raise HTTPException(409, "Esta liga aún no tiene histórico cargado: carga el histórico primero "
+                                 "(crear el equipo ahora lo duplicaría).")
     if r.crear_nuevo:
         eid = conn.execute("INSERT INTO equipos (nombre, pais) VALUES (%s, %s) RETURNING id",
                            (a["nombre_externo"], a["pais"])).fetchone()["id"]

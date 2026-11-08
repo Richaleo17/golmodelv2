@@ -16,14 +16,19 @@ import unicodedata
 
 import psycopg
 
-PALABRAS_VACIAS = {"fc", "cf", "sc", "ac", "afc", "club", "cd", "ca", "ec", "se", "ssc", "as", "the", "de",
-                   "del", "da", "do", "futebol", "clube", "calcio", "us", "sv", "cfc", "fbc", "sad", "deportivo"}
+PALABRAS_VACIAS = {"fc", "cf", "sc", "ac", "afc", "acf", "ss", "bc", "club", "cd", "ca", "ec", "se", "ssc", "as",
+                   "the", "de", "del", "da", "do", "futebol", "clube", "calcio", "us", "sv", "cfc", "fbc", "sad",
+                   "deportivo"}
+# Abreviaturas que usan algunas fuentes. 'united' y 'city' NO se quitan nunca: distinguen equipos.
+ABREVIATURAS = {"man": "manchester", "utd": "united", "nottm": "nottingham"}
 
 
 def clave(nombre: str) -> str:
     s = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode().lower()
     s = s.replace("&", " and ")
-    tokens = [t for t in re.split(r"[^a-z0-9]+", s) if t and t not in PALABRAS_VACIAS]
+    tokens = [ABREVIATURAS.get(t, t) for t in re.split(r"[^a-z0-9]+", s) if t]
+    # Fuera palabras vacías y años de fundación ("Parma Calcio 1913" -> "parma")
+    tokens = [t for t in tokens if t not in PALABRAS_VACIAS and not (t.isdigit() and len(t) == 4)]
     return " ".join(tokens) or s.strip()
 
 
@@ -62,6 +67,9 @@ class ResolverEquipos:
             VALUES (%s, %s, %s, true) ON CONFLICT (fuente, nombre_externo) DO NOTHING
         """, (equipo_id, fuente, nombre))
         self._alias[(fuente, nombre)] = equipo_id
+        # Si estaba pendiente de revisión manual y ahora se resolvió con seguridad, sale de la lista
+        self.conn.execute("UPDATE alias_pendientes SET resuelto = true WHERE fuente = %s AND nombre_externo = %s",
+                          (fuente, nombre))
 
     def _pendiente(self, fuente: str, nombre: str, liga_id: int, sug: int | None, sim: float | None) -> None:
         self.conn.execute("""
@@ -83,6 +91,15 @@ class ResolverEquipos:
         if len(exactos) == 1:
             self._registrar_alias(fuente, nombre, exactos[0])
             return exactos[0]
+        # Todas las palabras de UN SOLO equipo están contenidas en el nombre externo
+        # ("newcastle" ⊂ "newcastle united"). Si encajan dos o más equipos, no se adivina.
+        if not exactos:
+            tk = set(k.split())
+            contenidos = [eid for eid, claves in equipos.items()
+                          if any(c and set(c.split()) <= tk for c in claves)]
+            if len(contenidos) == 1:
+                self._registrar_alias(fuente, nombre, contenidos[0])
+                return contenidos[0]
         puntajes = sorted(((max(difflib.SequenceMatcher(None, k, c).ratio() for c in claves), eid)
                            for eid, claves in equipos.items()), reverse=True)
         if puntajes:

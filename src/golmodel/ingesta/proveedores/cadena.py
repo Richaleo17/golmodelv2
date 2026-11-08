@@ -45,6 +45,7 @@ class Interruptor:
     reloj: Callable[[], datetime] = _ahora
     _fallos: dict[str, int] = field(default_factory=dict)
     _abierto_hasta: dict[str, datetime] = field(default_factory=dict)
+    _motivo: dict[str, str] = field(default_factory=dict)
 
     def disponible(self, proveedor: str) -> bool:
         hasta = self._abierto_hasta.get(proveedor)
@@ -55,6 +56,7 @@ class Interruptor:
         self._abierto_hasta.pop(proveedor, None)
 
     def falla(self, proveedor: str, error: ErrorProveedor) -> None:
+        self._motivo[proveedor] = str(error)
         if isinstance(error, ErrorPermanente):
             self._abierto_hasta[proveedor] = self.reloj() + self.espera_permanente
             return
@@ -63,9 +65,10 @@ class Interruptor:
         if n >= self.fallos_para_abrir:
             self._abierto_hasta[proveedor] = self.reloj() + self.espera_transitorio
 
-    def estado(self) -> dict[str, str]:
-        return {p: f"abierto hasta {h.isoformat()}" for p, h in self._abierto_hasta.items()
-                if self.reloj() < h}
+    def estado(self) -> dict[str, dict]:
+        """Proveedores en pausa: hasta cuándo y por qué (último error)."""
+        return {p: {"hasta": h.isoformat(), "motivo": self._motivo.get(p, "")}
+                for p, h in self._abierto_hasta.items() if self.reloj() < h}
 
 
 @dataclass(frozen=True)

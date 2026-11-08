@@ -302,3 +302,45 @@ def test_understat_mantenimiento_es_falla_temporal():
                      dormir=lambda s: None)
     with pytest.raises(ErrorTransitorio, match="mantenimiento"):
         u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027"))
+
+
+# ---------- Normalización de nombres ----------
+
+def test_clave_normaliza_variantes():
+    from golmodel.ingesta.normalizacion import clave
+    assert clave("Parma Calcio 1913") == clave("Parma") == "parma"
+    assert clave("SS Lazio") == clave("Lazio")
+    assert clave("ACF Fiorentina") == clave("Fiorentina")
+    assert clave("Atalanta BC") == clave("Atalanta")
+    assert clave("Man United") == "manchester united"
+    assert clave("Manchester United") != clave("Manchester City")      # nunca se confunden
+
+
+class _ConnFalsa:
+    """Liga con equipos canónicos para probar ResolverEquipos sin base de datos."""
+    def __init__(self, equipos):
+        self.equipos, self.alias, self.pend = equipos, [], []
+
+    def execute(self, sql, params=None):
+        class R(list):
+            def fetchall(s): return list(s)
+        if "FROM equipo_alias" in sql and "SELECT fuente" in sql:
+            return R()
+        if "FROM equipos e" in sql:
+            return R({"id": i, "nombre": n, "nombre_externo": None} for i, n in self.equipos.items())
+        if "INSERT INTO equipo_alias" in sql:
+            self.alias.append(params)
+        if "INSERT INTO alias_pendientes" in sql:
+            self.pend.append(params)
+        return R()
+
+
+def test_resolver_subconjunto_unico_y_ambiguo():
+    from golmodel.ingesta.normalizacion import ResolverEquipos
+    c = _ConnFalsa({1: "Newcastle", 2: "Man United", 3: "Man City", 4: "Parma"})
+    r = ResolverEquipos(c)
+    assert r.resolver("football_data_org", "Newcastle United FC", 7) == 1      # 'newcastle' ⊂ nombre
+    assert r.resolver("football_data_org", "Parma Calcio 1913", 7) == 4        # año quitado: exacto
+    assert r.resolver("football_data_org", "Manchester United FC", 7) == 2     # abreviatura 'man'
+    # 'Manchester' a secas encaja en United y City: NO se adivina
+    assert r.resolver("otra", "Manchester", 7) is None and c.pend
