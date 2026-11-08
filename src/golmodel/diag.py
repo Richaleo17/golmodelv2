@@ -103,3 +103,11 @@ def calibracion(conn=Depends(conexion)):
         JOIN partidos p ON p.id = pr.partido_id
         WHERE ps.seleccion = '1X2:1' AND p.estado = 'finalizado' AND ps.p_adj IS NOT NULL AND pr.origen = 'produccion'
         GROUP BY 1 ORDER BY 1""")]}
+
+
+@app.get("/diag/alpha", dependencies=[Depends(autorizar)])
+def alpha(conn=Depends(conexion)):
+    """α calibrado por liga/mercado y log-loss de modelo, mercado y mezcla (¿el modelo aporta sobre el mercado?)."""
+    r = conn.execute("""SELECT hiperparametros -> 'alpha' AS a FROM versiones_modelo
+                        WHERE origen = 'produccion' ORDER BY creado_en DESC LIMIT 1""").fetchone()
+    return {"alpha": (r or {}).get("a")}
