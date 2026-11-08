@@ -143,6 +143,10 @@ with st.sidebar:
             else:
                 st.session_state["ejecucion"] = res["ejecucion_id"]
         st.caption("Costo: " + (", ".join(f"{k} {v}" for k, v in c.items()) or "sin requests"))
+    for x in estado.get("cobertura_xg", []):
+        pct_xg = x["con_xg"] / x["partidos"] if x["partidos"] else 0
+        st.caption(f"xG {x['liga']}: {x['con_xg']}/{x['partidos']} partidos ({pct_xg:.0%})"
+                   + ("" if pct_xg > 0.9 else " · el resto usa solo goles"))
     if m := estado["modelo"]:
         st.caption(f"Modelo v{m['version_id']} ({m['tipo']}, {m['creado']}) · ξ={m['xi']} · w_xG={m['w_xg']} · "
                    f"{'calibrado' if m['calibrado'] else 'SIN calibrar'} · ajuste CRS: {estado['crs_modo_ajuste']}")

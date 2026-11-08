@@ -294,3 +294,11 @@ def test_understat_error_explica_ambas_vias():
                      dormir=lambda s: None)
     with pytest.raises(ErrorFormato, match="HTML sin datesData.*getLeagueData.*HTTP 200"):
         u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027"))
+
+
+def test_understat_mantenimiento_es_falla_temporal():
+    pag = "<html><body><h1>We will come back soon</h1></body></html>"
+    u = us.Understat(pausa_s=0, transport=httpx.MockTransport(lambda r: httpx.Response(200, text=pag)),
+                     dormir=lambda s: None)
+    with pytest.raises(ErrorTransitorio, match="mantenimiento"):
+        u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027"))

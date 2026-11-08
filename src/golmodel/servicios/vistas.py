@@ -59,6 +59,13 @@ def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) 
             "xi": v["hiperparametros"].get("xi"), "w_xg": v["hiperparametros"].get("w_xg"),
             "calibrado": v["hiperparametros"].get("calibrado", False)},
         "crs_modo_ajuste": cfg["crs"]["ajuste_favorito"]["modo"],
+        # Cobertura de xG en ligas que lo usan: si cae, el modelo usa solo goles en esos partidos.
+        "cobertura_xg": conn.execute("""
+            SELECT l.codigo AS liga, count(*) AS partidos, count(p.xg_local) AS con_xg,
+                   max(p.inicio) FILTER (WHERE p.xg_local IS NOT NULL) AS ultimo_con_xg
+            FROM partidos p JOIN ligas l ON l.id = p.liga_id
+            WHERE l.usa_xg AND p.estado = 'finalizado'
+            GROUP BY l.codigo ORDER BY l.codigo""").fetchall(),
     }
 
 

@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from golmodel.ingesta.proveedores.base import ErrorFormato, ErrorProveedor, Proveedor
+from golmodel.ingesta.proveedores.base import ErrorFormato, ErrorProveedor, ErrorTransitorio, Proveedor
 from golmodel.ingesta.proveedores.http import ClienteHTTP
 from golmodel.ingesta.tipos import Capacidad, Solicitud, XgJugador, XgPartido
 
@@ -25,6 +25,7 @@ FAMILIA = "understat"
 CODIGOS = {"EPL": "EPL", "SA": "Serie_A"}
 ZONA_FECHAS = ZoneInfo("UTC")  # VERIFICAR: zona horaria del campo 'datetime'
 _RE_VAR = r"var\s+{}\s*=\s*JSON\.parse\('(?P<d>.*?)'\)"
+MANTENIMIENTO = "we will come back soon"
 CABECERAS_AJAX = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01"}
 
 
@@ -87,6 +88,9 @@ class Understat(Proveedor):
         #    exige, y además sirve si la web volviera a incrustar el JSON (formato anterior).
         self._esperar()
         r_pag = self.http.get(pagina, costo=0)
+        if MANTENIMIENTO in r_pag.text.lower():
+            # Página de mantenimiento: falla temporal (el interruptor reintenta en minutos, no en 24 h).
+            raise ErrorTransitorio(self.nombre, "Understat está en mantenimiento ('We will come back soon')")
         try:
             datos = {"dates": _desde_html(r_pag.text, "datesData"), "players": _desde_html(r_pag.text, "playersData")}
             self._cache[clave] = datos
