@@ -162,6 +162,17 @@ sugerencias:
     top_piernas: 16
     cuantos: 3
 
+# Competiciones SIN histórico ni modelo propio (Champions, Europa League, selecciones, ligas menores…).
+# La probabilidad es la del mercado sin margen (Pinnacle o consenso); el panel las marca «SOLO MERCADO».
+# Se descubren en The Odds API con GET /v4/sports (gratis) y solo se consultan las que tienen partidos en la ventana.
+competiciones_mercado:
+  activo: true
+  max_creditos_por_actualizacion: 16     # tope de créditos (2 por competición con partidos)
+  patrones: [uefa_champs, uefa_europa, uefa_conf, nations_league, friendl, qualif, world_cup, euro,
+             efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan,
+             libertadores, sudamericana, concacaf, copa]
+  excluir: [winner, outright, women, womens]
+
 valor:
   umbral_edge: 0.04
   umbral_edge_sgp: 0.08

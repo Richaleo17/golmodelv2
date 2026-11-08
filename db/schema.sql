@@ -97,6 +97,8 @@ CREATE TABLE ligas (
     temporadas_por_anio   smallint NOT NULL DEFAULT 1    -- Liga MX: 2 (Apertura/Clausura)
                           CHECK (temporadas_por_anio IN (1, 2)),
     activa                boolean NOT NULL DEFAULT true,
+    -- Competiciones SIN modelo propio (Champions, selecciones, ligas menores): la probabilidad sale del mercado.
+    solo_mercado          boolean NOT NULL DEFAULT false,
     CHECK (usa_xg = (fuente_xg IS NOT NULL))
 );
 

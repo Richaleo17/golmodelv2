@@ -13,8 +13,11 @@ from __future__ import annotations
 import difflib
 import re
 import unicodedata
+from functools import lru_cache
+from pathlib import Path
 
 import psycopg
+import yaml
 
 PALABRAS_VACIAS = {"fc", "cf", "sc", "ac", "afc", "acf", "ss", "bc", "club", "cd", "ca", "ec", "se", "ssc", "as",
                    "the", "de", "del", "da", "do", "futebol", "clube", "calcio", "us", "sv", "cfc", "fbc", "sad",
@@ -32,6 +35,19 @@ def clave(nombre: str) -> str:
     return " ".join(tokens) or s.strip()
 
 
+@lru_cache(maxsize=1)
+def semillas() -> dict[str, dict[str, str]]:
+    """{liga: {clave(variante): clave(nombre en mi base)}} desde config/alias_equipos.yaml (tabla explícita)."""
+    ruta = Path(__file__).resolve().parents[3] / "config" / "alias_equipos.yaml"
+    if not ruta.exists():
+        ruta = Path("config/alias_equipos.yaml")
+    if not ruta.exists():
+        return {}
+    crudo = yaml.safe_load(ruta.read_text(encoding="utf-8")) or {}
+    return {liga: {clave(v): clave(canon) for canon, vs in eqs.items() for v in [canon, *vs]}
+            for liga, eqs in crudo.items()}
+
+
 class ResolverEquipos:
     def __init__(self, conn: psycopg.Connection, *, similitud_min: float = 0.90, margen_min: float = 0.08):
         self.conn = conn
@@ -42,6 +58,16 @@ class ResolverEquipos:
         self.pendientes: list[tuple[str, str, int]] = []
         for r in conn.execute("SELECT fuente, nombre_externo, equipo_id FROM equipo_alias"):
             self._alias[(r["fuente"], r["nombre_externo"])] = r["equipo_id"]
+        # Pendientes que ya no lo son (se unieron después, o el nombre es idéntico al de un equipo de la liga)
+        conn.execute("""UPDATE alias_pendientes p SET resuelto = true WHERE NOT resuelto AND (
+                          EXISTS (SELECT 1 FROM equipo_alias a WHERE a.fuente = p.fuente AND a.nombre_externo = p.nombre_externo)
+                          OR EXISTS (SELECT 1 FROM equipos e WHERE e.nombre = p.nombre_externo
+                                     AND e.id IN (SELECT equipo_id FROM equipo_temporada WHERE liga_id = p.liga_id)))""")
+
+    def _codigo_liga(self, liga_id: int) -> str:
+        if not hasattr(self, "_codigos"):
+            self._codigos = {r["id"]: r["codigo"] for r in self.conn.execute("SELECT id, codigo FROM ligas")}
+        return self._codigos.get(liga_id, "")
 
     def _equipos_liga(self, liga_id: int) -> dict[int, set[str]]:
         if liga_id not in self._por_liga:
@@ -87,6 +113,12 @@ class ResolverEquipos:
             return self._alias[(fuente, nombre)]
         equipos = self._equipos_liga(liga_id)
         k = clave(nombre)
+        canon = semillas().get(self._codigo_liga(liga_id), {}).get(k)       # tabla explícita de equivalencias
+        if canon is not None:
+            por_semilla = [eid for eid, claves in equipos.items() if canon in claves]
+            if len(por_semilla) == 1:
+                self._registrar_alias(fuente, nombre, por_semilla[0])
+                return por_semilla[0]
         exactos = [eid for eid, claves in equipos.items() if k in claves]
         if len(exactos) == 1:
             self._registrar_alias(fuente, nombre, exactos[0])

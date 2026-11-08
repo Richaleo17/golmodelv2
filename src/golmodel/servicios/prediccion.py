@@ -138,6 +138,48 @@ def _ajuste_bajas(conn, partido: dict, equipo_id: int, cfg: dict) -> tuple[float
                         "topado": a.topado}
 
 
+def construir_mercado(conn, cfg: dict, modelo: ModeloDC, version_id: int, partido: dict, ahora: datetime) -> int | None:
+    """Predicción de una competición SIN modelo propio (Champions, selecciones…): todo sale del mercado.
+
+    p_mercado = cuotas sin margen (Pinnacle, o consenso de ≥3 casas); los mercados derivados (BTTS, O/U, hándicap)
+    salen de la matriz implícita del mercado (λ ajustadas a 1X2 + O/U 2.5). α = 0: la decisión ES el mercado.
+    No se generan picks ni CRS: sin modelo no hay una ventaja propia que medir."""
+    gmax = cfg["modelo"]["goles_max"]
+    cuotas = repo.cuotas_vigentes(conn, partido["id"])
+    p_mk, sust, q_push = probs_mercado(cuotas, cfg)
+    mmk = matriz_mercado(p_mk, modelo.rho, gmax=gmax) if p_mk else None
+    if mmk is None or not mmk.usable:
+        return None
+    m = mmk.matriz
+    sel = {}
+    for s in CONDICIONES:
+        pw, pp = probabilidad(m, s), probabilidad_push(m, s)
+        if s in PUSH and s in q_push:
+            pm, pad = q_push[s] * (1 - pp), q_push[s] * (1 - pp)
+        elif s in p_mk:
+            pm = pad = p_mk[s]
+        else:
+            pm, pad = None, None         # derivado de la matriz implícita: el panel lo calcula de lambda_mercado
+        sel[s] = (pw, pp, pm, pad)
+    pid = conn.execute("""
+        INSERT INTO predicciones (partido_id, version_id, origen, creada_en, info_hasta, lambda_local, lambda_visitante,
+            rho, ajuste_local, ajuste_visitante, matriz, masa_truncada, lambda_mercado_local, lambda_mercado_visitante,
+            cr_scores, crs_completo, crs_alerta, crs_version, crs_modo_ajuste)
+        VALUES (%s,%s,'produccion',%s,%s,%s,%s,%s,0,0,%s,%s,%s,%s,%s,false,'INSUFICIENTE',%s,%s)
+        RETURNING id
+    """, (partido["id"], version_id, ahora, ahora, m.lambda_local, m.lambda_visitante, m.rho, m.aplanada(),
+          m.masa_truncada, m.lambda_local, m.lambda_visitante, _j({"_solo_mercado": True}),
+          cfg["crs"]["version"], cfg["crs"]["ajuste_favorito"]["modo"])).fetchone()["id"]
+    with conn.cursor() as cur:
+        cur.executemany("""
+            INSERT INTO predicciones_seleccion (prediccion_id, seleccion, origen, p_modelo, p_modelo_sin_ajuste, p_push,
+                p_mercado, metodo_devig, p_mercado_consenso, alpha, alpha_calibrado, p_adj)
+            VALUES (%s, %s, 'produccion', %s, %s, %s, %s, %s, %s, 0.0, false, %s)
+        """, [(pid, s, pw, pw, pp, pm, cfg["mercado"]["metodo_devig"] if pm is not None else None, s in sust, pad)
+              for s, (pw, pp, pm, pad) in sel.items()])
+    return pid
+
+
 def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, partido: dict,
               hist: pd.DataFrame, ahora: datetime) -> Contexto | None:
     kl, kv = str(partido["local_id"]), str(partido["visitante_id"])
@@ -300,6 +342,10 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
         ctxs: list[Contexto] = []
         for p in repo.partidos_de_dias(conn, [dia]):
             if p["inicio"] <= ahora:
+                continue
+            if p.get("solo_mercado"):                    # competición sin modelo propio: solo probabilidades del mercado
+                if construir_mercado(conn, cfg, modelo, version_id, p, ahora) is not None:
+                    resumen["predicciones_mercado"] = resumen.get("predicciones_mercado", 0) + 1
                 continue
             ctx = construir(conn, cfg, modelo, version_id, hp, p, hist, ahora)
             if ctx is None:

@@ -19,7 +19,7 @@ import pandas as pd
 from golmodel import db, repositorio as repo
 from golmodel.ingesta.normalizacion import ResolverEquipos
 from golmodel.ingesta.proveedores.cadena import Cadena
-from golmodel.ingesta.tipos import Calidad, Capacidad, Solicitud
+from golmodel.ingesta.tipos import PartidoExterno, Calidad, Capacidad, Solicitud
 from golmodel.modelos.contexto import emparejar_jugador
 from golmodel.servicios import liquidacion, modelo as svc_modelo, prediccion
 
@@ -65,6 +65,14 @@ class Pipeline:
         self.cfg, self.cadenas, self.dsn, self.reloj = cfg, cadenas, dsn, reloj
         self.registrador = registrador
 
+    def _proveedor_mercado(self):
+        """El proveedor de The Odds API (si la cadena lo trae) para las competiciones solo-mercado."""
+        for cad in self.cadenas.values():
+            for e in getattr(cad, "eslabones", []):
+                if hasattr(e.proveedor, "deportes_futbol"):
+                    return e.proveedor
+        return None
+
     # -------------------------------------------------------------- costo
     def costo_estimado(self, tipo: str) -> dict[str, int]:
         conn = db.conectar(self.dsn)
@@ -93,8 +101,11 @@ class Pipeline:
             if "alineaciones" in etapas:
                 sumar(Capacidad.ALINEACIONES, cerca)
             if "cuotas" in etapas:
-                for l in sorted({p["liga"] for p in partidos}):      # solo ligas con partidos próximos
+                for l in sorted({p["liga"] for p in partidos if not p.get("solo_mercado")}):   # solo ligas con partidos próximos
                     sumar(Capacidad.CUOTAS, liga=l)
+                cm = self.cfg.get("competiciones_mercado") or {}
+                if cm.get("activo") and self._proveedor_mercado() is not None and tipo != "snapshot_cierre":
+                    total["odds_api"] += int(cm.get("max_creditos_por_actualizacion", 0))   # cota superior
             return dict(total)
         finally:
             conn.close()
@@ -308,7 +319,8 @@ class Pipeline:
                       partidos: list[dict] | None = None) -> dict:
         res = {"cuotas": 0, "sin_partido": 0, "avisos": [], "calidad": {}}
         hoy = st.hoy()
-        ligas_obj = {p["liga"] for p in (partidos if partidos is not None else repo.partidos_de_dias(st.conn, st.dias()))}
+        ligas_obj = {p["liga"] for p in (partidos if partidos is not None else repo.partidos_de_dias(st.conn, st.dias()))
+                     if not p.get("solo_mercado")}
         if not ligas_obj:
             res["avisos"].append("Sin partidos programados en los próximos días: no se consultaron cuotas "
                                  "(así no se gastan créditos).")
@@ -341,6 +353,63 @@ class Pipeline:
                 grupos[(p["id"], q.casa, q.capturada_en)].append((q.seleccion, q.cuota))
             for (pid, casa, capt), filas in grupos.items():
                 repo.insertar_cuotas(st.conn, pid, repo.casa_id(st.conn, casa), filas, tipo, r.proveedor, capt)
+                res["cuotas"] += len(filas)
+        if partidos is None and tipo == "actual" and cap is Capacidad.CUOTAS:
+            res["mercado"] = self._competiciones_mercado(st)
+        return res
+
+    def _competiciones_mercado(self, st: Estado) -> dict:
+        """Competiciones SIN modelo propio (Champions, selecciones…): partidos y cuotas desde The Odds API.
+        Descubrimiento y calendario son gratis; solo se piden cuotas (2 créditos) de las que tienen partidos."""
+        cm = self.cfg.get("competiciones_mercado") or {}
+        prov = self._proveedor_mercado()
+        res = {"competiciones": 0, "partidos": 0, "cuotas": 0, "creditos": 0, "avisos": []}
+        if not cm.get("activo") or prov is None:
+            return res
+        modeladas = {v for v in getattr(prov, "ligas_claves", {}).values()}
+        try:
+            deportes = prov.deportes_futbol()
+        except Exception as e:                                   # noqa: BLE001 — opcional: no tumba la etapa
+            res["avisos"].append(f"Competiciones extra: no se pudo listar deportes ({type(e).__name__}).")
+            return res
+        pats = [x.lower() for x in cm.get("patrones", [])]
+        excl = [x.lower() for x in cm.get("excluir", [])]
+        elegidos = [d for d in deportes if d["key"] not in modeladas
+                    and any(x in d["key"].lower() for x in pats) and not any(x in d["key"].lower() for x in excl)]
+        # Orden de prioridad = orden de los patrones (Champions primero)
+        elegidos.sort(key=lambda d: min((i for i, x in enumerate(pats) if x in d["key"].lower()), default=99))
+        hasta = st.hoy() + timedelta(days=max(self.cfg["recalculo"]["dias"]))
+        costo_por = len(getattr(prov, "regiones", [1])) * len(getattr(prov, "mercados", [1, 2]))
+        tope = int(cm.get("max_creditos_por_actualizacion", 16))
+        cache: dict = {}
+        for d in elegidos:
+            try:
+                if not prov.eventos_deporte(d["key"], hasta):
+                    continue                                      # sin partidos en la ventana: no gasta créditos
+                if res["creditos"] + costo_por > tope:
+                    res["avisos"].append(f"Tope de {tope} créditos: faltan {d.get('title', d['key'])} y siguientes.")
+                    break
+                cuotas = prov.cuotas_deporte(d["key"], hasta)
+            except Exception as e:                                # noqa: BLE001 — una competición no tumba las demás
+                res["avisos"].append(f"{d.get('title', d['key'])}: {type(e).__name__}")
+                continue
+            res["creditos"] += costo_por
+            liga = repo.asegurar_liga_mercado(st.conn, d["key"], d.get("title") or d["key"])
+            res["competiciones"] += 1
+            vistos: set[int] = set()
+            grupos: dict = defaultdict(list)
+            for q in cuotas:
+                lid = repo.equipo_mercado(st.conn, liga["id"], q.local, cache)
+                vid = repo.equipo_mercado(st.conn, liga["id"], q.visitante, cache)
+                pid, accion = repo.upsert_partido(st.conn, liga, PartidoExterno(
+                    "odds_api", liga["codigo"], q.inicio, q.local, q.visitante, "programado", id_externo=q.id_partido_externo),
+                    lid, vid)
+                if pid not in vistos:
+                    vistos.add(pid)
+                    res["partidos"] += 1
+                grupos[(pid, q.casa, q.capturada_en)].append((q.seleccion, q.cuota))
+            for (pid, casa, capt), filas in grupos.items():
+                repo.insertar_cuotas(st.conn, pid, repo.casa_id(st.conn, casa), filas, "actual", "odds_api", capt)
                 res["cuotas"] += len(filas)
         return res
 

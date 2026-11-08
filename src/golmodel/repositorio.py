@@ -175,9 +175,39 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
     return df
 
 
+def asegurar_liga_mercado(conn, clave_deporte: str, titulo: str) -> dict:
+    """Crea (una vez) la competición «solo mercado» asociada a una clave de The Odds API."""
+    codigo = f"MK:{clave_deporte}"
+    conn.execute("""INSERT INTO ligas (codigo, nombre, pais, odds_api_sport_key, solo_mercado)
+                    VALUES (%s, %s, '', %s, true) ON CONFLICT (codigo) DO NOTHING""", (codigo, titulo, clave_deporte))
+    return conn.execute("SELECT * FROM ligas WHERE codigo = %s", (codigo,)).fetchone()
+
+
+def equipo_mercado(conn, liga_id: int, nombre: str, cache: dict) -> int:
+    """Equipo de una competición solo-mercado: se crea al verlo por primera vez (sin histórico, sin modelo).
+    Un mismo nombre de The Odds API es siempre el mismo equipo (puede jugar en varias competiciones)."""
+    k = (liga_id, nombre)
+    if k in cache:
+        return cache[k]
+    r = conn.execute("SELECT equipo_id FROM equipo_alias WHERE fuente = 'odds_api' AND nombre_externo = %s",
+                     (nombre,)).fetchone()
+    if r:
+        eid = r["equipo_id"]
+    else:
+        eid = conn.execute("""INSERT INTO equipos (nombre, pais) VALUES (%s, '')
+                              ON CONFLICT (nombre, pais) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING id""",
+                           (nombre,)).fetchone()["id"]
+        conn.execute("INSERT INTO equipo_alias (equipo_id, fuente, nombre_externo, automatico) VALUES (%s, 'odds_api', %s, true) "
+                     "ON CONFLICT (fuente, nombre_externo) DO NOTHING", (eid, nombre))
+    conn.execute("INSERT INTO equipo_temporada (equipo_id, liga_id, temporada) VALUES (%s, %s, 'mercado') "
+                 "ON CONFLICT DO NOTHING", (eid, liga_id))
+    cache[k] = eid
+    return eid
+
+
 def partidos_de_dias(conn, dias: list[date]) -> list[dict]:
     return conn.execute("""
-        SELECT p.*, l.codigo AS liga, el.nombre AS local, ev.nombre AS visitante
+        SELECT p.*, l.codigo AS liga, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
         JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
         WHERE dia_mx(p.inicio) = ANY(%s) AND p.estado = 'programado'

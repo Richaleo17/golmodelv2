@@ -166,7 +166,7 @@ def _forma(conn, equipo_ids: list[int], antes: datetime) -> dict[int, str]:
 def _cargar(conn, d: date) -> list[dict]:
     return conn.execute("""
         SELECT p.id AS partido_id, p.inicio, p.estado, p.goles_local, p.goles_visitante, p.local_id, p.visitante_id,
-               l.codigo AS liga, el.nombre AS local, ev.nombre AS visitante,
+               l.codigo AS liga, l.nombre AS liga_nombre, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante,
                pr.id AS prediccion_id, pr.version_id, pr.matriz, pr.lambda_local, pr.lambda_visitante, pr.rho,
                pr.lambda_mercado_local, pr.lambda_mercado_visitante, pr.ajuste_local, pr.ajuste_visitante,
                pr.crs_total, pr.crs_alerta, pr.crs_veto, pr.crs_completo, pr.crs_selecciones_vetadas
@@ -180,6 +180,9 @@ def _cargar(conn, d: date) -> list[dict]:
 
 
 def _motivo_sin_prediccion(conn, f: dict, modelo_equipos: set[int], sin_historico: set[str]) -> str:
+    if f["solo_mercado"] and f["estado"] == "programado":
+        return ("Competición sin modelo propio: se calcula solo con el mercado y todavía faltan cuotas suficientes "
+                "(1X2 y Más/Menos 2.5). Prueba «Actualizar solo cuotas».")
     if f["estado"] in ("finalizado", "en_juego"):
         return ("Ya se jugó." if f["estado"] == "finalizado" else "Está en juego.") + \
                " No tiene predicción previa (se calculan antes del partido, con «Actualizar datos»)."
@@ -203,13 +206,15 @@ def _categoria(p: float, confianza: float, cfg_s: dict) -> str:
     return "arriesgada"
 
 
-def _porque(jugada: str, p: float, p_mod: float, p_mk: float | None, alpha_cal: bool, conf: float,
+def _porque(jugada: str, p: float, p_mod: float | None, p_mk: float | None, alpha_cal: bool, conf: float,
             razones: list[str], alerta: str, crs_total: float | None, factor: float, forma: dict, nom: dict,
             fav: str) -> list[str]:
     """Razones reales de por qué esta jugada es (o no es) más segura. Sin adornos: si el modelo y el
     mercado difieren, o el CRS avisa, se dice."""
     out = []
-    if p_mk is None:
+    if p_mod is None:
+        out.append(f"Solo mercado: {p:.0%} sin margen (esta competición no tiene modelo propio; no hay histórico de equipos)")
+    elif p_mk is None:
         out.append(f"Solo modelo ({p_mod:.0%}); sin cuotas de referencia no se confía del todo")
     else:
         d = p_mod - p_mk
@@ -275,7 +280,8 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
     mercado_ok = bool(sels.get("1X2:1") and sels["1X2:1"]["p_mercado"] is not None)
     consenso = bool(sels.get("1X2:1") and sels["1X2:1"].get("p_mercado_consenso"))
     alpha_cal = bool(sels.get("1X2:1") and sels["1X2:1"]["alpha_calibrado"])
-    pf_mod = sels[sf]["p_modelo"] if sf in sels else None
+    solo = bool(f["solo_mercado"])
+    pf_mod = None if solo else (sels[sf]["p_modelo"] if sf in sels else None)   # sin modelo propio no hay «coincidencia»
     pf_mk = sels[sf]["p_mercado"] if sf in sels else None
     peso_min = min((pesos.get(f["local_id"], 0.0), pesos.get(f["visitante_id"], 0.0)))
     conf, razones = calcular_confianza(
@@ -299,7 +305,9 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         "over25": p_para_mostrar("OU:2.5:over"), "btts": p_para_mostrar("BTTS:si"),
         "goles_esperados": {"local": f["lambda_local"], "visitante": f["lambda_visitante"]},
         "forma": {"local": forma.get(f["local_id"], ""), "visitante": forma.get(f["visitante_id"], "")},
-        "confianza": conf, "razones": razones, "fuente": "mercado + modelo" if mercado_ok else "solo modelo",
+        "confianza": conf, "razones": razones,
+        "fuente": "solo mercado" if solo else ("mercado + modelo" if mercado_ok else "solo modelo"),
+        "liga_nombre": f["liga_nombre"], "solo_mercado": solo,
         "crs": {"total": f["crs_total"], "alerta": f["crs_alerta"], "veto": f["crs_veto"]},
         "p_fav_mercado": pf_mk, "p_fav_modelo": pf_mod,
         "peso_min": peso_min if (f["local_id"] in pesos and f["visitante_id"] in pesos) else None,
@@ -325,6 +333,8 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         q = cuotas_casa.get(s)
         ev_ = (p * q["cuota"] - 1) if q else None
         p_mod, p_mk = p_modelo_mercado(s)
+        if solo:
+            p_mod = None
         factor = float(fcrs.get(alerta, 1.0)) if s in del_favorito else 1.0
         porque = _porque(jugada, p, p_mod, p_mk, cal and not derivada, conf, razones, alerta, f["crs_total"], factor,
                          info["forma"], nom, fav)
@@ -459,6 +469,7 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
             partidos.append({"partido_id": f["partido_id"], "liga": f["liga"], "local": f["local"],
                              "visitante": f["visitante"], "hora": f["inicio"].astimezone(zona).strftime("%H:%M"),
                              "estado": f["estado"], "marcador": None, "prediccion": False,
+                             "liga_nombre": f["liga_nombre"], "solo_mercado": bool(f["solo_mercado"]),
                              "motivo": _motivo_sin_prediccion(conn, f, modelo_equipos, sin_historico),
                              "jugadas": [], "forma": {"local": forma.get(f["local_id"], ""),
                                                       "visitante": forma.get(f["visitante_id"], "")}})
@@ -503,6 +514,7 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
             "valor": [asdict(x) for x in valor], "rompe": rompe, "parlays": parlays, "tickets": tickets, "mas_seguros": extra,
             "resumen": {"partidos": len(partidos), "con_prediccion": sum(1 for p in partidos if p["prediccion"]),
                         "ligas": sorted({p["liga"] for p in partidos}),
+                        "nombres_liga": {p["liga"]: p.get("liga_nombre") for p in partidos},
                         "sin_prediccion": [{"partido": f"{p['local']} vs {p['visitante']}", "liga": p["liga"],
                                             "motivo": p["motivo"]} for p in partidos if not p["prediccion"]]}}
 

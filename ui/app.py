@@ -42,7 +42,7 @@ NOMBRE_ETAPA = {"resultados_xg": "Resultados y xG", "liquidacion_clv": "Liquidac
                 "reajuste_modelo": "Modelo", "lesiones": "Lesiones", "alineaciones": "Alineaciones",
                 "cuotas": "Cuotas", "recalculo_modulos": "Predicciones y picks"}
 
-st.set_page_config(page_title="golmodelv2", page_icon="⚽", layout="wide")
+st.set_page_config(page_title="golmodelv2", page_icon="⚽", layout="wide", initial_sidebar_state="collapsed")
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
@@ -55,7 +55,7 @@ html, body, .stApp { font-family:'Inter',sans-serif; }
   var(--fondo); }
 .block-container { padding-top:1.4rem; padding-bottom:7rem; max-width:1100px; }
 header[data-testid="stHeader"] { background:transparent; }
-section[data-testid="stSidebar"] { background:#0c0c26; border-right:1px solid var(--borde); }
+section[data-testid="stSidebar"], [data-testid="stSidebarCollapsedControl"], [data-testid="collapsedControl"] { display:none !important; }
 h1, h2, h3, h4, [data-testid="stMetricLabel"] { font-family:'Barlow Condensed',sans-serif !important; letter-spacing:.03em; text-transform:uppercase; }
 [data-testid="stMetricValue"], .stDataFrame, code { font-family:'JetBrains Mono',monospace !important; }
 [data-testid="stMetricValue"] { color:var(--vio); }
@@ -131,7 +131,6 @@ h1, h2, h3, h4, [data-testid="stMetricLabel"] { font-family:'Barlow Condensed',s
 .st-key-dias label[data-selected="true"] p, .st-key-subnav label[data-selected="true"] p { color:#0a0a1f; }
 .st-key-nav { position:fixed !important; left:0; right:0; bottom:0; width:100% !important; z-index:1000002;
   background:rgba(10,10,31,.97); border-top:1px solid var(--borde); padding:0 !important; }
-section[data-testid="stSidebar"] > div { padding-bottom:96px; }
 .st-key-nav [data-testid="stRadioGroup"] { display:grid !important; grid-template-columns:repeat(5, 1fr); gap:0; width:100%; }
 .st-key-nav [data-testid="stWidgetLabel"] { display:none; }
 .st-key-nav label[data-testid="stRadioOption"] { display:flex; justify-content:center; margin:0; padding:12px 4px 10px; cursor:pointer;
@@ -437,12 +436,11 @@ for k_ in range(2, 6):
     opciones_dia[f"{DIAS_ES[d_.weekday()]} {d_.day}"] = d_
 sel_dia = st.radio("Día", list(opciones_dia), horizontal=True, key="dias", label_visibility="collapsed")
 
-# ------------------------------------------------------------------ barra lateral
-with st.sidebar:
-    st.header("📅 Otra fecha")
-    otra = st.date_input("Partidos del", value=None, format="DD/MM/YYYY", key="otra_fecha",
-                         help="Déjala vacía para usar los botones de día (HOY, MAÑANA…).")
-    st.header("🔄 Actualizar")
+# ------------------------------------------------------------------ acciones (panel compacto, sin barra lateral)
+otra = None
+pie_acciones = st.popover("🔄 ACTUALIZAR · CONSUMO · ESTADO", width="stretch")
+with pie_acciones:
+    st.markdown("#### 🔄 Actualizar")
     botones = {"actualizar_todo": ("Actualizar datos", "Una vez al día: resultados, modelo, lesiones, cuotas y picks."),
                "solo_cuotas": ("Actualizar solo cuotas", "Cerca de los partidos: refresca cuotas y recalcula picks."),
                "solo_alineaciones": ("Actualizar alineaciones", "≈1 h antes: guarda las alineaciones confirmadas."),
@@ -463,7 +461,7 @@ with st.sidebar:
             else:
                 st.session_state["ejecucion"] = res["ejecucion_id"]
         st.caption(f"Costo: {texto_costo}" + (f" · ⚠ {err_costo}" if err_costo else ""))
-    st.header("📊 Consumo de APIs")
+    st.markdown("#### 📊 Consumo de APIs")
     for p, c in estado["consumo_api"].items():
         st.progress(min(c["usado"] / c["limite"], 1.0),
                     text=f"{p}: {c['usado']}/{c['limite']} ({'hoy' if c['periodo'] == 'dia' else 'este mes'})")
@@ -484,9 +482,7 @@ with st.sidebar:
             st.query_params.clear()
             st.rerun()
 
-dia: date = otra if otra else opciones_dia[sel_dia]
-if otra:
-    st.caption(f"Mostrando la fecha elegida en la barra lateral: {otra.strftime('%d/%m/%Y')}")
+dia: date = opciones_dia[sel_dia]
 
 # ------------------------------------------------------------------ progreso de la actualización
 if not st.session_state.get("ejecucion") and estado["ejecucion_en_curso"]:
@@ -551,6 +547,18 @@ PAIS = {"EPL": "Inglaterra", "LL": "España", "SA": "Italia", "BUN": "Alemania",
         "MLS": "EE. UU.", "BR1": "Brasil", "ERE": "Países Bajos", "BEL": "Bélgica", "POR": "Portugal"}
 
 
+NOMBRES_DIA: dict[str, str] = {}
+
+
+def nl(codigo_liga: str) -> str:
+    """Nombre legible de una liga/competición (las «solo mercado» traen su nombre del servidor)."""
+    return NOMBRE_LIGA.get(codigo_liga) or NOMBRES_DIA.get(codigo_liga) or codigo_liga
+
+
+def nombre_liga(p: dict) -> str:
+    return NOMBRE_LIGA.get(p["liga"]) or p.get("liga_nombre") or p["liga"]
+
+
 def codigo(nombre_eq: str) -> str:
     base = _sin_acentos(nombre_eq).replace(".", " ").split()
     return (base[0] if base else "???")[:3].upper()
@@ -566,7 +574,7 @@ def fila_ind(lab: str, txt: str, p: float) -> str:
 
 
 def tarjeta_diario(p: dict) -> str:
-    liga = f'{PAIS.get(p["liga"], "")} · {NOMBRE_LIGA.get(p["liga"], p["liga"])}'.strip(" ·").upper()
+    liga = f'{PAIS.get(p["liga"], "")} · {nombre_liga(p)}'.strip(" ·").upper()
     en_juego = p.get("estado") == "en_juego"
     cod = f'{codigo(p["local"])}·{codigo(p["visitante"])}'
     punto = f'<span class="mc-dot{" vivo" if en_juego else ""}"></span>'
@@ -578,7 +586,7 @@ def tarjeta_diario(p: dict) -> str:
                 f'<div class="mc-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
                 f'<div class="meta">⚠ {esc(p["motivo"])}</div></div>')
     g, pg, ot = p["gana"], p["primer_gol"], p["otro_anota"]
-    badges = f'<span class="chip">{esc(p["fuente"])}</span>'
+    badges = f'<span class="chip {"viejo" if p.get("solo_mercado") else ""}">{esc(p["fuente"])}</span>'
     crs = p.get("crs") or {}
     if crs.get("alerta") and crs["alerta"] != "INSUFICIENTE":
         cl = {"ALTA": "rojo", "MEDIA": "viejo", "BAJA": "ok"}.get(crs["alerta"], "ok")
@@ -614,7 +622,7 @@ def fila_jugada(x: dict, con_partido: bool = True) -> str:
                f'<div class="no">❌ {esc(x["casa"])} paga {x["cuota_casa"]:.2f}: NO vale (necesita ≥ {x["cuota_min"]:.2f})</div>')
     sosp = ('<div class="no">⚠ EV muy alto: desconfía. Casi siempre es error del modelo o una cuota mal capturada; '
             'verifícala antes de apostar.</div>') if x.get("ev_sospechoso") else ""
-    liga = NOMBRE_LIGA.get(x["liga"], x["liga"])
+    liga = nl(x["liga"])
     return (f'<div class="jug-fila {x["categoria"]}">'
             f'<div class="meta">{x["hora"]} · {esc(liga)} · {esc(x["partido"])}</div>'
             f'<div class="jug-nom">{esc(x["jugada"])}<small>{esc(x["detalle"])}</small></div>'
@@ -669,6 +677,8 @@ def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
 
 
 pan, err_pan = api("GET", f"/panel/{dia.isoformat()}")
+if pan:
+    NOMBRES_DIA.update({k: v for k, v in pan["resumen"].get("nombres_liga", {}).items() if v})
 
 if VISTA == 0:
     titulo('01', 'DIARIO', 'Los partidos del día con tres indicadores: quién gana, quién mete el primer gol y la opción del equipo más débil de anotar al menos un gol. Cada porcentaje mezcla modelo y mercado.')
@@ -688,10 +698,10 @@ if VISTA == 0:
             if pan["resumen"]["sin_prediccion"]:
                 with st.expander(f"⚠️ {len(pan['resumen']['sin_prediccion'])} partidos sin análisis (ver por qué)"):
                     for x in pan["resumen"]["sin_prediccion"]:
-                        st.write(f"**{NOMBRE_LIGA.get(x['liga'], x['liga'])}** · {x['partido']}: {x['motivo']}")
+                        st.write(f"**{nl(x['liga'])}** · {x['partido']}: {x['motivo']}")
             ligas_d = sorted({p["liga"] for p in part})
             f1, f2 = st.columns([3, 2])
-            sel_d = f1.multiselect("Ligas", ligas_d, default=ligas_d, format_func=lambda x: NOMBRE_LIGA.get(x, x),
+            sel_d = f1.multiselect("Ligas", ligas_d, default=ligas_d, format_func=lambda x: NOMBRE_LIGA.get(x) or pan["resumen"]["nombres_liga"].get(x) or x,
                                    key="ligas_diario")
             orden_d = f2.radio("Ordenar por", ["Hora", "Confianza", "Ventaja"], horizontal=True, key="orden_diario")
             busca = st.text_input("🔎 Buscar equipo", key="buscar_equipo_diario",
@@ -748,7 +758,7 @@ if VISTA == 1:
             alt_html = (f'<div class="ok">Mejor úsalo así: {esc(r["alternativa"]["jugada"])} · {r["alternativa"]["p"]:.0%} · '
                    f'mete si paga ≥ {r["alternativa"]["cuota_min"]:.2f}</div>') if r["alternativa"] else ""
             st.markdown(f'<div class="jug-fila arriesgada"><div class="meta">{r["hora"]} · '
-                        f'{esc(NOMBRE_LIGA.get(r["liga"], r["liga"]))} · {esc(r["partido"])}</div>'
+                        f'{esc(nl(r["liga"]))} · {esc(r["partido"])}</div>'
                         f'<div class="jug-num">{esc("; ".join(r["razones"]))}</div>{alt_html}</div>', unsafe_allow_html=True)
         st.markdown("### 🧩 Parlays sugeridos")
         st.caption("Para cada pago objetivo, la combinación MÁS probable de partidos distintos. Entre más paga, menos "

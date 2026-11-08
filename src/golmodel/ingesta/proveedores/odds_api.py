@@ -4,7 +4,7 @@ Documentación: https://the-odds-api.com/liveapi/guides/v4/
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from golmodel.ingesta.proveedores.base import ErrorFormato, Proveedor
@@ -75,6 +75,7 @@ class OddsApi(Proveedor):
     nombre = "odds_api"
     capacidades = frozenset({Capacidad.CUOTAS, Capacidad.CUOTAS_CIERRE, Capacidad.FIXTURES})
     ligas = frozenset(SPORT_KEYS)
+    ligas_claves = SPORT_KEYS
     presupuesto = "odds_api"
 
     def __init__(self, api_key: str, *, regiones: list[str], mercados: list[str], **kw: Any):
@@ -100,6 +101,29 @@ class OddsApi(Proveedor):
             return int(float(v)) if v else None
         except ValueError:
             return None
+
+    # --- competiciones sin modelo (solo mercado): descubrimiento gratis y cuotas por clave de deporte ---
+    def deportes_futbol(self) -> list[dict]:
+        """GET /v4/sports (no consume créditos): deportes de fútbol activos [{key, title, active}]."""
+        cuerpo = self.http.get_json("/v4/sports", {"apiKey": self.api_key}, costo=self._costo, restante=self._restante)
+        if not isinstance(cuerpo, list):
+            raise ErrorFormato("odds_api", "se esperaba una lista de deportes")
+        return [d for d in cuerpo if str(d.get("key", "")).startswith("soccer_") and d.get("active")]
+
+    def eventos_deporte(self, clave: str, hasta: date) -> list[PartidoExterno]:
+        """Calendario por clave de deporte (/events, sin cuotas)."""
+        params = {"apiKey": self.api_key, "dateFormat": "iso", "commenceTimeTo": _iso(
+            datetime.combine(hasta, datetime.min.time(), timezone.utc) + timedelta(days=1))}
+        return parse_calendario(self.http.get_json(f"/v4/sports/{clave}/events", params, costo=self._costo,
+                                                   restante=self._restante), clave)
+
+    def cuotas_deporte(self, clave: str, hasta: date) -> list[CuotaExterna]:
+        params: dict[str, Any] = {
+            "apiKey": self.api_key, "regions": ",".join(self.regiones), "markets": ",".join(self.mercados),
+            "oddsFormat": "decimal", "dateFormat": "iso",
+            "commenceTimeTo": _iso(datetime.combine(hasta, datetime.min.time(), timezone.utc) + timedelta(days=1))}
+        cuerpo = self.http.get_json(f"/v4/sports/{clave}/odds", params, costo=self._costo, restante=self._restante)
+        return parse_eventos(cuerpo, "actual", observada_en=datetime.now(timezone.utc))
 
     def obtener(self, s: Solicitud) -> list[Any]:
         ahora = datetime.now(timezone.utc)
