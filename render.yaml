@@ -32,3 +32,20 @@ services:
         sync: false
       - key: FOOTBALL_DATA_ORG_KEY
         sync: false
+
+  # Diagnóstico de SOLO LECTURA (consultas fijas, protegido con token). Sirve para revisar los datos reales.
+  # Para apagarlo: borra DIAG_TOKEN en Render (queda en 503) o suspende este servicio.
+  - type: web
+    name: golmodelv2-diag
+    runtime: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh -c "uvicorn golmodel.diag:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /salud
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: golmodel-db, property: connectionString }
+      - key: DIAG_TOKEN
+        sync: false
