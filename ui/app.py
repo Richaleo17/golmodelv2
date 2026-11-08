@@ -111,6 +111,12 @@ st.markdown(
     '<div class="lema">PROBABILIDADES CALIBRADAS · VALOR SIN MARGEN (+EV) · RIESGO CONTROLADO</div>'
     + "".join(chip_fuente(n) for n in ("Resultados", "Modelo", "Lesiones", "Cuotas"))
     + f'<span class="chip">CDMX {estado["ahora_local"]}</span></div>', unsafe_allow_html=True)
+faltan = [k for k, ok in (estado.get("llaves") or {}).items() if not ok]
+if faltan:
+    st.error("La API no ve estas llaves: " + ", ".join(faltan) + ". Revisa que estén en el archivo .env "
+             "(sin espacios ni comillas) y reinicia con `docker compose up -d`. Sin ellas no hay partidos ni cuotas.")
+if estado.get("ejecuciones_interrumpidas"):
+    st.info("Se cerró una actualización que quedó interrumpida por un reinicio. Ya puedes actualizar de nuevo.")
 for a in estado["alertas"]:
     st.warning(a)
 if estado["alias_pendientes"]:
@@ -133,8 +139,10 @@ with st.sidebar:
     botones = {"actualizar_todo": "Actualizar datos", "solo_cuotas": "Actualizar solo cuotas",
                "solo_alineaciones": "Actualizar alineaciones"}
     for tipo, etiqueta in botones.items():
-        costo, _ = api("GET", f"/costo/{tipo}")
+        costo, err_costo = api("GET", f"/costo/{tipo}")
         c = costo["costo_estimado"] if costo else {}
+        if err_costo:
+            st.caption(f"⚠ costo no disponible: {err_costo}")
         if st.button(etiqueta, width="stretch", disabled=bool(estado["ejecucion_en_curso"]),
                      help="Costo estimado: " + (", ".join(f"{k}: {v}" for k, v in c.items()) or "0 requests")):
             res, e = api("POST", f"/actualizar/{tipo}")
@@ -151,6 +159,9 @@ with st.sidebar:
         st.caption(f"Modelo v{m['version_id']} ({m['tipo']}, {m['creado']}) · ξ={m['xi']} · w_xG={m['w_xg']} · "
                    f"{'calibrado' if m['calibrado'] else 'SIN calibrar'} · ajuste CRS: {estado['crs_modo_ajuste']}")
 
+# Muestra el progreso de cualquier actualización en curso (aunque se haya recargado la página)
+if not st.session_state.get("ejecucion") and estado["ejecucion_en_curso"]:
+    st.session_state["ejecucion"] = estado["ejecucion_en_curso"]["id"]
 if eid := st.session_state.get("ejecucion"):
     caja = st.container(border=True)
     while True:

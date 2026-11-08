@@ -22,8 +22,32 @@ def _matriz(arr: list[float], lh: float, la: float, rho: float) -> Matriz:
     return Matriz(np.array(arr).reshape(n, n), lh, la, rho, False, 0.0)
 
 
+def limpiar_huerfanas(conn, gracia_min: int = 2) -> int:
+    """Marca como interrumpidas las ejecuciones 'en_curso' que ya nadie está corriendo.
+
+    Si el contenedor de la API se reinicia a media actualización, el hilo muere y el registro
+    queda 'en_curso' para siempre (y la UI bloquea los botones). Una ejecución viva siempre
+    tiene tomado el advisory lock: si el lock está libre, la ejecución es huérfana.
+    """
+    from golmodel.db import CLAVE_BLOQUEO
+    libre = conn.execute("SELECT pg_try_advisory_lock(%s) AS ok", (CLAVE_BLOQUEO,)).fetchone()["ok"]
+    if not libre:
+        return 0
+    conn.execute("SELECT pg_advisory_unlock(%s)", (CLAVE_BLOQUEO,))
+    ids = [r["id"] for r in conn.execute(f"""
+        UPDATE ejecuciones SET estado = 'error', terminada_en = now()
+        WHERE estado = 'en_curso' AND iniciada_en < now() - interval '{int(gracia_min)} minutes'
+        RETURNING id""")]
+    if ids:
+        conn.execute("""UPDATE ejecucion_etapas SET estado = 'error', terminada_en = now(),
+                        error = 'interrumpida: la API se reinició durante la actualización'
+                        WHERE ejecucion_id = ANY(%s) AND estado IN ('pendiente','en_curso')""", (ids,))
+    return len(ids)
+
+
 def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) -> dict:
     zona = ZoneInfo(cfg["zona_horaria"])
+    interrumpidas = limpiar_huerfanas(conn)
     fres = {r["etapa"]: r["ultima_ok"] for r in conn.execute("SELECT * FROM v_frescura")}
     frescura = {}
     for etapa, etiqueta in ETIQUETA_FUENTE.items():
@@ -59,6 +83,7 @@ def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) 
             "xi": v["hiperparametros"].get("xi"), "w_xg": v["hiperparametros"].get("w_xg"),
             "calibrado": v["hiperparametros"].get("calibrado", False)},
         "crs_modo_ajuste": cfg["crs"]["ajuste_favorito"]["modo"],
+        "ejecuciones_interrumpidas": interrumpidas,
         # Cobertura de xG en ligas que lo usan: si cae, el modelo usa solo goles en esos partidos.
         "cobertura_xg": conn.execute("""
             SELECT l.codigo AS liga, count(*) AS partidos, count(p.xg_local) AS con_xg,

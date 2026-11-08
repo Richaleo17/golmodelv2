@@ -85,7 +85,11 @@ def salud():
 
 @app.get("/estado")
 def get_estado(s: Servicio = Depends(servicio), conn=Depends(conexion)):
-    return vistas.estado(conn, s.cfg, s.reloj(), s.interruptor.estado())
+    e = vistas.estado(conn, s.cfg, s.reloj(), s.interruptor.estado())
+    # Solo si cada llave está presente (nunca su valor)
+    e["llaves"] = {k: bool(os.environ.get(k, "").strip())
+                   for k in ("API_FOOTBALL_KEY", "ODDS_API_KEY", "FOOTBALL_DATA_ORG_KEY")}
+    return e
 
 
 @app.get("/costo/{tipo}")
@@ -101,6 +105,8 @@ def post_actualizar(tipo: str, s: Servicio = Depends(servicio), conn=Depends(con
     if tipo not in ETAPAS:
         raise HTTPException(404, f"tipo desconocido; usa {list(ETAPAS)}")
     s.sincronizar_presupuestos(conn)
+    vistas.limpiar_huerfanas(conn)
+    conn.commit()
     try:
         eid = repo.nueva_ejecucion(conn, tipo, ETAPAS[tipo], s.pipeline.costo_estimado(tipo))
         conn.commit()

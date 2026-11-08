@@ -360,3 +360,29 @@ def test_8_api(dsn, cfg, mundo):
     conn.execute("UPDATE ejecuciones SET estado = 'error' WHERE estado = 'en_curso'")
     conn.commit()
     conn.close()
+
+
+def test_9_ejecucion_huerfana_se_libera(dsn, cfg):
+    from golmodel.servicios import vistas
+    conn = db.conectar(dsn)
+    conn.execute("UPDATE ejecuciones SET estado = 'error' WHERE estado = 'en_curso'")
+    eid = conn.execute("""INSERT INTO ejecuciones (tipo, iniciada_en) VALUES ('actualizar_todo', now() - interval '10 minutes')
+                          RETURNING id""").fetchone()["id"]
+    conn.execute("INSERT INTO ejecucion_etapas (ejecucion_id, orden, etapa, estado) VALUES (%s, 0, 'cuotas', 'en_curso')", (eid,))
+    conn.commit()
+    # Mientras alguien tenga el lock (ejecución viva), no se toca
+    with db.bloqueo(dsn):
+        assert vistas.limpiar_huerfanas(conn) == 0
+    conn.commit()
+    # Sin lock: es huérfana y se libera
+    assert vistas.limpiar_huerfanas(conn) == 1
+    conn.commit()
+    assert conn.execute("SELECT estado FROM ejecuciones WHERE id = %s", (eid,)).fetchone()["estado"] == "error"
+    assert "interrumpida" in conn.execute("SELECT error FROM ejecucion_etapas WHERE ejecucion_id = %s", (eid,)).fetchone()["error"]
+    # Una recién creada (dentro de la gracia) no se toca: su hilo aún puede estar tomando el lock
+    conn.execute("INSERT INTO ejecuciones (tipo) VALUES ('solo_cuotas')")
+    conn.commit()
+    assert vistas.limpiar_huerfanas(conn) == 0
+    conn.execute("UPDATE ejecuciones SET estado = 'error' WHERE estado = 'en_curso'")
+    conn.commit()
+    conn.close()
