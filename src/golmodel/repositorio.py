@@ -193,6 +193,9 @@ def nombres_equipos(conn) -> dict[str, str]:
 
 def insertar_cuotas(conn, partido_id: int, casa: int, filas: list[tuple[str, float]], tipo: str, fuente: str,
                     capturada_en: datetime) -> uuid.UUID | None:
+    # Una cuota decimal válida es > 1.0. Algunas casas publican 1.00 (mercado cerrado/suspendido): se descartan
+    # solo esas filas; antes una sola tumbaba toda la etapa de cuotas.
+    filas = [(s, c) for s, c in filas if c is not None and float(c) > 1.0]
     if not filas:
         return None
     lote = uuid.uuid4()

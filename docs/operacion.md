@@ -145,3 +145,14 @@ python scripts/cargar_historico.py --temporadas 5 --sin-xg
 ```
 5. En la app: **Datos → Actualizar datos** y luego **Qué meter**.
 Notas: el plan `starter` del servicio y el de la base son de pago (revisa precios en Render); el plan gratuito duerme el servicio y apaga el worker de cierre, así que no se recomienda. Datos reales = tus llaves corriendo allá.
+
+## 15. Navegación, diagnóstico y validaciones
+**Pantalla.** Arriba eliges el día (HOY, MAÑANA, LUN 12…; «Otra fecha» en la barra lateral). Abajo, la barra numerada: 01 DIARIO · 02 QUÉ METER · 03 ANÁLISIS · 04 CUOTAS (parlay con tus cuotas / capturar) · 05 MÁS (CLV, guía, datos). En el Diario hay buscador de equipo.
+
+**Diagnóstico (solo lectura).** El servicio `golmodelv2-diag` expone consultas fijas protegidas con `DIAG_TOKEN`: `/diag/resumen`, `/diag/partido?q=`, `/diag/calibracion`, `/diag/alpha`, `/diag/panel`, `/diag/etapas`, `/diag/validar_prior`. No acepta SQL ni muestra llaves. Sin `DIAG_TOKEN` responde 503.
+
+**Prior de ascendidos (validado con datos reales).** 1,000 partidos con un ascendido, cortes 1-oct y 1-dic de 2023 a 2026, sin look-ahead. Log-loss 1X2 del modelo solo: sin prior 0.9808; con prior (l2=8) 0.9759, diferencia −0.0049, IC95% [−0.011, +0.002]. **No concluyente**, por eso sigue apagado (`modelo.prior_ascendidos: ninguno`). Mientras el α de 1X2 sea 0 (la decisión es el mercado), no cambia ninguna sugerencia.
+
+**El modelo no le gana al mercado en 1X2** (503 partidos): log-loss 0.9728 vs 0.9607 del mercado sin margen; α óptimo = 0. Hoy la probabilidad de decisión de 1X2 es la del mercado; el valor sale de comparar cuotas entre casas.
+
+**Pausa de selecciones.** Si de repente casi no hay partidos próximos en varias ligas, probablemente es fecha FIFA: revisa `/diag/etapas` (devuelve 200 con 0 programados).

@@ -378,3 +378,18 @@ def test_cuotas_csv_ignoran_celdas_con_texto():
                         "PSH": "x", "PSD": 3.4, "PSA": "-"}])
     cuotas = cuotas_desde_df(df, cierre=False)
     assert [c.cuota for c in cuotas] == [3.4]
+
+
+def test_cuotas_de_1_punto_00_se_descartan_sin_romper_el_lote():
+    """Caso real: The Odds API devolvió una cuota de 1.000 (mercado suspendido) y tumbó toda la etapa de cuotas."""
+    from unittest.mock import MagicMock
+    from golmodel import repositorio as repo
+    cur = MagicMock()
+    conn = MagicMock()
+    conn.cursor.return_value.__enter__.return_value = cur
+    lote = repo.insertar_cuotas(conn, 1, 1, [("1X2:1", 1.0), ("1X2:X", 3.4), ("1X2:2", 0.98)], "actual", "odds_api",
+                                datetime(2026, 11, 8, tzinfo=timezone.utc))
+    filas = cur.executemany.call_args[0][1]
+    assert lote is not None and [f[2:4] for f in filas] == [("1X2:X", 3.4)]
+    assert repo.insertar_cuotas(conn, 1, 1, [("1X2:1", 1.0)], "actual", "odds_api",
+                                datetime(2026, 11, 8, tzinfo=timezone.utc)) is None
