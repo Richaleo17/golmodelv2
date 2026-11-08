@@ -257,3 +257,27 @@ def test_registro_rechaza_combinacion_no_aprobada():
     provs = construir_proveedores(cfg, {"API_FOOTBALL_KEY": "a"})
     with pytest.raises(ValueError, match="no está aprobado"):
         construir_cadenas(cfg, provs, construir_presupuestos(cfg))
+
+
+def test_understat_envia_cabeceras_ajax_al_endpoint_json():
+    fechas = [{"id": "1", "isResult": True, "datetime": "2026-11-08 15:00:00",
+               "h": {"title": "Arsenal"}, "a": {"title": "Chelsea"}, "xG": {"h": "1.5", "a": "0.5"}}]
+    vistos = []
+
+    def h(req):
+        vistos.append((req.url.path, req.headers.get("X-Requested-With")))
+        if req.url.path.startswith("/getLeagueData") and req.headers.get("X-Requested-With") == "XMLHttpRequest":
+            return httpx.Response(200, json={"dates": fechas, "players": [], "teams": {}})
+        return httpx.Response(200, text="<html>sin datos</html>")
+
+    u = us.Understat(pausa_s=0, transport=httpx.MockTransport(h), dormir=lambda s: None)
+    xs = u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027"))
+    assert len(xs) == 1 and xs[0].xg_local == 1.5
+    assert vistos == [("/getLeagueData/EPL/2026", "XMLHttpRequest")]          # no hizo falta el HTML
+
+
+def test_understat_error_explica_ambas_vias():
+    u = us.Understat(pausa_s=0, transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html></html>")),
+                     dormir=lambda s: None)
+    with pytest.raises(ErrorFormato, match="getLeagueData.*HTML"):
+        u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027"))

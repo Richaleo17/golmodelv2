@@ -25,6 +25,7 @@ FAMILIA = "understat"
 CODIGOS = {"EPL": "EPL", "SA": "Serie_A"}
 ZONA_FECHAS = ZoneInfo("UTC")  # VERIFICAR: zona horaria del campo 'datetime'
 _RE_VAR = r"var\s+{}\s*=\s*JSON\.parse\('(?P<d>.*?)'\)"
+CABECERAS_AJAX = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01"}
 
 
 def _desde_html(html: str, variable: str) -> Any:
@@ -76,16 +77,25 @@ class Understat(Proveedor):
         codigo = CODIGOS[liga]
         self._esperar()
         datos: dict | None = None
-        try:  # 1) endpoint JSON que usa la web  # VERIFICAR
-            r = self.http.get(f"/getLeagueData/{codigo}/{anio}", costo=0)
+        fallas: list[str] = []
+        # 1) Endpoint JSON que usa la propia web. Exige las cabeceras de una petición AJAX:
+        #    sin X-Requested-With responde HTML y no los datos.
+        try:
+            r = self.http.get(f"/getLeagueData/{codigo}/{anio}", costo=0, headers=CABECERAS_AJAX | {
+                "Referer": f"{BASE_URL}/league/{codigo}/{anio}"})
             cuerpo = r.json()
             datos = {"dates": cuerpo["dates"], "players": cuerpo["players"]}
-        except (ErrorProveedor, ValueError, KeyError, TypeError):
-            datos = None
-        if datos is None:  # 2) JSON incrustado en el HTML  # VERIFICAR
+        except (ErrorProveedor, ValueError, KeyError, TypeError) as e:
+            fallas.append(f"getLeagueData: {type(e).__name__}: {e}")
+        # 2) Formato anterior: JSON incrustado en el HTML de la liga.
+        if datos is None:
             self._esperar()
-            html = self.http.get(f"/league/{codigo}/{anio}", costo=0).text
-            datos = {"dates": _desde_html(html, "datesData"), "players": _desde_html(html, "playersData")}
+            try:
+                html = self.http.get(f"/league/{codigo}/{anio}", costo=0).text
+                datos = {"dates": _desde_html(html, "datesData"), "players": _desde_html(html, "playersData")}
+            except ErrorProveedor as e:
+                fallas.append(f"HTML: {e}")
+                raise ErrorFormato(self.nombre, f"{codigo} {anio}: ninguna vía funcionó ({' | '.join(fallas)})") from e
         self._cache[clave] = datos
         return datos
 

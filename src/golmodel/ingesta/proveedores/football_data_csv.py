@@ -22,7 +22,8 @@ CODIGOS = {"EPL": ("E0", "principal"), "SA": ("I1", "principal"),
 ZONA_CSV = ZoneInfo("Europe/London")  # VERIFICAR EN DOCUMENTACIÓN: hora del campo Time
 
 # (prefijo de casa, casa normalizada). Pre-partido = sin 'C'; cierre = con 'C'.
-CASAS = [("PS", "pinnacle"), ("B365", "bet365"), ("Avg", "promedio"), ("Max", "maximo")]
+# 'Max' (máximo entre casas) no se carga: no es una casa real y su "margen" es negativo.
+CASAS = [("PS", "pinnacle"), ("B365", "bet365"), ("Avg", "promedio")]
 
 
 def _columnas_1x2(pref: str, cierre: bool) -> dict[str, str]:

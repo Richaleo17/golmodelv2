@@ -20,6 +20,7 @@ from golmodel import db, repositorio as repo  # noqa: E402
 from golmodel.config import cargar  # noqa: E402
 from golmodel.ingesta.limpieza import limpiar  # noqa: E402
 from golmodel.ingesta.normalizacion import ResolverEquipos  # noqa: E402
+from golmodel.ingesta.proveedores.base import ErrorProveedor  # noqa: E402
 from golmodel.ingesta.pipeline import cargar_historico  # noqa: E402
 from golmodel.ingesta.proveedores.football_data_csv import CODIGOS, FootballDataCsv, ruta_csv  # noqa: E402
 from golmodel.ingesta.proveedores.understat import Understat  # noqa: E402
@@ -30,7 +31,8 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--temporadas", type=int, default=None, help="por defecto: config historico.temporadas")
     ap.add_argument("--ligas", nargs="*", default=None)
-    ap.add_argument("--sin-xg", action="store_true")
+    ap.add_argument("--sin-xg", action="store_true", help="no descargar xG de Understat")
+    ap.add_argument("--solo-xg", action="store_true", help="solo xG (los CSV ya están cargados)")
     a = ap.parse_args()
     cfg = cargar()
     n_temp = a.temporadas or cfg["historico"]["temporadas"]
@@ -46,7 +48,7 @@ def main() -> None:
         cod_fd, formato = CODIGOS[codigo]
         anios = list(range(anio_actual - n_temp, anio_actual + 1))
         rutas = [ruta_csv(codigo, None)] if formato == "extra" else [ruta_csv(codigo, y) for y in anios]
-        for ruta in rutas:
+        for ruta in ([] if a.solo_xg else rutas):
             texto = fd.http.get(ruta, costo=0).text
             partidos, cuotas, rep = limpiar(texto, codigo)
             if formato == "extra":                       # un solo archivo con todas las temporadas
@@ -60,7 +62,13 @@ def main() -> None:
                                        margen_min=cfg["normalizacion"]["margen_min"])
             for y in anios:
                 temporada = f"{y}-{y + 1}"
-                xs = und.obtener(Solicitud(Capacidad.XG, codigo, temporada=temporada))
+                try:
+                    xs = und.obtener(Solicitud(Capacidad.XG, codigo, temporada=temporada))
+                except ErrorProveedor as e:
+                    # Sin xG el partido entra al modelo solo con goles (nunca se mezcla otra fuente).
+                    print(f"  ⚠ {codigo} xG {temporada}: Understat no respondió ({e}). Se sigue sin xG; "
+                          "reintenta luego con --solo-xg.")
+                    continue
                 ok = sin = 0
                 for x in xs:
                     lid = resolver.resolver("understat", x.local, liga["id"])

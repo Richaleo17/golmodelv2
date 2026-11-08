@@ -56,11 +56,12 @@ class ClienteHTTP:
         *,
         costo: int | Callable[[httpx.Response], int] = 1,
         restante: Callable[[httpx.Response], int | None] | None = None,
+        headers: dict[str, str] | None = None,
     ) -> httpx.Response:
         ultimo: Exception | None = None
         for intento in range(self.reintentos + 1):
             try:
-                r = self._http.get(ruta, params=params)
+                r = self._http.get(ruta, params=params, headers=headers)
             except httpx.TransportError as e:  # timeout, DNS, conexión
                 self.registrar(self.proveedor, ruta, 0, None, None)
                 ultimo = ErrorTransitorio(self.proveedor, f"red: {e!r}")
