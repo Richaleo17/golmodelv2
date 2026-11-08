@@ -104,6 +104,7 @@ h1, h2, h3, h4, [data-testid="stMetricLabel"] { font-family:'Barlow Condensed',s
 .ok { color:var(--cancha); font-weight:600; font-size:.88rem; } .no { color:#ff9a9a; font-size:.88rem; }
 .parlay { border:1px solid rgba(232,243,236,.2); border-radius:12px; padding:12px 14px; background:rgba(18,32,25,.75); height:100%; }
 .parlay h4 { margin:0 0 6px; color:var(--cancha); } .parlay .pierna { font-size:.86rem; margin:4px 0; color:var(--cal); }
+.parlay ul.porque { margin:2px 0 6px 18px; padding:0; font-size:.76rem; color:var(--cal); opacity:.85; }
 @media (max-width: 640px) {
   div[data-testid="stHorizontalBlock"] { flex-wrap:wrap !important; gap:.4rem !important; }
   div[data-testid="stColumn"], div[data-testid="column"] { min-width:calc(50% - .5rem) !important; flex:1 1 calc(50% - .5rem) !important; }
@@ -500,6 +501,11 @@ def tarjeta_diario(p: dict) -> str:
          f'<div class="dia-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
          f'<div class="meta">Forma: {esc(p["local"])} <span class="forma">{html_forma(p["forma"]["local"])}</span> · '
          f'{esc(p["visitante"])} <span class="forma">{html_forma(p["forma"]["visitante"])}</span></div>')
+    crs = p.get("crs") or {}
+    if crs.get("alerta"):
+        cl = {"ALTA": "rojo", "MEDIA": "viejo", "BAJA": "ok"}.get(crs["alerta"], "ok")
+        h += (f'<div class="meta"><span class="chip {cl}">{ICONO_CRS.get(crs["alerta"], "")} CRS {crs["total"] if crs["total"] is not None else "—"}'
+              f' · riesgo {esc(crs["alerta"].lower())} de que el favorito tropiece</span></div>')
     h += fila_ind("GANA", f'{esc(g["favorito"])} <small>empate {g["empate"]:.0%}</small>', g["p"])
     h += fila_ind("PRIMER GOL", f'{esc(pg["equipo"])} <small>(aprox.)</small>', pg["p"])
     h += fila_ind("EL OTRO ANOTA", f'{esc(ot["equipo"])} <small>aunque pierda, ≥1 gol</small>', ot["p"])
@@ -530,6 +536,26 @@ def fila_jugada(x: dict, con_partido: bool = True) -> str:
             f'<div class="jug-num"><b style="color:{color_p(x["p"])}">{x["p"]:.0%}</b> de acertar · cuota justa {x["cuota_justa"]:.2f} · '
             f'<b>mete si paga ≥ {x["cuota_min"]:.2f}</b> · {{ETIQ}} · confianza {x["confianza"]}/10</div>{ver}{sosp}</div>'
             ).replace("{ETIQ}", {"segura": "🛡️ Segura", "equilibrada": "⚖️ Equilibrada", "arriesgada": "🎲 Arriesgada"}[x["categoria"]])
+
+
+def tarjeta_ticket(n: int, t: dict) -> str:
+    piernas = ""
+    for x in t["piernas"]:
+        crs = ""
+        if x.get("crs_alerta") in ("MEDIA", "ALTA"):
+            crs = f' <span class="chip {"rojo" if x["crs_alerta"] == "ALTA" else "viejo"}">CRS {x["crs_total"]}</span>'
+        razones = "".join(f"<li>{esc(r)}</li>" for r in x.get("porque", []))
+        piernas += (f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{x["hora"]} · {esc(x["partido"])} · '
+                    f'{x["p"]:.0%} · justa {x["cuota_justa"]:.2f}</span>{crs}<ul class="porque">{razones}</ul></div>')
+    casa = ""
+    if t.get("cuota_casa"):
+        ok = t["cuota_casa"] >= t["cuota_min"]
+        casa = f'<div class="{"ok" if ok else "no"}">{"✅" if ok else "❌"} Con tus cuotas pagaría {t["cuota_casa"]:.2f}x</div>'
+    crs_nota = (f'<div class="no">⚠ CRS medio/alto en: {esc(", ".join(t["crs_en_juego"]))}. Cuenta como riesgo extra.</div>'
+                if t.get("crs_en_juego") else "")
+    return (f'<div class="parlay"><h4>🎫 Ticket {n} · paga ≈ {t["cuota_justa"]:.1f}x</h4>'
+            f'<div class="meta">Acierta <b>{t["p"]:.1%}</b> → 1 de cada <b>{t["uno_de_cada"]:.0f}</b> · '
+            f'mete solo si tu casa paga ≥ <b>{t["cuota_min"]:.1f}x</b></div>{piernas}{crs_nota}{casa}</div>')
 
 
 def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
@@ -633,6 +659,14 @@ with tabs[1]:
         pc1.markdown(tarjeta_parlay("🛡️ Seguro", "pago bajo, acierta seguido", pan["parlays"].get("seguro")), unsafe_allow_html=True)
         pc2.markdown(tarjeta_parlay("⚖️ Equilibrado", "pago medio", pan["parlays"].get("equilibrado")), unsafe_allow_html=True)
         pc3.markdown(tarjeta_parlay("🎲 Ambicioso", "pago alto, acierta pocas veces", pan["parlays"].get("ambicioso")), unsafe_allow_html=True)
+        st.markdown("### 🎫 Tickets de pago alto (5 equipos, estilo 15-25x)")
+        st.caption("Las combinaciones MÁS probables de cinco partidos que pagan ≈15-30x. Cada pierna trae sus razones reales: "
+                   "lo que dice el modelo, lo que dice el mercado y el riesgo CRS. Un ticket así acierta ~3-6 de cada 100: "
+                   "ganar uno es varianza, no un sistema. Usa solo unidades chicas.")
+        if not pan.get("tickets"):
+            st.info("Hoy no hay cinco partidos con jugadas que armen ese pago. Prueba tras «Actualizar datos» o captura cuotas.")
+        for i, t in enumerate(pan.get("tickets") or [], 1):
+            st.markdown(tarjeta_ticket(i, t), unsafe_allow_html=True)
         with st.expander("📋 Copiar este resumen"):
             st.code(pan["texto"], language="markdown")
 

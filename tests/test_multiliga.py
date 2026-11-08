@@ -124,6 +124,9 @@ def test_panel_diario_y_que_meter(corrida):
         assert perfil["cuota_min"] <= par["cuota_justa"] <= perfil["cuota_max"]
         assert perfil["piernas_min"] <= par["n"] <= perfil["piernas_max"]
     assert any(pan["parlays"].values()), "debería armarse al menos un perfil con 5 ligas"
+    for t in pan["tickets"]:                                  # tickets de pago alto: P real y razones por pierna
+        assert t["n"] == 5 and t["p"] == pytest.approx(math.prod(x["p"] for x in t["piernas"]))
+        assert all(x["porque"] and x["p_modelo"] is not None for x in t["piernas"])
     assert "## Mejores jugadas" in sugerencias.texto_panel(pan)
 
 

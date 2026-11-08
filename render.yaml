@@ -1,0 +1,34 @@
+# Despliegue en Render: una pantalla pública con contraseña + base PostgreSQL administrada.
+# La API y el worker de cierre corren dentro del mismo contenedor (la API NO queda expuesta).
+databases:
+  - name: golmodel-db
+    plan: basic-256mb          # elige el plan en Render; el gratuito caduca
+    region: oregon
+    databaseName: golmodel
+    user: golmodel
+
+services:
+  - type: web
+    name: golmodelv2
+    runtime: docker
+    plan: starter              # NO uses plan gratuito: se duerme y el worker de cierre se apaga
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    dockerCommand: sh scripts/arranque_nube.sh
+    healthCheckPath: /_stcore/health
+    autoDeployTrigger: commit
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase: { name: golmodel-db, property: connectionString }
+      - key: APP_SECRET
+        generateValue: true
+      - key: APP_PASSWORD           # tu clave de administrador (la escribes tú en Render)
+        sync: false
+      - key: APP_VIEWER_PASSWORD    # clave de solo consulta para tu amigo
+        sync: false
+      - key: API_FOOTBALL_KEY
+        sync: false
+      - key: ODDS_API_KEY
+        sync: false
+      - key: FOOTBALL_DATA_ORG_KEY
+        sync: false

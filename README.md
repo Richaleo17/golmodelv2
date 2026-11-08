@@ -14,6 +14,7 @@ Aplicación analítica para apuestas de fútbol (11 ligas: Premier, La Liga, Ser
 | Diario y Qué meter | Tarjeta por partido (gana, primer gol, el otro anota, forma) y jugadas del día con **cuota mínima**, partidos que rompen parlays y parlays por perfil |
 | Módulo 1 | 1X2, doble oportunidad, BTTS, O/U 1.5/2.5/3.5, equipo anota y hándicap asiático ±1.0/±1.5 (con push), todos desde la matriz |
 | Módulo 2 | Parlays de 3 a 5 bloques; los SGP se calculan sumando celdas de la matriz (nunca multiplicando) y se ordenan por crecimiento logarítmico (Kelly) |
+| Tickets 5 equipos | Las combinaciones más probables que pagan ≈15-30x, con razones por pierna (modelo vs mercado, CRS) y «1 de cada N» |
 | CRS | Casinazo Risk Score: veto a las selecciones del favorito en riesgo; el ajuste de probabilidad queda en modo sombra hasta validarlo |
 | Banca | Kelly fraccional (0.25 en simples, 0.10 en parlays), topes de 2u / 0.5u y exposición diaria de 5u |
 | Validación | Walk-forward estricto, log-loss, Brier, calibración, CLV y regla de 300 partidos antes de usar dinero real |
@@ -32,13 +33,15 @@ docker compose run --rm api python scripts/cargar_historico.py --temporadas 5
 ```
 Después de cargar el histórico, la UI queda en http://localhost:8501 y la API en http://localhost:8000/docs.
 
+**Desde el celular sin tu Mac:** `render.yaml` + [`docs/operacion.md` §14](docs/operacion.md).
+
 Guía completa: [`docs/operacion.md`](docs/operacion.md). Decisiones de diseño: [`docs/decisiones.md`](docs/decisiones.md), [`docs/proveedores.md`](docs/proveedores.md) y [`docs/modulo2_pseudocodigo.md`](docs/modulo2_pseudocodigo.md).
 
 ## Pruebas
 ```bash
 pytest
 ```
-Corre 100 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
+Corre 136 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
 
 ```bash
 psql -f db/tests/test_schema.sql

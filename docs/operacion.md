@@ -50,7 +50,7 @@ La liga y las cuotas de la demo son **simuladas**.
 ```bash
 pytest
 ```
-Corre 100 pruebas. Las de integración necesitan PostgreSQL vía `GOLMODEL_TEST_ADMIN_DSN`; sin él se omiten.
+Corre 136 pruebas. Las de integración necesitan PostgreSQL vía `GOLMODEL_TEST_ADMIN_DSN`; sin él se omiten.
 
 ```bash
 psql -f db/tests/test_schema.sql
@@ -124,3 +124,24 @@ docker compose run --rm api python scripts/cargar_historico.py --temporadas 5 --
 - **🎯 Qué meter:** las jugadas del día con su probabilidad, cuota justa y **cuota mínima** (la más baja a la que vale la pena). Si capturaste las cuotas de tu casa, dice ✅ vale o ❌ no vale. También: partidos que **rompen parlays** (con una alternativa más segura) y tres parlays por perfil (seguro, equilibrado, ambicioso).
 - **Honestidad del panel:** ninguna jugada es segura (82% falla 1 de cada 5). Un parlay que paga 20x acierta ~4 de cada 100; ganar uno así es varianza, no un sistema. «Confianza» mide el respaldo de los datos, no la probabilidad de acertar.
 - **Límite actual:** solo conoce las ligas locales. Champions, Europa League y copas todavía no están: un equipo no rinde igual en liga que en Champions, y eso exige parámetros propios por competición (siguiente paso).
+
+## 13. Tickets de pago alto (estilo 5 equipos ≈ 15-25x)
+En **🎯 Qué meter → 🎫 Tickets**: las 3 combinaciones MÁS probables de 5 partidos distintos que pagan ≈14-30x (`sugerencias.ticket` en la config). Cada pierna muestra, sin adornos:
+- Modelo vs mercado sin margen vs decisión (p_adj), y si el α está calibrado.
+- Si el modelo y el mercado discrepan, lo dice («el modelo ve 12% menos que el mercado»).
+- **CRS** del partido y la forma del favorito.
+- Arriba: «acierta X% → 1 de cada N». Un ticket de 22x acierta ~4-5 de cada 100. Es varianza, no un sistema.
+
+**CRS en el modelo:** sigue vetando las selecciones del favorito con CRS ≥ 70 y baja la confianza. Además, en los tickets y parlays las piernas del favorito con CRS medio/alto pesan menos al **ordenar** combinaciones (`crs.factor_credibilidad`: ×0.96 / ×0.88). La probabilidad mostrada NO se altera hasta que `backtest/crs_eval.py` demuestre mejora (modo sombra).
+
+## 14. Desplegar en la nube (Render) para verlo desde el celular sin tu Mac
+El repo trae `render.yaml` (una pantalla pública con contraseña + PostgreSQL administrado; la API y el worker de cierre corren dentro del mismo contenedor y **no** quedan expuestos).
+1. En render.com crea cuenta → **New → Blueprint** → conecta el repo `Richaleo17/golmodelv2` → Apply.
+2. Render te pide los valores marcados como secretos: `APP_PASSWORD` (admin), `APP_VIEWER_PASSWORD` (tu amigo) y las llaves de API. **Escríbelos en Render, nunca en el chat ni en el repo.**
+3. Al terminar el deploy, abre la URL `https://golmodelv2-XXXX.onrender.com` en el celular, entra con tu contraseña y agrégala a la pantalla de inicio.
+4. La primera vez la base está vacía: en tu Mac corre el histórico apuntando a la base de Render (copia su *External Database URL* desde el panel de Render):
+```bash
+DATABASE_URL='PEGA_AQUI_LA_URL_EXTERNA' docker compose run --rm -e DATABASE_URL api python scripts/cargar_historico.py --temporadas 5 --sin-xg
+```
+5. En la app: **Datos → Actualizar datos** y luego **Qué meter**.
+Notas: el plan `starter` del servicio y el de la base son de pago (revisa precios en Render); el plan gratuito duerme el servicio y apaga el worker de cierre, así que no se recomienda. Datos reales = tus llaves corriendo allá.

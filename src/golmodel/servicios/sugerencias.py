@@ -138,6 +138,12 @@ class Pierna:
     valor: bool = False
     ev_sospechoso: bool = False
     razones: list[str] = field(default_factory=list)
+    p_modelo: float | None = None          # lo que dice el modelo solo (sin mezclar con el mercado)
+    p_mercado: float | None = None         # lo que dice el mercado sin margen (None si no hay)
+    crs_total: float | None = None
+    crs_alerta: str | None = None
+    crs_factor: float = 1.0                # credibilidad por CRS: solo ordena combinaciones, NO cambia p
+    porque: list[str] = field(default_factory=list)
 
 
 def _forma(conn, equipo_ids: list[int], antes: datetime) -> dict[int, str]:
@@ -194,6 +200,37 @@ def _categoria(p: float, confianza: float, cfg_s: dict) -> str:
     return "arriesgada"
 
 
+def _porque(jugada: str, p: float, p_mod: float, p_mk: float | None, alpha_cal: bool, conf: float,
+            razones: list[str], alerta: str, crs_total: float | None, factor: float, forma: dict, nom: dict,
+            fav: str) -> list[str]:
+    """Razones reales de por qué esta jugada es (o no es) más segura. Sin adornos: si el modelo y el
+    mercado difieren, o el CRS avisa, se dice."""
+    out = []
+    if p_mk is None:
+        out.append(f"Solo modelo ({p_mod:.0%}); sin cuotas de referencia no se confía del todo")
+    else:
+        d = p_mod - p_mk
+        out.append(f"Modelo {p_mod:.0%} · mercado sin margen {p_mk:.0%} → decisión {p:.0%}"
+                   + (" (α calibrado)" if alpha_cal else " (α por defecto: pesa más el mercado)"))
+        if abs(d) <= 0.03:
+            out.append("Modelo y mercado coinciden: señal más fiable")
+        elif d < -0.07:
+            out.append(f"Ojo: el modelo ve {abs(d):.0%} menos que el mercado")
+        elif d > 0.07:
+            out.append(f"El modelo ve {d:.0%} más que el mercado (si es mucho, suele ser error del modelo)")
+    if alerta == "ALTA":
+        out.append(f"CRS {crs_total}: riesgo ALTO de que el favorito tropiece")
+    elif alerta == "MEDIA":
+        out.append(f"CRS {crs_total}: riesgo medio en el favorito" + (f" (credibilidad ×{factor:.2f} al ordenar)" if factor < 1 else ""))
+    elif alerta == "BAJA":
+        out.append(f"CRS {crs_total}: riesgo bajo en el favorito")
+    f_fav = forma.get(fav) or ""
+    if f_fav:
+        out.append(f"Forma {nom[fav]}: {f_fav}")
+    out += [r for r in razones if r in ("equipos con mucho historial", "poco historial de algún equipo", "bajas importantes")]
+    return out
+
+
 def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], forma: dict[int, str],
                      cuotas_casa: dict[str, dict], cfg: dict, zona: ZoneInfo) -> dict:
     cs = cfg["sugerencias"]
@@ -211,6 +248,15 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
             alpha = r["alpha"] if r else cfg["mercado"]["alpha_por_defecto"]
             return alpha * p_mod + (1 - alpha) * probabilidad(mm, s), True, False, True
         return None, False, False, False
+
+    def p_modelo_mercado(s: str) -> tuple[float, float | None]:
+        r = sels.get(s)
+        p_mod = r["p_modelo"] if r else probabilidad(m, s)
+        if r and r["p_mercado"] is not None:
+            p_mk = r["p_mercado"]
+        else:
+            p_mk = probabilidad(mm, s) if mm is not None else None
+        return p_mod, p_mk
 
     def p_para_mostrar(s: str) -> float:
         d, *_ = decision(s)
@@ -256,6 +302,10 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
     }
 
     vetadas = set(f["crs_selecciones_vetadas"] or [])
+    lado_fav = "1" if fav == "local" else "2"
+    del_favorito = {f"1X2:{lado_fav}", "DC:1X" if fav == "local" else "DC:X2", f"AH:{fav}:-1.5", f"AH:{fav}:+1.5"}
+    fcrs = cfg["crs"].get("factor_credibilidad", {})
+    alerta = f["crs_alerta"] or "INSUFICIENTE"
     piernas: list[Pierna] = []
     for s in SUGERIBLES:
         if s in vetadas:
@@ -270,13 +320,19 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         jugada, detalle = texto_jugada(s, f["local"], f["visitante"])
         q = cuotas_casa.get(s)
         ev_ = (p * q["cuota"] - 1) if q else None
+        p_mod, p_mk = p_modelo_mercado(s)
+        factor = float(fcrs.get(alerta, 1.0)) if s in del_favorito else 1.0
+        porque = _porque(jugada, p, p_mod, p_mk, cal and not derivada, conf, razones, alerta, f["crs_total"], factor,
+                         info["forma"], nom, fav)
         piernas.append(Pierna(
             partido_id=f["partido_id"], liga=f["liga"], partido=f"{f['local']} vs {f['visitante']}", hora=info["hora"],
             seleccion=s, jugada=jugada, detalle=detalle, p=p, cuota_justa=cj, cuota_min=(1 + u.valor) / p,
             umbral=u.valor, derivada=derivada, confianza=conf, categoria=_categoria(p, conf, cs),
             puntaje=_puntaje(p, conf), cuota_casa=q["cuota"] if q else None, casa=q["casa_nombre"] if q else None,
             ev=ev_, valor=bool(q and ev_ is not None and ev_ >= u.valor and p >= cs["valor_p_min"]),
-            ev_sospechoso=bool(ev_ is not None and ev_ > cs["valor_ev_sospechoso"]), razones=razones))
+            ev_sospechoso=bool(ev_ is not None and ev_ > cs["valor_ev_sospechoso"]), razones=razones,
+            p_modelo=p_mod, p_mercado=p_mk, crs_total=f["crs_total"], crs_alerta=f["crs_alerta"], crs_factor=factor,
+            porque=porque))
     piernas.sort(key=lambda x: -x.puntaje)
     info["_piernas"] = piernas
     info["jugadas"] = [asdict(x) for x in piernas[: cs["max_por_partido"]]]
@@ -307,15 +363,17 @@ def riesgo_del_favorito(info: dict, cfg: dict) -> dict | None:
             "alternativa": None if alt is None else {"jugada": alt.jugada, "p": alt.p, "cuota_min": alt.cuota_min}}
 
 
-def armar_perfil(piernas: list[Pierna], perfil: dict, cfg_s: dict) -> dict | None:
-    """La combinación MÁS probable, de partidos distintos, cuya cuota justa cae en el rango del perfil."""
+def _combinaciones(piernas: list[Pierna], perfil: dict, cfg_s: dict, top: int = 1) -> list[tuple[float, tuple[Pierna, ...]]]:
+    """Las `top` combinaciones MÁS probables (partidos distintos) cuya cuota justa cae en el rango del perfil.
+    Entre combinaciones se ordena por P × credibilidad CRS; la P que se muestra es la real (sin factor)."""
     banda = [x for x in piernas if perfil["p_min_pierna"] <= x.p <= perfil["p_max_pierna"]]
     por_partido: dict[int, list[Pierna]] = {}
-    for x in sorted(banda, key=lambda y: -y.puntaje):
+    for x in sorted(banda, key=lambda y: -(y.puntaje * y.crs_factor)):
         if len(por_partido.setdefault(x.partido_id, [])) < 2:
             por_partido[x.partido_id].append(x)
-    pool = sorted((x for xs in por_partido.values() for x in xs), key=lambda y: -y.puntaje)[: cfg_s["top_piernas"]]
-    mejor: tuple[float, tuple[Pierna, ...]] | None = None
+    pool = sorted((x for xs in por_partido.values() for x in xs),
+                  key=lambda y: -(y.puntaje * y.crs_factor))[: perfil.get("top_piernas", cfg_s["top_piernas"])]
+    hallados: list[tuple[float, float, tuple[Pierna, ...]]] = []
     for k in range(perfil["piernas_min"], perfil["piernas_max"] + 1):
         for combo in itertools.combinations(pool, k):
             if len({x.partido_id for x in combo}) < k:
@@ -323,16 +381,42 @@ def armar_perfil(piernas: list[Pierna], perfil: dict, cfg_s: dict) -> dict | Non
             P = math.prod(x.p for x in combo)
             if not perfil["cuota_min"] <= 1 / P <= perfil["cuota_max"]:
                 continue
-            if mejor is None or P > mejor[0]:
-                mejor = (P, combo)
-    if mejor is None:
-        return None
-    P, combo = mejor
+            hallados.append((P * math.prod(x.crs_factor for x in combo), P, combo))
+    hallados.sort(key=lambda t: -t[0])
+    salida: list[tuple[float, tuple[Pierna, ...]]] = []
+    usados: list[frozenset[int]] = []
+    for _, P, combo in hallados:
+        ids = frozenset(x.partido_id for x in combo)
+        if any(len(ids & u) >= len(ids) - 1 and len(ids) > 2 for u in usados):   # evitar casi-copias
+            continue
+        usados.append(ids)
+        salida.append((P, combo))
+        if len(salida) >= top:
+            break
+    return salida
+
+
+def _ficha(P: float, combo: tuple[Pierna, ...]) -> dict:
     umbral = max(x.umbral for x in combo)
+    con = all(x.cuota_casa for x in combo)
     return {"piernas": [asdict(x) for x in sorted(combo, key=lambda y: y.hora)], "p": P, "cuota_justa": 1 / P,
-            "cuota_min": (1 + umbral) / P, "uno_de_cada": 1 / P, "n": len(combo),
-            "con_cuotas": all(x.cuota_casa for x in combo),
-            "cuota_casa": math.prod(x.cuota_casa for x in combo) if all(x.cuota_casa for x in combo) else None}
+            "cuota_min": (1 + umbral) / P, "uno_de_cada": 1 / P, "n": len(combo), "con_cuotas": con,
+            "cuota_casa": math.prod(x.cuota_casa for x in combo) if con else None,
+            "crs_en_juego": [x.partido for x in combo if x.crs_alerta in ("MEDIA", "ALTA") and x.crs_factor < 1]}
+
+
+def armar_perfil(piernas: list[Pierna], perfil: dict, cfg_s: dict) -> dict | None:
+    """La combinación MÁS probable, de partidos distintos, cuya cuota justa cae en el rango del perfil."""
+    r = _combinaciones(piernas, perfil, cfg_s, 1)
+    return _ficha(*r[0]) if r else None
+
+
+def armar_tickets(piernas: list[Pierna], cfg_s: dict) -> list[dict]:
+    """Tickets de pago alto (estilo 5 equipos ≈ 15-25x): las mejores combinaciones, con razones por pierna."""
+    t = cfg_s.get("ticket")
+    if not t:
+        return []
+    return [_ficha(P, c) for P, c in _combinaciones(piernas, t, cfg_s, t.get("cuantos", 3))]
 
 
 def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
@@ -403,10 +487,11 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
     valor = sorted((x for x in piernas_todas if x.valor),
                    key=lambda y: (y.ev_sospechoso, -(y.p * (y.ev or 0))))[:cs["max_mejores"]]
     parlays = {nombre: armar_perfil(piernas_todas, perfil, cs) for nombre, perfil in cs["perfiles"].items()}
+    tickets = armar_tickets(piernas_todas, cs)
     for p in partidos:
         p.pop("_piernas", None)
     return {"fecha": d.isoformat(), "partidos": partidos, "mejores": [asdict(x) for x in mejores],
-            "valor": [asdict(x) for x in valor], "rompe": rompe, "parlays": parlays,
+            "valor": [asdict(x) for x in valor], "rompe": rompe, "parlays": parlays, "tickets": tickets,
             "resumen": {"partidos": len(partidos), "con_prediccion": sum(1 for p in partidos if p["prediccion"]),
                         "ligas": sorted({p["liga"] for p in partidos}),
                         "sin_prediccion": [{"partido": f"{p['local']} vs {p['visitante']}", "liga": p["liga"],
@@ -437,4 +522,13 @@ def texto_panel(pan: dict) -> str:
         piernas = " + ".join(f"{x['jugada']} ({x['partido']})" for x in p["piernas"])
         L.append(f"- {nombre}: {piernas} · acierta {p['p']:.1%} (1 de cada {p['uno_de_cada']:.0f}) · "
                  f"justa {p['cuota_justa']:.2f} · mete si paga ≥ {p['cuota_min']:.2f}")
+    L += ["", "## Tickets de pago alto (5 equipos) — la probabilidad real es baja, léela"]
+    for i, t in enumerate(pan.get("tickets") or [], 1):
+        L.append(f"### Ticket {i}: justa {t['cuota_justa']:.1f}x · acierta {t['p']:.1%} (1 de cada {t['uno_de_cada']:.0f}) · "
+                 f"mete si paga ≥ {t['cuota_min']:.1f}x")
+        for x in t["piernas"]:
+            L.append(f"- {x['hora']} {x['partido']} → {x['jugada']} · {x['p']:.0%} (justa {x['cuota_justa']:.2f})")
+            L += [f"    · {r}" for r in x["porque"]]
+    if not pan.get("tickets"):
+        L.append("- (hoy no hay 5 partidos con jugadas que armen ese pago)")
     return "\n".join(L)

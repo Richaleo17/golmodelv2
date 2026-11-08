@@ -119,3 +119,34 @@ def test_alpha_con_respaldo_agrupado_para_ligas_chicas():
     assert alpha_para(hp, CFG, "MX1", "BTTS") == (pytest.approx(f * 0.20, abs=1e-4), False)
     assert alpha_para({"alpha": {}}, CFG, "MX1", "1X2") == (CFG["mercado"]["alpha_por_defecto"], False)
     assert CFG["mercado"]["alpha_por_defecto"] <= 0.25                                    # el mercado manda por defecto
+
+
+def test_ticket_de_cinco_busca_pago_alto_y_dice_la_probabilidad_real():
+    t = CS["ticket"]
+    piernas = [_p(i, p) for i, p in enumerate([0.62, 0.58, 0.55, 0.52, 0.50, 0.48, 0.45], 1)]
+    tickets = s.armar_tickets(piernas, CS)
+    assert tickets and len(tickets) <= t["cuantos"]
+    for k in tickets:
+        assert k["n"] == 5 and len({x["partido_id"] for x in k["piernas"]}) == 5
+        assert t["cuota_min"] <= k["cuota_justa"] <= t["cuota_max"]
+        assert k["p"] == pytest.approx(math.prod(x["p"] for x in k["piernas"]))     # P real, sin maquillaje
+        assert k["uno_de_cada"] == pytest.approx(1 / k["p"])
+    assert s.armar_tickets([_p(i, 0.95) for i in range(6)], CS) == []               # no hay pago alto → no inventa
+
+
+def test_credibilidad_crs_reordena_pero_no_cambia_la_probabilidad():
+    base = [_p(i, 0.55) for i in range(1, 8)]
+    for x in base[:5]:
+        x.crs_factor, x.crs_alerta = 0.88, "ALTA"                                   # los 5 primeros: favorito en riesgo
+    k = s.armar_tickets(base, CS)[0]
+    ids = {x["partido_id"] for x in k["piernas"]}
+    assert len(ids & {6, 7}) == 2                                                      # prefiere partidos sin riesgo CRS
+    assert all(x["p"] == 0.55 for x in k["piernas"])                                   # p mostrada intacta
+    assert "Ticket 1" in s.texto_panel({"fecha": "x", "mejores": [], "rompe": [], "parlays": {}, "tickets": [k]})
+
+
+def test_porque_dice_lo_que_los_datos_realmente_dicen():
+    r = s._porque("Gana A", 0.62, 0.50, 0.68, False, 7.0, [], "ALTA", 75.0, 0.88, {"local": "GGPEG"}, {"local": "A"}, "local")
+    txt = " | ".join(r)
+    assert "Modelo 50%" in txt and "mercado sin margen 68%" in txt and "α por defecto" in txt
+    assert "menos que el mercado" in txt and "CRS 75.0" in txt and "GGPEG" in txt
