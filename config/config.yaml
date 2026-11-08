@@ -193,7 +193,8 @@ liquidacion:
   dias_espera_cierre_csv: 7        # si falta el snapshot de cierre, se espera al CSV antes de "sin CLV"
 
 recalculo:
-  dias: [0, 1]                     # hoy y mañana (America/Mexico_City)
+  dias: [0, 1, 2, 3]               # hoy y los 3 días siguientes (America/Mexico_City); el costo en créditos no crece por día,
+                                   # sino por liga con partidos en esa ventana
 
 normalizacion:
   similitud_min: 0.90              # alias automático solo si la similitud es alta...
