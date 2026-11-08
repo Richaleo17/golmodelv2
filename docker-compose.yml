@@ -38,8 +38,13 @@ services:
     command: streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
     environment:
       API_URL: http://api:8000
-    # Por defecto solo tu computadora. Para abrirla desde el celular (misma WiFi): UI_BIND=0.0.0.0 en .env
-    ports: ["${UI_BIND:-127.0.0.1}:8501:8501"]
+      UI_BIND: ${UI_BIND:-0.0.0.0}
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      APP_VIEWER_PASSWORD: ${APP_VIEWER_PASSWORD:-}
+      APP_SECRET: ${APP_SECRET:-}
+    # Abierta a tu red (celular, amigos) PERO protegida con contraseña: sin APP_PASSWORD no muestra nada.
+    # Para dejarla solo en tu computadora y sin contraseña: UI_BIND=127.0.0.1 en .env
+    ports: ["${UI_BIND:-0.0.0.0}:8501:8501"]
     depends_on: [api]
 
 volumes:

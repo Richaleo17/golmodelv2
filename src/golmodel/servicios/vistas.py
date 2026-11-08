@@ -17,6 +17,12 @@ from golmodel import repositorio as repo
 ETIQUETA_FUENTE = {"resultados_xg": "Resultados", "reajuste_modelo": "Modelo", "lesiones": "Lesiones", "cuotas": "Cuotas"}
 
 
+def nombre_casa(clave: str | None, cfg: dict) -> str:
+    if clave == "manual":
+        return cfg["mercado"].get("casa_manual_nombre", "Tu casa")
+    return (clave or "").capitalize()
+
+
 def _matriz(arr: list[float], lh: float, la: float, rho: float) -> Matriz:
     n = int(round(math.sqrt(len(arr))))
     return Matriz(np.array(arr).reshape(n, n), lh, la, rho, False, 0.0)
@@ -140,6 +146,7 @@ def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) 
             "xi": v["hiperparametros"].get("xi"), "w_xg": v["hiperparametros"].get("w_xg"),
             "calibrado": v["hiperparametros"].get("calibrado", False)},
         "crs_modo_ajuste": cfg["crs"]["ajuste_favorito"]["modo"],
+        "casa_manual": cfg["mercado"].get("casa_manual_nombre", "Tu casa"),
         "ejecuciones_interrumpidas": interrumpidas,
         "ultima_ejecucion": _ultima_ejecucion(conn),
         "cobertura_ligas": cobertura_ligas(conn, cfg, ahora),
@@ -215,7 +222,7 @@ def dia(conn, cfg: dict, d: date, ahora: datetime) -> list[dict]:
                 fila["cuota_justa"] = cuota_justa_con_push(p_ref, pierde) if s["seleccion"] in PUSH else cuota_justa(p_ref)
                 if q:
                     vig = vigente(q[1], p["inicio"], ahora, cfg)
-                    fila.update(cuota_casa=q[0], casa=q[2], cuota_vigente=vig,
+                    fila.update(cuota_casa=q[0], casa=q[2], casa_nombre=nombre_casa(q[2], cfg), cuota_vigente=vig,
                                 cuota_hace_min=int((ahora - q[1]).total_seconds() // 60))
                     if s["p_adj"] is not None:
                         e = ev_con_push(s["p_adj"], pierde, q[0]) if s["seleccion"] in PUSH else ev(s["p_adj"], q[0])
@@ -236,11 +243,14 @@ def dia(conn, cfg: dict, d: date, ahora: datetime) -> list[dict]:
             item["marcadores"] = [[float(mat[i, j]) for j in range(6)] for i in range(6)]
         item["picks"] = conn.execute("""
             SELECT p.id, p.seleccion, p.cuota_sugerida, p.ev, p.stake_u, p.creado_en, p.crs_total, p.crs_alerta,
+                   (SELECT clave FROM casas_apuestas c WHERE c.id = p.casa_id) AS casa,
                    (SELECT tipo FROM pick_eventos e WHERE e.pick_id = p.id ORDER BY creado_en DESC LIMIT 1) AS estado,
                    l.resultado, l.ganancia_u, l.clv_ev, l.sin_clv
             FROM picks p LEFT JOIN pick_liquidaciones l ON l.pick_id = p.id
             WHERE p.partido_id = %s AND p.origen IN ('paper','real') ORDER BY p.creado_en
         """, (p["id"],)).fetchall()
+        for k_ in item["picks"]:
+            k_["casa_nombre"] = nombre_casa(k_["casa"], cfg)
         salida.append(item)
     return salida
 
@@ -317,10 +327,10 @@ def resumen_texto(conn, cfg: dict, d: date, ahora: datetime) -> str:
                  + (f" · vetadas {', '.join(crs['vetadas'])}" if crs["veto"] else ""))
         mj = p.get("mejor")
         if mj:
-            L.append(f"  Mejor: {mj['seleccion']} cuota {mj.get('cuota_casa')} · p {mj['p_adj']:.3f} · "
+            L.append(f"  Mejor: {mj['seleccion']} cuota {mj.get('cuota_casa')} ({mj.get('casa_nombre')}) · p {mj['p_adj']:.3f} · "
                      f"EV {100 * mj['ev']:+.1f}% (umbral {100 * mj['umbral']:.0f}%) → {mj['clasificacion']}")
         for k in p["picks"]:
-            L.append(f"  PICK {k['seleccion']} @ {float(k['cuota_sugerida']):.2f} · stake {k['stake_u']} u · "
+            L.append(f"  PICK {k['seleccion']} @ {float(k['cuota_sugerida']):.2f} ({k['casa_nombre']}) · stake {k['stake_u']} u · "
                      f"estado {k['estado'] or ('liquidado ' + str(k['resultado']) if k['resultado'] else 'activo')}")
     L += ["", "## Parlays"]
     pls = parlays(conn, d)

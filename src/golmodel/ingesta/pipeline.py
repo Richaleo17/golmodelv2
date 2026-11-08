@@ -30,6 +30,7 @@ ETAPAS = {
                         "cuotas", "recalculo_modulos"],
     "solo_cuotas": ["cuotas", "recalculo_modulos"],
     "solo_alineaciones": ["alineaciones", "recalculo_modulos"],
+    "recalcular": ["recalculo_modulos"],          # con las cuotas ya guardadas: 0 consultas a APIs
 }
 
 

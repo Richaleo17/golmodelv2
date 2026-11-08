@@ -402,3 +402,77 @@ def test_10_cobertura_calibracion_y_resumen(dsn, cfg, mundo):
     for esperado in ("# golmodelv2", "## Modelo", "α=", "## Cobertura por liga", "## Partidos", "## Parlays", "## CLV"):
         assert esperado in txt
     conn.close()
+
+
+def test_11_captura_en_lote_y_recalculo_sin_consultas(dsn, cfg, mundo):
+    from fastapi.testclient import TestClient
+    from golmodel.api import main
+    # El reloj solo avanza: va después del último modelo (entrenado en la prueba 6). Los partidos de la
+    # jornada se mueven al día siguiente y se restablecen como "por jugar".
+    momento = (pd.Timestamp(JORNADA) + pd.Timedelta(hours=5)).to_pydatetime()
+    main._servicio = main.Servicio(cfg, cadenas(mundo, cfg), dsn=dsn, reloj=lambda: momento)
+    cli = TestClient(main.app)
+    dia_orig = pd.Timestamp(JORNADA).tz_convert("America/Mexico_City").date()
+    dia = (dia_orig + timedelta(days=1)).isoformat()
+    c0 = db.conectar(dsn)
+    c0.execute("""UPDATE partidos SET inicio = inicio + interval '1 day', estado = 'programado', goles_local = NULL,
+                  goles_visitante = NULL, resultado_confirmado = false, resultado_fuente = NULL
+                  WHERE dia_mx(inicio) = %s""", (dia_orig,))
+    c0.commit()
+    c0.close()
+    partidos = cli.get(f"/dia/{dia}").json()
+    a, b = partidos[0], partidos[1]
+    texto = (f"{a['local']} - {a['visitante']} 2.30 3.40 3.10\n"
+             f"{b['visitante']} - {b['local']} 2.00 3.30 3.60\n"          # invertido: debe rechazarse
+             f"Equipo Fantasma - Otro Equipo 2.0 3.0 4.0")
+    prev = cli.post("/cuotas/manual/texto", json={"fecha": dia, "texto": texto}).json()
+    estados = [(l["ok"], l["error"][:12]) for l in prev["lineas"]]
+    assert estados[0][0] is True and estados[1][0] is False and estados[2][0] is False
+    assert prev["guardadas"] == 0                                           # vista previa: no guarda nada
+    res = cli.post("/cuotas/manual/texto", json={"fecha": dia, "texto": texto, "guardar": True}).json()
+    assert res["guardadas"] == 1
+    conn = db.conectar(dsn)
+    n = conn.execute("""SELECT count(*) AS n FROM cuotas q JOIN casas_apuestas c ON c.id = q.casa_id
+                        WHERE c.clave = 'manual' AND q.partido_id = %s""", (a["partido_id"],)).fetchone()["n"]
+    assert n == 3
+    r = cli.post("/cuotas/manual/lote", json={"items": [{"partido_id": a["partido_id"], "seleccion": "OU:2.5:over", "cuota": 1.95}]})
+    assert r.status_code == 201 and r.json() == {"guardadas": 1, "partidos": 1}
+    assert cli.post("/cuotas/manual/lote", json={"items": [{"partido_id": 999999, "seleccion": "1X2:1", "cuota": 2.0}]}).status_code == 404
+    assert cli.post("/cuotas/manual/lote", json={"items": [{"partido_id": a["partido_id"], "seleccion": "1X2:9", "cuota": 2.0}]}).status_code == 422
+    # La casa se nombra en pantalla: "Draftea"
+    d = cli.get(f"/dia/{dia}").json()[0]
+    assert {m.get("casa_nombre") for m in d["mercados"] if m.get("casa") == "manual"} <= {"Draftea"}
+    # Recalcular con las cuotas guardadas no consulta ninguna API
+    llamadas_antes = sum(len(p.llamadas) for p in {id(e.proveedor): e.proveedor for ch in main._servicio.pipeline.cadenas.values() for e in ch.eslabones}.values())
+    eid = cli.post("/actualizar/recalcular").json()["ejecucion_id"]
+    import time
+    for _ in range(60):
+        e = cli.get(f"/ejecuciones/{eid}").json()
+        if e["estado"] != "en_curso":
+            break
+        time.sleep(0.5)
+    assert e["estado"] == "ok", [(x["etapa"], x["error"]) for x in e["etapas"]]
+    assert [x["etapa"] for x in e["etapas"]] == ["recalculo_modulos"]
+    llamadas_despues = sum(len(p.llamadas) for p in {id(e.proveedor): e.proveedor for ch in main._servicio.pipeline.cadenas.values() for e in ch.eslabones}.values())
+    assert llamadas_despues == llamadas_antes
+    conn.close()
+
+
+def test_12_migraciones_actualizan_una_base_ya_creada(dsn, tmp_path):
+    from golmodel import migraciones
+    conn = db.conectar(dsn)
+    # Simula una base creada con el esquema viejo (sin 'recalcular')
+    conn.execute("DELETE FROM ejecuciones WHERE tipo = 'recalcular'")
+    conn.execute("ALTER TABLE ejecuciones DROP CONSTRAINT ejecuciones_tipo_check")
+    conn.execute("""ALTER TABLE ejecuciones ADD CONSTRAINT ejecuciones_tipo_check CHECK (tipo IN
+                    ('actualizar_todo','solo_cuotas','solo_alineaciones','snapshot_cierre','backtest'))""")
+    conn.execute("DELETE FROM migraciones WHERE nombre = '001_ejecucion_recalcular.sql'")
+    conn.commit()
+    with pytest.raises(psycopg.errors.CheckViolation):
+        conn.execute("INSERT INTO ejecuciones (tipo, estado) VALUES ('recalcular', 'ok')")
+    conn.rollback()
+    assert migraciones.aplicar(conn) == ["001_ejecucion_recalcular.sql"]
+    conn.execute("INSERT INTO ejecuciones (tipo, estado) VALUES ('recalcular', 'ok')")          # ahora sí
+    conn.commit()
+    assert migraciones.aplicar(conn) == []                                                       # idempotente
+    conn.close()

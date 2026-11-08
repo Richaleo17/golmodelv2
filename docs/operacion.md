@@ -57,24 +57,50 @@ psql -f db/tests/test_schema.sql
 ```
 Corre las pruebas del esquema.
 
-## 9. Abrirla desde el celular
-La app corre en tu computadora; el celular solo es la pantalla. La computadora debe estar **encendida, con Docker abierto**.
+## 9. Celular, amigos y contraseñas
+La app corre en tu computadora (encendida, con Docker abierto); el celular o la computadora de tu amigo solo son pantallas.
 
-**En tu WiFi de casa:**
+**Contraseñas (una vez).** Sin contraseña la app NO muestra nada cuando está abierta a la red. Dentro de la carpeta del proyecto:
 ```bash
-printf '\nUI_BIND=0.0.0.0\n' >> .env
+printf '\nAPP_PASSWORD=TuClaveAdmin\nAPP_VIEWER_PASSWORD=ClaveParaTuAmigo\n' >> .env
 ```
 ```bash
 docker compose up -d --force-recreate
 ```
+Cambia `TuClaveAdmin` y `ClaveParaTuAmigo` por claves largas, **solo letras y números**.
+- **Administrador** (`APP_PASSWORD`): todo, incluido actualizar, capturar cuotas y resolver nombres.
+- **Consulta** (`APP_VIEWER_PASSWORD`): ve todo, no puede cambiar nada. Es la que le das a tu amigo.
+- En el login puedes marcar **"Recordarme en este dispositivo (30 días)"**: el enlace de esa pestaña queda como llave; agrégala a la pantalla de inicio de tu celular. No compartas ese enlace.
+- 5 intentos fallidos bloquean el acceso 5 minutos. Cambiar cualquier contraseña invalida los enlaces "recordados".
+
+**En tu WiFi (casa):**
 ```bash
 ipconfig getifaddr en0
 ```
-El último comando imprime la IP de tu Mac (por ejemplo `192.168.1.20`). En el celular, conectado a la misma WiFi, abre `http://ESA_IP:8501`.
+Imprime la IP de tu Mac. En el celular, en la misma WiFi, abre `http://ESA_IP:8501`.
 
-**Fuera de casa:** instala Tailscale (gratis) en la Mac y en el celular, con la misma cuenta. Abre `http://IP_DE_TAILSCALE_DE_LA_MAC:8501`. Es una red privada: no expone nada a internet.
+**Desde cualquier lugar, sin instalar nada a tu amigo (Cloudflare, gratis):**
+```bash
+brew install cloudflared
+```
+```bash
+cloudflared tunnel --url http://localhost:8501
+```
+Imprime un enlace `https://algo.trycloudflare.com`: ábrelo en el celular o mándaselo a tu amigo junto con su contraseña de consulta. El enlace cambia cada vez que lo abres, y deja esa terminal abierta mientras lo uses. *(No pude probar este paso desde mi entorno: si falla, avísame.)*
 
-**Seguridad:** la app no tiene contraseña. Con `UI_BIND=0.0.0.0`, cualquiera en tu WiFi puede ver los picks y gastar tus consultas de API. Úsalo solo en redes de confianza y nunca publiques el puerto en internet. Para volver al modo privado, borra esa línea del `.env` y repite `docker compose up -d --force-recreate`.
+**Más privado (Tailscale, gratis):** instálalo en tu Mac y en los celulares, con tu cuenta o compartiendo la Mac con tu amigo; abre `http://IP_DE_TAILSCALE:8501`. Nadie fuera de tu red privada puede siquiera ver la pantalla de acceso.
+
+**Para dejarla solo en tu computadora y sin contraseña:** pon `UI_BIND=127.0.0.1` en el `.env` y reinicia.
+
+**Qué no se expone:** la base de datos y la API interna siguen cerradas a tu computadora; solo la pantalla (puerto 8501) está abierta, y con contraseña.
+
+## 9b. Capturar cuotas de tu casa (Draftea)
+Pestaña **Capturar cuotas**:
+- **Pegar lista (rápido):** una línea por partido, local primero: `Napoli - Lazio 2.26 3.64 2.92`. Con 5 cuotas agrega más/menos 2.5; con 7, ambos anotan. Primero «Revisar sin guardar»: ves qué partido reconoció, y nada se guarda si hay duda. Luego «Guardar y recalcular».
+- **Tabla del día:** una fila por partido con columnas Local, Empate, Visita, Más 2.5, Menos 2.5.
+- **1 cuota o SGP:** para mercados fuera de la lista rápida.
+- Truco: mándale a Claude la captura de tu casa y pídele la lista en este formato.
+- Guardar recalcula los picks sin gastar consultas de API («Recalcular con mis cuotas»).
 
 ## 10. Si falta una liga
 Abre **Partidos → Cobertura por liga**: dice, por liga, cuántos partidos de histórico hay, cuántos próximos y por qué falta alguno.

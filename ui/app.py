@@ -14,6 +14,8 @@ import httpx
 import pandas as pd
 import streamlit as st
 
+from golmodel import acceso
+
 API = os.environ.get("API_URL", "http://localhost:8000")
 ZONA = ZoneInfo("America/Mexico_City")
 VERDE, AMBAR, ROJO, GRIS, CAL = "#2ee59d", "#f5b84b", "#ff5d5d", "#7d8c84", "#e8f3ec"
@@ -88,6 +90,9 @@ div[data-testid="stExpander"] { border:1px solid rgba(232,243,236,.15); border-r
 
 # ------------------------------------------------------------------ utilidades
 def api(metodo: str, ruta: str, **kw):
+    # Defensa en el servidor de la UI: un lector nunca puede modificar nada, aunque manipule la pantalla.
+    if metodo != "GET" and st.session_state.get("rol", acceso.ADMIN) != acceso.ADMIN:
+        return None, "Solo el administrador puede hacer esto."
     try:
         r = httpx.request(metodo, f"{API}{ruta}", timeout=30, **kw)
     except httpx.HTTPError as e:
@@ -246,6 +251,70 @@ def grafica_crs(crs: dict) -> alt.Chart:
     return (fondo + puntos + marca).properties(height=alt.Step(30))
 
 
+# ------------------------------------------------------------------ acceso
+@st.cache_resource
+def _limitador() -> acceso.Limitador:
+    return acceso.Limitador()
+
+
+def _pantalla_acceso(titulo: str, cuerpo: str) -> None:
+    st.markdown(f'<div class="marcador"><h1>🔐 gol<span>model</span>v2</h1><div class="lema">{titulo}</div></div>',
+                unsafe_allow_html=True)
+    st.markdown(cuerpo)
+
+
+def autenticar() -> str:
+    """Devuelve el rol de la sesión o detiene la página. Fallar siempre cierra, nunca abre."""
+    admin, lector = acceso.claves_desde_env(os.environ)
+    modo = acceso.modo_acceso(admin, lector, os.environ.get("UI_BIND", "127.0.0.1"))
+    if modo == "abierto":
+        st.session_state["rol"] = acceso.ADMIN
+        return acceso.ADMIN
+    if modo == "sin_clave":
+        _pantalla_acceso("ACCESO PROTEGIDO", "La app está abierta a tu red pero **no tiene contraseña**, así que no "
+                         "muestra nada. En la terminal, dentro de la carpeta del proyecto, crea las contraseñas "
+                         "(solo letras y números):")
+        st.code("printf '\\nAPP_PASSWORD=TuClaveAdmin\\nAPP_VIEWER_PASSWORD=ClaveParaTuAmigo\\n' >> .env\n"
+                "docker compose up -d --force-recreate", language="bash")
+        st.caption("TuClaveAdmin: para ti (todo). ClaveParaTuAmigo: solo consulta. Cámbialas por las tuyas.")
+        st.stop()
+    if modo == "config_invalida":
+        _pantalla_acceso("CONFIGURACIÓN INCOMPLETA", "Hay contraseña de consulta pero falta **APP_PASSWORD** "
+                         "(la del administrador). Agrégala al archivo `.env` y reinicia.")
+        st.stop()
+    st.session_state["con_login"] = True
+    sec = acceso.secreto(admin, lector, os.environ)
+    if st.session_state.get("rol"):
+        return st.session_state["rol"]
+    if (rol := acceso.validar_token(st.query_params.get("s"), sec)):
+        st.session_state["rol"] = rol
+        return rol
+    _pantalla_acceso("INGRESA PARA CONTINUAR", "")
+    lim = _limitador()
+    with st.form("login"):
+        clave_ = st.text_input("Contraseña", type="password")
+        recordar = st.checkbox("Recordarme en este dispositivo (30 días)")
+        enviar = st.form_submit_button("Entrar", type="primary")
+    if enviar:
+        espera = lim.bloqueado()
+        if espera > 0:
+            st.error(f"Demasiados intentos fallidos. Espera {int(espera // 60) + 1} min e intenta de nuevo.")
+        elif (rol := acceso.verificar(clave_, admin, lector)):
+            lim.exito()
+            st.session_state["rol"] = rol
+            if recordar:   # el enlace con este código es tu llave: no lo compartas
+                st.query_params["s"] = acceso.crear_token(rol, sec)
+            st.rerun()
+        else:
+            lim.fallo()
+            st.error("Contraseña incorrecta.")
+    st.caption("¿Sin contraseña? Pídesela a quien te compartió la app.")
+    st.stop()
+
+
+ROL = autenticar()
+
+
 # ------------------------------------------------------------------ estado general
 estado, err = api("GET", "/estado")
 if estado is None:
@@ -267,7 +336,9 @@ def chip_fuente(n: str) -> str:
 st.markdown('<div class="marcador"><h1>⚽ gol<span>model</span>v2</h1>'
             '<div class="lema">PROBABILIDADES CALIBRADAS · VALOR SIN MARGEN (+EV) · RIESGO CONTROLADO</div>'
             + "".join(chip_fuente(n) for n in ("Resultados", "Modelo", "Lesiones", "Cuotas"))
-            + f'<span class="chip">CDMX {estado["ahora_local"]}</span></div>', unsafe_allow_html=True)
+            + f'<span class="chip">CDMX {estado["ahora_local"]}</span>'
+            + ('' if ROL == acceso.ADMIN else '<span class="chip viejo">👀 Solo consulta</span>') + '</div>',
+            unsafe_allow_html=True)
 
 faltan = [k for k, ok in (estado.get("llaves") or {}).items() if not ok]
 if faltan:
@@ -294,7 +365,12 @@ with st.sidebar:
     st.header("🔄 Actualizar")
     botones = {"actualizar_todo": ("Actualizar datos", "Una vez al día: resultados, modelo, lesiones, cuotas y picks."),
                "solo_cuotas": ("Actualizar solo cuotas", "Cerca de los partidos: refresca cuotas y recalcula picks."),
-               "solo_alineaciones": ("Actualizar alineaciones", "≈1 h antes: guarda las alineaciones confirmadas.")}
+               "solo_alineaciones": ("Actualizar alineaciones", "≈1 h antes: guarda las alineaciones confirmadas."),
+               "recalcular": ("Recalcular con mis cuotas", "Sin gastar consultas: recalcula los picks con las cuotas "
+                                                           "ya guardadas (úsalo después de capturar las de tu casa).")}
+    if ROL != acceso.ADMIN:
+        st.info("Modo consulta: puedes ver todo, pero no actualizar ni capturar.")
+        botones = {}
     for tipo, (etiqueta, ayuda) in botones.items():
         costo, err_costo = api("GET", f"/costo/{tipo}")
         c = costo["costo_estimado"] if costo else {}
@@ -319,6 +395,14 @@ with st.sidebar:
             pxg = x["con_xg"] / x["partidos"] if x["partidos"] else 0
             st.caption(f"xG {x['liga']}: {x['con_xg']}/{x['partidos']} ({pxg:.0%})"
                        + ("" if pxg > 0.9 else " · el resto usa solo goles"))
+
+    if st.session_state.get("con_login"):
+        st.divider()
+        if st.button("🚪 Salir", width="stretch"):
+            for k_ in ("rol", "con_login", "resumen"):
+                st.session_state.pop(k_, None)
+            st.query_params.clear()
+            st.rerun()
 
 # ------------------------------------------------------------------ progreso de la actualización
 if not st.session_state.get("ejecucion") and estado["ejecucion_en_curso"]:
@@ -349,7 +433,7 @@ oportunidades = [(p, m) for p in con_pred for m in p["mercados"] if m.get("clasi
 picks_hoy = [k for p in partidos for k in p["picks"]]
 exposicion = sum(float(k["stake_u"]) for k in picks_hoy if k["estado"] not in ("valor_perdido", "descartado_usuario"))
 
-tabs = st.tabs(["🏟️ Partidos", "🎯 Parlay del día", "✍️ Capturar cuota", "📈 CLV y resultados",
+tabs = st.tabs(["🏟️ Partidos", "🎯 Parlay del día", "✍️ Capturar cuotas", "📈 CLV y resultados",
                 "🧭 Cómo leer esto", "🛠️ Datos"])
 
 # ------------------------------------------------------------------ Partidos
@@ -378,6 +462,9 @@ with tabs[0]:
                 st.code("docker compose run --rm api python scripts/cargar_historico.py --temporadas 5 --sin-xg "
                         f"--ligas {' '.join(sin_hist)}", language="bash")
 
+    st.caption(f"ℹ️ Las cuotas de **Pinnacle** son la referencia del mercado y sirven para medir al modelo en práctica. "
+               f"Para apostar de verdad solo cuentan las de **{estado.get('casa_manual', 'tu casa')}**: captúralas en "
+               "la pestaña «Capturar cuotas».")
     if not partidos:
         st.info("No hay partidos para este día. Cambia la fecha en la barra lateral o presiona **Actualizar datos**.")
     else:
@@ -390,7 +477,7 @@ with tabs[0]:
         if oportunidades:
             st.markdown("#### 💡 Oportunidades del día")
             df_op = pd.DataFrame([{
-                "etiqueta": f"{p['local']} vs {p['visitante']} · {nombre(m['seleccion'])}",
+                "etiqueta": f"{p['local']} vs {p['visitante']} · {nombre(m['seleccion'])} ({m.get('casa_nombre', '')})",
                 "EV": m["ev"], "umbral": m["umbral"], "Estado": "Con valor" if m["clasificacion"] == "valor" else "Marginal",
                 "Cuota": m.get("cuota_casa"), "Cuota justa": m["cuota_justa"], "Probabilidad": m["p_adj"]}
                 for p, m in oportunidades if p["liga"] in sel_ligas]).sort_values("EV", ascending=False).head(10)
@@ -435,7 +522,7 @@ with tabs[0]:
                     mj = p.get("mejor")
                     if mj and mj["clasificacion"] == "valor":
                         st.markdown(f'<div class="oport"><div class="t">Mejor oportunidad</div><div class="s">{nombre(mj["seleccion"])}</div>'
-                                    f'<div class="ev">EV {pct(mj["ev"])}</div><div class="meta">cuota {num(mj["cuota_casa"])} · '
+                                    f'<div class="ev">EV {pct(mj["ev"])}</div><div class="meta">cuota {num(mj["cuota_casa"])} ({mj.get("casa_nombre", "")}) · '
                                     f'justa {num(mj["cuota_justa"])} · prob. {pct(mj["p_adj"])}</div></div>', unsafe_allow_html=True)
                     elif mj:
                         st.markdown(f'<div class="oport gris"><div class="t">Edge marginal</div><div class="s">{nombre(mj["seleccion"])}</div>'
@@ -454,6 +541,7 @@ with tabs[0]:
                             if m.get("cuota_casa") is None and m["p_mercado"] is None:
                                 continue
                             filas.append({"Selección": nombre(m["seleccion"]), "Cuota casa": num(m.get("cuota_casa"), 3),
+                                          "Casa": m.get("casa_nombre") or "—",
                                           "Prob. mercado": pct(m["p_mercado"]), "Prob. modelo": pct(m["p_modelo"]),
                                           "Prob. decisión": pct(m["p_adj"]), "Cuota justa": num(m["cuota_justa"], 3),
                                           "EV": pct(m.get("ev")),
@@ -489,7 +577,8 @@ with tabs[0]:
                     with t4:
                         if p["picks"]:
                             st.dataframe(pd.DataFrame([{
-                                "Selección": nombre(k["seleccion"]), "Cuota": num(k["cuota_sugerida"], 3),
+                                "Selección": nombre(k["seleccion"]), "Casa": k.get("casa_nombre"),
+                                "Cuota": num(k["cuota_sugerida"], 3),
                                 "EV": pct(float(k["ev"])), "Stake (u)": k["stake_u"],
                                 "Estado": k["estado"] or ("liquidado" if k["resultado"] else "activo"),
                                 "Resultado": k["resultado"], "Ganancia (u)": k["ganancia_u"],
@@ -546,23 +635,87 @@ with tabs[1]:
                            f"{par['ganancia_simples_u']} u)")
 
 # ------------------------------------------------------------------ Captura manual
-with tabs[2]:
-    st.markdown("Las APIs gratis no traen BTTS, doble oportunidad, hándicap ni SGP. **Captura aquí la cuota que ves en tu "
-                "casa** y luego presiona **Actualizar solo cuotas**. Un SGP nunca se estima multiplicando cuotas.")
-    opciones = {f"{p['inicio_local']} · {p['local']} vs {p['visitante']}": p["partido_id"] for p in partidos}
-    if opciones:
-        with st.form("captura"):
-            partido = st.selectbox("Partido", list(opciones))
-            a = st.selectbox("Selección", list(NOMBRES), format_func=nombre)
-            b = st.selectbox("Segunda selección (solo si es un SGP)", [None] + list(NOMBRES),
-                             format_func=lambda x: "— ninguna —" if x is None else nombre(x))
-            cuota = st.number_input("Cuota decimal", min_value=1.01, max_value=500.0, value=1.90, step=0.01)
-            if st.form_submit_button("💾 Guardar cuota"):
-                res, e = api("POST", "/cuotas/manual", json={"partido_id": opciones[partido], "seleccion": a,
-                                                              "seleccion_b": b, "cuota": cuota})
-                st.error(e) if e else st.success(f"Guardada. {res.get('nota', '')}")
+def recalcular_y_mostrar() -> None:
+    r2, e2 = api("POST", "/actualizar/recalcular")
+    if e2:
+        st.error(e2)
     else:
-        st.info("No hay partidos este día.")
+        st.session_state["ejecucion"] = r2["ejecucion_id"]
+        st.rerun()
+
+
+with tabs[2]:
+    casa_manual = estado.get("casa_manual", "tu casa")
+    if ROL != acceso.ADMIN:
+        st.info("Solo el administrador puede capturar cuotas.")
+    else:
+        st.markdown(f"Captura las cuotas que ves en **{casa_manual}**: así el EV se calcula contra lo que de verdad te "
+                    "pagan (esa casa cobra más margen que Pinnacle). Después de guardar, los picks se recalculan solos.")
+        programados = [p for p in partidos if p["estado"] == "programado"]
+        sub1, sub2, sub3 = st.tabs(["📋 Pegar lista (rápido)", "🧮 Tabla del día", "1 cuota o SGP"])
+        with sub1:
+            st.caption("Una línea por partido, con el LOCAL primero. 3 cuotas = 1X2 · 5 = + más/menos 2.5 goles · "
+                       "7 = + ambos anotan. Acepta coma o punto y la «x» de la app. "
+                       "Tip: mándale la captura de tu casa a Claude y te devuelve la lista lista para pegar.")
+            st.code("Napoli - Lazio 2.26 3.64 2.92\nIpswich Town vs Bournemouth 3.77 3.71 1.90 1.85 1.95", language=None)
+            texto = st.text_area("Pega aquí tus cuotas", height=170, key="texto_cuotas")
+            b1, b2 = st.columns(2)
+            revisar = b1.button("🔍 Revisar sin guardar", key="rev_cuotas", width="stretch")
+            guardar = b2.button("💾 Guardar y recalcular", key="gua_cuotas", type="primary", width="stretch")
+            if (revisar or guardar) and texto.strip():
+                res, e = api("POST", "/cuotas/manual/texto",
+                             json={"fecha": dia.isoformat(), "texto": texto, "guardar": guardar})
+                if e:
+                    st.error(e)
+                else:
+                    st.dataframe(pd.DataFrame([{
+                        "": "✅" if l["ok"] else "❌", "Línea": l["texto"], "Partido reconocido": l["partido"] or "—",
+                        "Detalle": l["error"] or ("lista para guardar" if not guardar else "guardada")}
+                        for l in res["lineas"]]), hide_index=True, width="stretch")
+                    if guardar and res["guardadas"]:
+                        recalcular_y_mostrar()
+                    elif guardar:
+                        st.warning("No se guardó nada: ninguna línea se reconoció con seguridad.")
+        with sub2:
+            if not programados:
+                st.info("No hay partidos por jugar este día.")
+            else:
+                cols = {"Local": "1X2:1", "Empate": "1X2:X", "Visita": "1X2:2", "Más 2.5": "OU:2.5:over",
+                        "Menos 2.5": "OU:2.5:under"}
+                base = pd.DataFrame([{"Partido": f"{p['inicio_local']} · {p['local']} vs {p['visitante']}",
+                                      **{c: None for c in cols}} for p in programados])
+                editada = st.data_editor(base, hide_index=True, width="stretch", disabled=["Partido"], key="tabla_cuotas",
+                                         column_config={c: st.column_config.NumberColumn(
+                                             c, min_value=1.01, max_value=500.0, step=0.01, format="%.2f") for c in cols})
+                if st.button("💾 Guardar tabla y recalcular", key="gua_tabla", type="primary"):
+                    items = [{"partido_id": p["partido_id"], "seleccion": sel, "cuota": float(editada.iloc[i][c])}
+                             for i, p in enumerate(programados) for c, sel in cols.items() if pd.notna(editada.iloc[i][c])]
+                    if not items:
+                        st.warning("Escribe al menos una cuota.")
+                    else:
+                        res, e = api("POST", "/cuotas/manual/lote", json={"items": items})
+                        if e:
+                            st.error(e)
+                        else:
+                            st.success(f"{res['guardadas']} cuotas guardadas en {res['partidos']} partidos.")
+                            recalcular_y_mostrar()
+        with sub3:
+            st.caption("Para mercados que no están en la lista rápida (BTTS, doble oportunidad, hándicap) y para SGP. "
+                       "Un SGP nunca se estima multiplicando cuotas.")
+            opciones = {f"{p['inicio_local']} · {p['local']} vs {p['visitante']}": p["partido_id"] for p in programados}
+            if opciones:
+                with st.form("captura"):
+                    partido = st.selectbox("Partido", list(opciones))
+                    a = st.selectbox("Selección", list(NOMBRES), format_func=nombre)
+                    b = st.selectbox("Segunda selección (solo si es un SGP)", [None] + list(NOMBRES),
+                                     format_func=lambda x: "— ninguna —" if x is None else nombre(x))
+                    cuota = st.number_input("Cuota decimal", min_value=1.01, max_value=500.0, value=1.90, step=0.01)
+                    if st.form_submit_button("💾 Guardar cuota"):
+                        res, e = api("POST", "/cuotas/manual", json={"partido_id": opciones[partido], "seleccion": a,
+                                                                      "seleccion_b": b, "cuota": cuota})
+                        st.error(e) if e else st.success(f"Guardada. {res.get('nota', '')}")
+            else:
+                st.info("No hay partidos por jugar este día.")
 
 # ------------------------------------------------------------------ CLV
 with tabs[3]:
@@ -681,10 +834,11 @@ with tabs[5]:
                 cols = st.columns([4, 3, 2, 2])
                 cols[0].write(f"**{a['nombre_externo']}** · {a['fuente']} · visto {a['veces']}×")
                 cols[1].write(f"Sugerencia: {a['sugerencia'] or '—'} ({(a['similitud'] or 0):.0%})")
-                if a["sugerencia_id"] and cols[2].button("Es la sugerencia", key=f"s{a['id']}"):
+                if a["sugerencia_id"] and cols[2].button("Es la sugerencia", key=f"s{a['id']}", disabled=ROL != acceso.ADMIN):
                     api("POST", f"/alias/pendientes/{a['id']}", json={"equipo_id": a["sugerencia_id"]})
                     st.rerun()
-                if cols[3].button("Equipo nuevo", key=f"n{a['id']}", disabled=a["liga_sin_historico"]):
+                if cols[3].button("Equipo nuevo", key=f"n{a['id']}",
+                                         disabled=a["liga_sin_historico"] or ROL != acceso.ADMIN):
                     _, e = api("POST", f"/alias/pendientes/{a['id']}", json={"crear_nuevo": True})
                     st.error(e) if e else st.rerun()
 
@@ -696,9 +850,9 @@ with tabs[5]:
         cols = st.columns([5, 2, 2])
         cols[0].write(f"{c_['local']} vs {c_['visitante']} · {c_['campo']}: guardado **{c_['valor_actual']}** vs "
                       f"{c_['fuente_nueva']} **{c_['valor_nuevo']}**")
-        if cols[1].button("Vale el guardado", key=f"a{c_['id']}"):
+        if cols[1].button("Vale el guardado", key=f"a{c_['id']}", disabled=ROL != acceso.ADMIN):
             api("POST", f"/conflictos/{c_['id']}", json={"correcto": "actual"})
             st.rerun()
-        if cols[2].button("Vale el nuevo", key=f"b{c_['id']}"):
+        if cols[2].button("Vale el nuevo", key=f"b{c_['id']}", disabled=ROL != acceso.ADMIN):
             api("POST", f"/conflictos/{c_['id']}", json={"correcto": "nuevo"})
             st.rerun()

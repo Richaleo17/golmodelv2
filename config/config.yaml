@@ -81,6 +81,7 @@ mercado:
   # cuota entre muchas casas sesga el EV hacia arriba (se elige el error más favorable).
   # Una cuota capturada a mano para 'manual' reemplaza a esta si está vigente.
   casa_ejecucion: pinnacle
+  casa_manual_nombre: Draftea       # cómo se llama en pantalla la casa donde capturas cuotas a mano
   alpha_por_defecto: 0.5            # si no se pudo calibrar
   factor_alpha_no_calibrado: 0.5    # α_no_cal = factor × α(1X2 de la liga)
   umbral_extra_no_calibrado: 0.02

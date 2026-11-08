@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import logging
 import os
 import threading
 from collections.abc import Iterator
@@ -14,13 +15,13 @@ import psycopg
 from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
-from golmodel import db, repositorio as repo
+from golmodel import db, migraciones, repositorio as repo
 from golmodel.config import cargar
 from golmodel.ingesta.pipeline import ETAPAS, Pipeline
 from golmodel.ingesta.proveedores.cadena import Interruptor
 from golmodel.ingesta.proveedores.registro import construir_cadenas, construir_presupuestos, construir_proveedores
 from golmodel.modelos.mercados import CONDICIONES
-from golmodel.servicios import vistas
+from golmodel.servicios import captura, vistas
 
 
 class Servicio:
@@ -39,6 +40,12 @@ class Servicio:
             self.presupuestos = construir_presupuestos(self.cfg)
             cadenas = construir_cadenas(self.cfg, provs, self.presupuestos, self.interruptor)
         self.pipeline = Pipeline(self.cfg, cadenas, dsn=dsn, reloj=reloj, registrador=self.registrador)
+        try:    # cambios de esquema posteriores a la creación de la base
+            c = db.conectar(dsn)
+            migraciones.aplicar(c)
+            c.close()
+        except psycopg.Error as e:
+            logging.getLogger(__name__).warning("No se pudieron aplicar migraciones: %s", e)
 
     def sincronizar_presupuestos(self, conn) -> None:
         """El presupuesto en memoria arranca con lo ya gastado hoy/este mes (llamadas_api)."""
@@ -186,7 +193,45 @@ def post_cuota_manual(c: CuotaManual, s: Servicio = Depends(servicio), conn=Depe
         return {"tipo": "sgp", "selecciones": [a, b], "cuota": c.cuota}
     repo.insertar_cuotas(conn, c.partido_id, casa, [(c.seleccion, c.cuota)], "actual", "manual", ahora)
     return {"tipo": "simple", "seleccion": c.seleccion, "cuota": c.cuota,
-            "nota": "Se usa en el próximo recálculo ('Actualizar solo cuotas')."}
+            "nota": "Presiona «Recalcular con mis cuotas» para actualizar los picks."}
+
+
+class ItemCuota(BaseModel):
+    partido_id: int
+    seleccion: str
+    cuota: float = Field(gt=1.0, lt=1000)
+
+
+class LoteCuotas(BaseModel):
+    items: list[ItemCuota] = Field(min_length=1, max_length=300)
+
+
+@app.post("/cuotas/manual/lote", status_code=201)
+def post_cuotas_lote(lote: LoteCuotas, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Guarda muchas cuotas de tu casa de una vez (tabla del día)."""
+    for it in lote.items:
+        if it.seleccion not in CONDICIONES:
+            raise HTTPException(422, f"selección fuera de catálogo: {it.seleccion}")
+    ids = {it.partido_id for it in lote.items}
+    hallados = {r["id"] for r in conn.execute("SELECT id FROM partidos WHERE id = ANY(%s) AND estado = 'programado'",
+                                              (list(ids),))}
+    if ids - hallados:
+        raise HTTPException(404, f"partidos no encontrados o ya empezados: {sorted(ids - hallados)}")
+    n = captura.guardar_lote(conn, [(i.partido_id, i.seleccion, i.cuota) for i in lote.items], s.reloj())
+    return {"guardadas": n, "partidos": len(ids)}
+
+
+class TextoCuotas(BaseModel):
+    fecha: str
+    texto: str = Field(max_length=20000)
+    guardar: bool = False
+
+
+@app.post("/cuotas/manual/texto")
+def post_cuotas_texto(t: TextoCuotas, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Pega una lista de cuotas; con guardar=false solo muestra qué entendió (vista previa)."""
+    lineas = captura.procesar_texto(conn, _dia(t.fecha, s), t.texto, guardar=t.guardar, ahora=s.reloj())
+    return {"lineas": [vars(l) for l in lineas], "guardadas": sum(l.ok for l in lineas) if t.guardar else 0}
 
 
 class EventoPick(BaseModel):

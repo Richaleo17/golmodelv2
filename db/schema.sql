@@ -819,7 +819,7 @@ CREATE TRIGGER trg_parlay_liq_inmutable BEFORE UPDATE OR DELETE ON parlay_liquid
 CREATE TABLE ejecuciones (
     id              bigserial PRIMARY KEY,
     tipo            text NOT NULL CHECK (tipo IN
-                    ('actualizar_todo','solo_cuotas','solo_alineaciones','snapshot_cierre','backtest')),
+                    ('actualizar_todo','solo_cuotas','solo_alineaciones','recalcular','snapshot_cierre','backtest')),
     iniciada_en     timestamptz NOT NULL DEFAULT now(),
     terminada_en    timestamptz,
     estado          text NOT NULL DEFAULT 'en_curso'
