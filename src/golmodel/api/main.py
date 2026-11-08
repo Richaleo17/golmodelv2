@@ -61,7 +61,14 @@ def servicio() -> Servicio:
 
 
 def conexion(s: Servicio = Depends(servicio)) -> Iterator[psycopg.Connection]:
-    conn = db.conectar(s.dsn)
+    try:
+        conn = db.conectar(s.dsn)
+    except psycopg.OperationalError as e:
+        texto = str(e)
+        pista = ("La contraseña de la base de datos no coincide: POSTGRES_PASSWORD en .env debe ser la misma "
+                 "que tenía la primera vez que levantaste Docker." if "password authentication failed" in texto
+                 else "Revisa que el contenedor 'db' esté corriendo (docker compose ps).")
+        raise HTTPException(503, f"No se pudo conectar a la base de datos. {pista} Detalle: {texto.strip()[:200]}")
     try:
         yield conn
         conn.commit()

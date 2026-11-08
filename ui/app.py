@@ -93,6 +93,10 @@ def num(x, d=2):
 
 # ------------------------------------------------------------------ encabezado
 estado, err = api("GET", "/estado")
+if estado is None:
+    st.error(f"La API respondió con un error y no se puede mostrar el tablero.\n\n{err}")
+    st.caption("Para ver el detalle completo: docker compose logs api --tail 30")
+    st.stop()
 f = estado["frescura"]
 
 
