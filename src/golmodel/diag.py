@@ -195,3 +195,19 @@ def etapas(conn=Depends(conexion)):
         """SELECT l.codigo, min(p.inicio) AS primero, max(p.inicio) AS ultimo, count(*) AS n
            FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE p.estado = 'programado' GROUP BY 1 ORDER BY 1""")]
     return {"ejecucion": ult and ult["id"], "etapas": et, "llamadas": ll, "programados": prog}
+
+
+@app.get("/diag/alias", dependencies=[Depends(autorizar)])
+def alias(conn=Depends(conexion)):
+    """Nombres de equipo que las fuentes envían y que no se pudieron unir con seguridad (bloquean partidos)."""
+    pend = [dict(r) for r in conn.execute(
+        """SELECT l.codigo AS liga, a.fuente, a.nombre_externo, a.veces, a.similitud::float8 AS similitud,
+                  e.nombre AS sugerencia
+           FROM alias_pendientes a JOIN ligas l ON l.id = a.liga_id LEFT JOIN equipos e ON e.id = a.sugerencia_id
+           WHERE NOT a.resuelto ORDER BY l.codigo, a.nombre_externo""")]
+    equipos = [dict(r) for r in conn.execute(
+        """SELECT l.codigo AS liga, e.nombre FROM equipos e JOIN equipo_temporada et ON et.equipo_id = e.id
+           JOIN ligas l ON l.id = et.liga_id
+           WHERE et.temporada = (SELECT max(temporada) FROM equipo_temporada x WHERE x.liga_id = et.liga_id)
+           GROUP BY 1, 2 ORDER BY 1, 2""")]
+    return {"pendientes": pend, "equipos_temporada_actual": equipos}
