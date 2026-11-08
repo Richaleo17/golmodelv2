@@ -142,6 +142,7 @@ sugerencias:
     caida_modelo_vs_mercado: 0.06
     empate_alto: 0.30
     confianza_max: 3.5
+    peso_bajo: 12.0                 # historial efectivo mínimo para culpar al favorito de una discrepancia
   top_piernas: 14
   perfiles:                         # el parlay MÁS probable que paga lo objetivo
     seguro:      {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.70, p_max_pierna: 0.84}

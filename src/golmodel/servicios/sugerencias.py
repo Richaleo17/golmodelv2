@@ -299,6 +299,7 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         "confianza": conf, "razones": razones, "fuente": "mercado + modelo" if mercado_ok else "solo modelo",
         "crs": {"total": f["crs_total"], "alerta": f["crs_alerta"], "veto": f["crs_veto"]},
         "p_fav_mercado": pf_mk, "p_fav_modelo": pf_mod,
+        "peso_min": peso_min if (f["local_id"] in pesos and f["visitante_id"] in pesos) else None,
     }
 
     vetadas = set(f["crs_selecciones_vetadas"] or [])
@@ -346,8 +347,11 @@ def riesgo_del_favorito(info: dict, cfg: dict) -> dict | None:
     razones: list[str] = []
     if info["crs"]["alerta"] == "ALTA":
         razones.append(f"CRS {info['crs']['total']}: riesgo alto de que {g['favorito']} tropiece")
+    pocos_datos = info.get("peso_min") is not None and info["peso_min"] < cr.get("peso_bajo", 12.0)
     if info["p_fav_mercado"] is not None and info["p_fav_modelo"] is not None and g["p"] >= 0.45 \
-            and info["p_fav_mercado"] - info["p_fav_modelo"] >= cr["caida_modelo_vs_mercado"]:
+            and info["p_fav_mercado"] - info["p_fav_modelo"] >= cr["caida_modelo_vs_mercado"] and not pocos_datos:
+        # Si algún equipo tiene poco historial (p. ej. recién ascendido), la discrepancia es falta de datos del
+        # modelo, no fragilidad del favorito: manda el mercado y NO se acusa al favorito.
         razones.append(f"El modelo ve a {g['favorito']} más débil que el mercado "
                        f"({info['p_fav_modelo']:.0%} vs {info['p_fav_mercado']:.0%})")
     if g["empate"] >= cr["empate_alto"] and g["p"] < 0.50:

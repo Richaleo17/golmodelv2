@@ -150,3 +150,12 @@ def test_porque_dice_lo_que_los_datos_realmente_dicen():
     txt = " | ".join(r)
     assert "Modelo 50%" in txt and "mercado sin margen 68%" in txt and "α por defecto" in txt
     assert "menos que el mercado" in txt and "CRS 75.0" in txt and "GGPEG" in txt
+
+
+def test_discrepancia_por_pocos_datos_no_acusa_al_favorito():
+    """Caso real (Hoffenheim–Schalke): el modelo dudaba porque el rival casi no tenía historial; eso no es
+    fragilidad del favorito, así que no debe marcarlo como «rompe parlays»."""
+    dudoso = _info(p_fav_modelo=0.57, p_fav_mercado=0.78, gana={**_info()["gana"], "p": 0.78}, peso_min=9.5)
+    assert s.riesgo_del_favorito(dudoso, CFG) is None
+    con_datos = _info(p_fav_modelo=0.57, p_fav_mercado=0.78, gana={**_info()["gana"], "p": 0.78}, peso_min=40.0)
+    assert "más débil que el mercado" in " ".join(s.riesgo_del_favorito(con_datos, CFG)["razones"])
