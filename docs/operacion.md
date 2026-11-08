@@ -139,9 +139,9 @@ El repo trae `render.yaml` (una pantalla pública con contraseña + PostgreSQL a
 1. En render.com crea cuenta → **New → Blueprint** → conecta el repo `Richaleo17/golmodelv2` → Apply.
 2. Render te pide los valores marcados como secretos: `APP_PASSWORD` (admin), `APP_VIEWER_PASSWORD` (tu amigo) y las llaves de API. **Escríbelos en Render, nunca en el chat ni en el repo.**
 3. Al terminar el deploy, abre la URL `https://golmodelv2-XXXX.onrender.com` en el celular, entra con tu contraseña y agrégala a la pantalla de inicio.
-4. La primera vez la base está vacía: en tu Mac corre el histórico apuntando a la base de Render (copia su *External Database URL* desde el panel de Render):
+4. La primera vez la base está vacía. En Render abre tu servicio → pestaña **Shell** y corre (una sola vez, tarda varios minutos; no necesitas tu Mac):
 ```bash
-DATABASE_URL='PEGA_AQUI_LA_URL_EXTERNA' docker compose run --rm -e DATABASE_URL api python scripts/cargar_historico.py --temporadas 5 --sin-xg
+python scripts/cargar_historico.py --temporadas 5 --sin-xg
 ```
 5. En la app: **Datos → Actualizar datos** y luego **Qué meter**.
 Notas: el plan `starter` del servicio y el de la base son de pago (revisa precios en Render); el plan gratuito duerme el servicio y apaga el worker de cierre, así que no se recomienda. Datos reales = tus llaves corriendo allá.
