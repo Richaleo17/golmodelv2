@@ -538,6 +538,11 @@ def fila_jugada(x: dict, con_partido: bool = True) -> str:
             ).replace("{ETIQ}", {"segura": "🛡️ Segura", "equilibrada": "⚖️ Equilibrada", "arriesgada": "🎲 Arriesgada"}[x["categoria"]])
 
 
+def _sin_acentos(t: str) -> str:
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", t.lower()) if unicodedata.category(c) != "Mn")
+
+
 def tarjeta_ticket(n: int, t: dict) -> str:
     piernas = ""
     for x in t["piernas"]:
@@ -558,6 +563,10 @@ def tarjeta_ticket(n: int, t: dict) -> str:
             f'mete solo si tu casa paga ≥ <b>{t["cuota_min"]:.1f}x</b></div>{piernas}{crs_nota}{casa}</div>')
 
 
+def uno_de(x: float) -> str:
+    return f"{x:.1f}" if x < 10 else f"{x:.0f}"
+
+
 def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
     if par is None:
         return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>'
@@ -570,7 +579,7 @@ def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
         casa = (f'<div class="{"ok" if ok else "no"}">{"✅" if ok else "❌"} Con tus cuotas pagaría {par["cuota_casa"]:.2f}</div>')
     return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>{piernas}'
             f'<div class="jug-num" style="margin-top:8px"><b style="color:{color_p(min(1.0, par["p"] * 2))}">{par["p"]:.1%}</b> de acertar '
-            f'(1 de cada {par["uno_de_cada"]:.0f})<br>Cuota justa <b>{par["cuota_justa"]:.2f}</b> · '
+            f'(1 de cada {uno_de(par["uno_de_cada"])})<br>Cuota justa <b>{par["cuota_justa"]:.2f}</b> · '
             f'mete si paga ≥ <b>{par["cuota_min"]:.2f}</b></div>{casa}</div>')
 
 
@@ -599,7 +608,15 @@ with tabs[0]:
             sel_d = f1.multiselect("Ligas", ligas_d, default=ligas_d, format_func=lambda x: NOMBRE_LIGA.get(x, x),
                                    key="ligas_diario")
             orden_d = f2.radio("Ordenar por", ["Hora", "Confianza", "Ventaja"], horizontal=True, key="orden_diario")
+            busca = st.text_input("🔎 Buscar equipo", key="buscar_equipo_diario",
+                                  placeholder="Ej.: Barcelona, Schalke, América…").strip()
             lista = [p for p in part if p["liga"] in sel_d]
+            if busca:
+                q = _sin_acentos(busca)
+                lista = [p for p in lista if q in _sin_acentos(p["local"]) or q in _sin_acentos(p["visitante"])]
+                if not lista:
+                    st.warning(f"No hay partidos de «{busca}» en este día. Cambia la fecha o revisa las ligas seleccionadas "
+                               "(Champions, Europa League y copas todavía no están en el modelo).")
             if orden_d == "Confianza":
                 lista.sort(key=lambda p: -(p.get("confianza") or -1))
             elif orden_d == "Ventaja":
@@ -659,6 +676,18 @@ with tabs[1]:
         pc1.markdown(tarjeta_parlay("🛡️ Seguro", "pago bajo, acierta seguido", pan["parlays"].get("seguro")), unsafe_allow_html=True)
         pc2.markdown(tarjeta_parlay("⚖️ Equilibrado", "pago medio", pan["parlays"].get("equilibrado")), unsafe_allow_html=True)
         pc3.markdown(tarjeta_parlay("🎲 Ambicioso", "pago alto, acierta pocas veces", pan["parlays"].get("ambicioso")), unsafe_allow_html=True)
+        st.markdown("### 🛡️ Más parlays seguros, con su tasa de acierto")
+        st.caption("«Acierta» es la probabilidad real de que se cumplan TODAS las piernas (el producto de cada una). "
+                   "No existe un parlay seguro: uno que acierta 60% falla 4 de cada 10.")
+        mas = pan.get("mas_seguros") or {}
+        hay = False
+        for nombre, titulo, sub in (("muy_seguro", "🛡️🛡️ Muy seguro", "2-3 piernas muy probables, paga poco"),
+                                    ("seguro", "🛡️ Seguro", "3-4 piernas probables")):
+            for i, par in enumerate(mas.get(nombre) or [], 1):
+                hay = True
+                st.markdown(tarjeta_parlay(f"{titulo} #{i}", sub, par), unsafe_allow_html=True)
+        if not hay:
+            st.info("Hoy no hay suficientes jugadas probables de partidos distintos para armar parlays seguros.")
         st.markdown("### 🎫 Tickets de pago alto (5 equipos, estilo 15-25x)")
         st.caption("Las combinaciones MÁS probables de cinco partidos que pagan ≈15-30x. Cada pierna trae sus razones reales: "
                    "lo que dice el modelo, lo que dice el mercado y el riesgo CRS. Un ticket así acierta ~3-6 de cada 100: "

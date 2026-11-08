@@ -159,3 +159,16 @@ def test_discrepancia_por_pocos_datos_no_acusa_al_favorito():
     assert s.riesgo_del_favorito(dudoso, CFG) is None
     con_datos = _info(p_fav_modelo=0.57, p_fav_mercado=0.78, gana={**_info()["gana"], "p": 0.78}, peso_min=40.0)
     assert "más débil que el mercado" in " ".join(s.riesgo_del_favorito(con_datos, CFG)["razones"])
+
+
+def test_listas_de_parlays_mas_seguros_traen_tasa_real():
+    piernas = [_p(i, p) for i, p in enumerate([0.90, 0.88, 0.85, 0.83, 0.80, 0.79, 0.74, 0.72], 1)]
+    for nombre, perfil in CS["mas_seguros"].items():
+        lst = s._combinaciones(piernas, perfil, CS, perfil["cuantos"])
+        assert lst, nombre
+        for P, combo in lst:
+            k = s._ficha(P, combo)
+            assert perfil["piernas_min"] <= k["n"] <= perfil["piernas_max"]
+            assert k["p"] == pytest.approx(math.prod(x["p"] for x in k["piernas"]))
+            assert perfil["cuota_min"] <= k["cuota_justa"] <= perfil["cuota_max"]
+        ps = [P for P, _ in lst]

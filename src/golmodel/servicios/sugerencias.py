@@ -180,6 +180,9 @@ def _cargar(conn, d: date) -> list[dict]:
 
 
 def _motivo_sin_prediccion(conn, f: dict, modelo_equipos: set[int], sin_historico: set[str]) -> str:
+    if f["estado"] in ("finalizado", "en_juego"):
+        return ("Ya se jugó." if f["estado"] == "finalizado" else "Está en juego.") + \
+               " No tiene predicción previa (se calculan antes del partido, con «Actualizar datos»)."
     if f["liga"] in sin_historico:
         return "Esta liga aún no tiene histórico cargado (ver «Cobertura por liga»)."
     faltan = [n for i, n in ((f["local_id"], f["local"]), (f["visitante_id"], f["visitante"])) if i not in modelo_equipos]
@@ -492,10 +495,12 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
                    key=lambda y: (y.ev_sospechoso, -(y.p * (y.ev or 0))))[:cs["max_mejores"]]
     parlays = {nombre: armar_perfil(piernas_todas, perfil, cs) for nombre, perfil in cs["perfiles"].items()}
     tickets = armar_tickets(piernas_todas, cs)
+    extra = {nombre: [_ficha(P, c) for P, c in _combinaciones(piernas_todas, perfil, cs, perfil["cuantos"])]
+             for nombre, perfil in cs.get("mas_seguros", {}).items()}
     for p in partidos:
         p.pop("_piernas", None)
     return {"fecha": d.isoformat(), "partidos": partidos, "mejores": [asdict(x) for x in mejores],
-            "valor": [asdict(x) for x in valor], "rompe": rompe, "parlays": parlays, "tickets": tickets,
+            "valor": [asdict(x) for x in valor], "rompe": rompe, "parlays": parlays, "tickets": tickets, "mas_seguros": extra,
             "resumen": {"partidos": len(partidos), "con_prediccion": sum(1 for p in partidos if p["prediccion"]),
                         "ligas": sorted({p["liga"] for p in partidos}),
                         "sin_prediccion": [{"partido": f"{p['local']} vs {p['visitante']}", "liga": p["liga"],
@@ -526,6 +531,12 @@ def texto_panel(pan: dict) -> str:
         piernas = " + ".join(f"{x['jugada']} ({x['partido']})" for x in p["piernas"])
         L.append(f"- {nombre}: {piernas} · acierta {p['p']:.1%} (1 de cada {p['uno_de_cada']:.0f}) · "
                  f"justa {p['cuota_justa']:.2f} · mete si paga ≥ {p['cuota_min']:.2f}")
+    L += ["", "## Más parlays seguros (probabilidad real de acertar)"]
+    for nombre, lst in (pan.get("mas_seguros") or {}).items():
+        for i, p in enumerate(lst, 1):
+            piernas = " + ".join(f"{x['jugada']} ({x['partido']}, {x['p']:.0%})" for x in p["piernas"])
+            L.append(f"- {nombre} {i}: {piernas} · acierta {p['p']:.0%} (1 de cada {p['uno_de_cada']:.1f}) · "
+                     f"justa {p['cuota_justa']:.2f} · mete si paga ≥ {p['cuota_min']:.2f}")
     L += ["", "## Tickets de pago alto (5 equipos) — la probabilidad real es baja, léela"]
     for i, t in enumerate(pan.get("tickets") or [], 1):
         L.append(f"### Ticket {i}: justa {t['cuota_justa']:.1f}x · acierta {t['p']:.1%} (1 de cada {t['uno_de_cada']:.0f}) · "

@@ -149,6 +149,9 @@ sugerencias:
     seguro:      {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.70, p_max_pierna: 0.84}
     equilibrado: {piernas_min: 3, piernas_max: 5, cuota_min: 3.5, cuota_max: 7.0, p_min_pierna: 0.50, p_max_pierna: 0.80}
     ambicioso:   {piernas_min: 4, piernas_max: 5, cuota_min: 8.0, cuota_max: 25.0, p_min_pierna: 0.30, p_max_pierna: 0.65}
+  mas_seguros:                      # listas de parlays de alta probabilidad (se muestra la tasa real de acierto)
+    muy_seguro: {piernas_min: 2, piernas_max: 3, cuota_min: 1.35, cuota_max: 2.2, p_min_pierna: 0.78, p_max_pierna: 0.93, cuantos: 4}
+    seguro:     {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.68, p_max_pierna: 0.88, cuantos: 5}
   ticket:                           # estilo «5 equipos ≈ 15-25x»: las combinaciones más probables de ese pago
     piernas_min: 5
     piernas_max: 5
