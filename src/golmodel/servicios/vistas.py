@@ -53,6 +53,55 @@ def _ultima_ejecucion(conn) -> dict | None:
     return e
 
 
+def cobertura_ligas(conn, cfg: dict, ahora: datetime) -> list[dict]:
+    """Por liga activa: histórico, partidos próximos y por qué podría faltar alguno."""
+    filas = conn.execute("""
+        SELECT l.codigo,
+               count(*) FILTER (WHERE p.estado = 'finalizado') AS finalizados,
+               count(*) FILTER (WHERE p.estado = 'programado' AND p.inicio >= %(a)s
+                                AND p.inicio < %(a)s + interval '3 days') AS proximos,
+               (SELECT count(*) FROM alias_pendientes x WHERE x.liga_id = l.id AND NOT x.resuelto) AS pendientes
+        FROM ligas l LEFT JOIN partidos p ON p.liga_id = l.id
+        WHERE l.codigo = ANY(%(l)s) GROUP BY l.id, l.codigo ORDER BY l.codigo
+    """, {"a": ahora, "l": cfg["ligas_activas"]}).fetchall()
+    for f in filas:
+        if f["finalizados"] == 0:
+            f["problema"] = "Sin histórico: sin él el modelo no puede predecir esta liga. Cárgalo (ver instrucciones abajo)."
+        elif f["proximos"] == 0 and f["pendientes"]:
+            f["problema"] = (f"Hay partidos sin guardar porque {f['pendientes']} nombres de equipo esperan "
+                             "revisión (pestaña Datos).")
+        elif f["proximos"] == 0:
+            f["problema"] = "Sin partidos en los próximos 3 días (¿receso de la liga?, o la fuente de calendario no los trajo)."
+        else:
+            f["problema"] = None
+    return filas
+
+
+def calibracion(conn) -> dict | None:
+    """Calidad medida del modelo en el último año (walk-forward) frente a la cuota sin margen."""
+    v = conn.execute("""SELECT id, creado_en, hiperparametros FROM versiones_modelo
+                        WHERE origen = 'produccion' AND tipo_ajuste = 'semanal' ORDER BY creado_en DESC LIMIT 1""").fetchone()
+    if v is None:
+        return None
+    hp = v["hiperparametros"]
+    filas = []
+    for liga, grupos in (hp.get("alpha") or {}).items():
+        for grupo, a in grupos.items():
+            ll_mod, ll_mer, ll_adj = a["log_loss_modelo"], a["log_loss_mercado"], a["log_loss_adj"]
+            if a["valor"] <= 0.15:
+                lectura = "El mercado ya contiene casi toda la información: el modelo aporta poco."
+            elif ll_mod < ll_mer:
+                lectura = "El modelo por sí solo supera al mercado."
+            else:
+                lectura = "La mezcla mejora al mercado: el modelo aporta información propia."
+            filas.append({"liga": liga, "mercado": grupo, "alpha": a["valor"], "partidos": a["n"],
+                          "log_loss_modelo": ll_mod, "log_loss_mercado": ll_mer, "log_loss_mezcla": ll_adj,
+                          "mejora_vs_mercado": ll_mer - ll_adj, "lectura": lectura})
+    return {"version_id": v["id"], "creado": v["creado_en"], "calibrado": bool(hp.get("calibrado")),
+            "xi": hp.get("xi"), "vida_media_dias": hp.get("vida_media_dias"), "w_xg": hp.get("w_xg"),
+            "n_eval": hp.get("n_eval"), "motivo": hp.get("motivo"), "filas": filas}
+
+
 def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) -> dict:
     zona = ZoneInfo(cfg["zona_horaria"])
     interrumpidas = limpiar_huerfanas(conn)
@@ -93,6 +142,8 @@ def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) 
         "crs_modo_ajuste": cfg["crs"]["ajuste_favorito"]["modo"],
         "ejecuciones_interrumpidas": interrumpidas,
         "ultima_ejecucion": _ultima_ejecucion(conn),
+        "cobertura_ligas": cobertura_ligas(conn, cfg, ahora),
+        "calibracion": calibracion(conn),
         # Ligas activas sin partidos jugados cargados: sus nombres no se pueden resolver todavía
         "ligas_sin_historico": [r["codigo"] for r in conn.execute("""
             SELECT l.codigo FROM ligas l WHERE l.activa AND l.codigo = ANY(%s) AND NOT EXISTS (
@@ -228,3 +279,55 @@ def clv(conn, cfg: dict) -> dict:
                          "explicacion": "Se cuenta un partido una sola vez (sus picks no son independientes). "
                                         "Dinero real solo si n >= mínimo y la cota inferior al 95% del CLV medio > 0."},
             "crs_efectividad": conn.execute("SELECT * FROM v_crs_efectividad ORDER BY crs_alerta").fetchall()}
+
+
+def resumen_texto(conn, cfg: dict, d: date, ahora: datetime) -> str:
+    """Resumen en texto plano del día: pensado para copiarlo y consultarlo con alguien más (o con Claude)."""
+    zona = ZoneInfo(cfg["zona_horaria"])
+    L: list[str] = [f"# golmodelv2 · resumen del {d.strftime('%d/%m/%Y')} (generado {ahora.astimezone(zona):%d/%m %H:%M} CDMX)",
+                    "Paper trading: apuestas de práctica, sin dinero real.", ""]
+    cal = calibracion(conn)
+    if cal is None:
+        L.append("## Modelo\nTodavía no hay un modelo calibrado.")
+    else:
+        L += ["## Modelo", f"- Calibrado con datos reales: {'sí' if cal['calibrado'] else 'NO (' + str(cal['motivo']) + ')'}",
+              f"- Memoria ≈ {cal['vida_media_dias'] and round(cal['vida_media_dias'])} días · peso de xG {cal['w_xg']} · "
+              f"partidos evaluados {cal['n_eval']}"]
+        for f in cal["filas"]:
+            L.append(f"- {f['liga']} {f['mercado']}: α={f['alpha']:.2f} (n={f['partidos']}) · log-loss modelo "
+                     f"{f['log_loss_modelo']:.4f} · mercado {f['log_loss_mercado']:.4f} · mezcla {f['log_loss_mezcla']:.4f} "
+                     f"→ {f['lectura']}")
+    L += ["", "## Cobertura por liga"]
+    for c in cobertura_ligas(conn, cfg, ahora):
+        L.append(f"- {c['codigo']}: histórico {c['finalizados']} partidos · próximos 3 días {c['proximos']}"
+                 + (f" · ⚠ {c['problema']}" if c["problema"] else ""))
+    L += ["", "## Partidos"]
+    for p in dia(conn, cfg, d, ahora):
+        pr = p["prediccion"]
+        if not pr:
+            L.append(f"- {p['inicio_local']} {p['liga']} {p['local']} vs {p['visitante']}: sin predicción")
+            continue
+        p1 = p["p1x2"]
+        fmt = lambda v: "—" if any(x is None for x in v) else " / ".join(f"{100 * x:.0f}" for x in v)
+        crs = pr["crs"]
+        L.append(f"- {p['inicio_local']} {p['liga']} {p['local']} vs {p['visitante']}")
+        L.append(f"  1/X/2 % → modelo {fmt(p1['modelo'])} · mercado {fmt(p1['mercado'])} · decisión {fmt(p1['ajustada'])}"
+                 f" · λ {pr['lambda_local']}–{pr['lambda_visitante']}")
+        L.append(f"  CRS {crs['total']} ({crs['alerta']}{', parcial' if not crs['completo'] else ''})"
+                 + (f" · vetadas {', '.join(crs['vetadas'])}" if crs["veto"] else ""))
+        mj = p.get("mejor")
+        if mj:
+            L.append(f"  Mejor: {mj['seleccion']} cuota {mj.get('cuota_casa')} · p {mj['p_adj']:.3f} · "
+                     f"EV {100 * mj['ev']:+.1f}% (umbral {100 * mj['umbral']:.0f}%) → {mj['clasificacion']}")
+        for k in p["picks"]:
+            L.append(f"  PICK {k['seleccion']} @ {float(k['cuota_sugerida']):.2f} · stake {k['stake_u']} u · "
+                     f"estado {k['estado'] or ('liquidado ' + str(k['resultado']) if k['resultado'] else 'activo')}")
+    L += ["", "## Parlays"]
+    pls = parlays(conn, d)
+    L += [f"- #{x['ranking']} {x['n_bloques']} bloques · P {100 * x['p_parlay']:.1f}% · cuota {float(x['cuota_combinada']):.2f} "
+          f"· EV {100 * x['ev']:+.1f}% · stake {x['stake_u']} u" for x in pls] or ["- (ninguno)"]
+    k = clv(conn, cfg)["criterio"]
+    L += ["", "## CLV (¿le gana al mercado?)",
+          f"- Partidos con CLV: {k['partidos_independientes']}/{k['minimo']} · CLV medio {k['clv_ev_medio']} · "
+          f"cota inferior 95% {k['cota_inferior_95']} · dinero real: {'sí' if k['listo_para_dinero_real'] else 'todavía no'}"]
+    return "\n".join(L)

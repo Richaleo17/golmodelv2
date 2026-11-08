@@ -71,6 +71,14 @@ h1, h2, h3, h4, [data-testid="stMetricLabel"] { font-family:'Barlow Condensed',s
 .oport .ev { font-family:'JetBrains Mono',monospace; font-size:1.15rem; color:var(--cancha); }
 .paso { border:1px solid rgba(232,243,236,.15); border-radius:12px; padding:14px; background:rgba(18,32,25,.6); height:100%; }
 .paso b { font-family:'Barlow Condensed',sans-serif; font-size:1.25rem; color:var(--cancha); }
+@media (max-width: 640px) {   /* celular: encabezado compacto para llegar rápido a los partidos */
+  .marcador { padding:10px 14px; }
+  .marcador h1 { font-size:1.7rem; }
+  .lema { display:none; }
+  .chip { font-size:.62rem; padding:1px 7px; margin:4px 4px 0 0; }
+  .equipos { font-size:1.3rem; }
+  [data-testid="stMetricValue"] { font-size:1.6rem; }
+}
 div[data-testid="stExpander"] { border:1px solid rgba(232,243,236,.15); border-radius:10px; background:rgba(18,32,25,.55); }
 .stButton > button { border:1px solid rgba(46,229,157,.5); font-weight:600; }
 .stButton > button:hover { border-color:var(--cancha); color:var(--cancha); }
@@ -355,6 +363,21 @@ with tabs[0]:
     k5.metric("CRS alto", sum(1 for p in con_pred if p["prediccion"]["crs"]["alerta"] == "ALTA"),
               help="Partidos donde el favorito tiene riesgo alto de tropezar: sus selecciones se filtran.")
 
+    cov = estado.get("cobertura_ligas") or []
+    if cov:
+        hay_problema = any(c["problema"] for c in cov)
+        with st.expander("🌍 Cobertura por liga · " + ("⚠ hay ligas con problemas" if hay_problema else "todo en orden"),
+                         expanded=hay_problema):
+            for c in cov:
+                st.markdown(f"{'⚠️' if c['problema'] else '✅'} **{NOMBRE_LIGA.get(c['codigo'], c['codigo'])}** — "
+                            f"histórico: {c['finalizados']:,} partidos · próximos 3 días: {c['proximos']}")
+                if c["problema"]:
+                    st.caption(f"↳ {c['problema']}")
+            sin_hist = [c["codigo"] for c in cov if c["finalizados"] == 0]
+            if sin_hist:
+                st.code("docker compose run --rm api python scripts/cargar_historico.py --temporadas 5 --sin-xg "
+                        f"--ligas {' '.join(sin_hist)}", language="bash")
+
     if not partidos:
         st.info("No hay partidos para este día. Cambia la fecha en la barra lateral o presiona **Actualizar datos**.")
     else:
@@ -474,6 +497,15 @@ with tabs[0]:
                                 for k in p["picks"]]), hide_index=True, width="stretch")
                         else:
                             st.caption("Sin picks registrados para este partido.")
+
+    st.markdown("#### 📋 Resumen del día")
+    st.caption("Texto con probabilidades, picks, calibración y CLV. Cópialo (botón de la esquina del recuadro) "
+               "para analizarlo con Claude u otra persona.")
+    if st.button("Generar resumen del día"):
+        r_txt, e_txt = api("GET", f"/resumen/{dia.isoformat()}")
+        st.session_state["resumen"] = r_txt["texto"] if r_txt else f"No se pudo generar: {e_txt}"
+    if st.session_state.get("resumen"):
+        st.code(st.session_state["resumen"], language="markdown")
 
 # ------------------------------------------------------------------ Parlay
 with tabs[1]:
@@ -608,6 +640,30 @@ with tabs[5]:
                 st.caption(f"   ↳ {a}")
     else:
         st.caption("Todavía no hay actualizaciones.")
+
+    st.markdown("#### 🧪 Calidad del modelo (medida con datos reales del último año)")
+    cal = estado.get("calibracion")
+    if not cal:
+        st.caption("Todavía no hay una calibración. Se hace en la primera actualización de datos.")
+    else:
+        if not cal["calibrado"]:
+            st.warning(f"Modelo sin calibrar: {cal.get('motivo') or 'faltan partidos'}. Usa valores por defecto.")
+        st.caption(f"Memoria ≈ {round(cal['vida_media_dias']) if cal['vida_media_dias'] else '—'} días · "
+                   f"peso del xG {cal['w_xg']} · {cal['n_eval'] or '—'} partidos evaluados. "
+                   "Log-loss: menor es mejor. 'Mercado' = la cuota de Pinnacle sin margen (la vara a superar).")
+        if cal["filas"]:
+            tabla_cal = pd.DataFrame(cal["filas"]).rename(columns={
+                "liga": "Liga", "mercado": "Mercado", "alpha": "Peso del modelo (α)", "partidos": "Partidos",
+                "log_loss_modelo": "Log-loss modelo", "log_loss_mercado": "Log-loss mercado",
+                "log_loss_mezcla": "Log-loss mezcla", "mejora_vs_mercado": "Mejora vs mercado", "lectura": "Lectura"})
+            st.dataframe(tabla_cal, hide_index=True, width="stretch", column_config={
+                "Peso del modelo (α)": st.column_config.ProgressColumn(min_value=0.0, max_value=1.0, format="%.2f"),
+                "Log-loss modelo": st.column_config.NumberColumn(format="%.4f"),
+                "Log-loss mercado": st.column_config.NumberColumn(format="%.4f"),
+                "Log-loss mezcla": st.column_config.NumberColumn(format="%.4f"),
+                "Mejora vs mercado": st.column_config.NumberColumn(format="%+.4f")})
+            st.caption("Si el peso del modelo es casi 0, el mercado ya lo sabe todo y el modelo casi no aporta: "
+                       "los picks serán pocos y de poca confianza. Es una señal honesta, no un fallo.")
 
     st.markdown("#### 🏷️ Nombres de equipo por revisar")
     st.caption("Nunca se adivinan: un nombre mal unido mezclaría los datos de dos equipos. "

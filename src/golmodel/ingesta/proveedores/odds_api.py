@@ -9,7 +9,7 @@ from typing import Any
 
 from golmodel.ingesta.proveedores.base import ErrorFormato, Proveedor
 from golmodel.ingesta.proveedores.http import ClienteHTTP
-from golmodel.ingesta.tipos import Capacidad, CuotaExterna, Solicitud
+from golmodel.ingesta.tipos import Capacidad, CuotaExterna, PartidoExterno, Solicitud
 
 BASE_URL = "https://api.the-odds-api.com"
 
@@ -57,9 +57,17 @@ def parse_eventos(cuerpo: Any, tipo: str, observada_en: datetime | None = None) 
     return salida
 
 
+def parse_calendario(cuerpo: Any, liga: str) -> list[PartidoExterno]:
+    """Calendario de la liga a partir del listado de eventos (sin cuotas)."""
+    if not isinstance(cuerpo, list):
+        raise ErrorFormato("odds_api", "se esperaba una lista de eventos")
+    return [PartidoExterno("odds_api", liga, _parse_iso(ev["commence_time"]), ev["home_team"], ev["away_team"],
+                           "programado", id_externo=ev["id"]) for ev in cuerpo]
+
+
 class OddsApi(Proveedor):
     nombre = "odds_api"
-    capacidades = frozenset({Capacidad.CUOTAS, Capacidad.CUOTAS_CIERRE})
+    capacidades = frozenset({Capacidad.CUOTAS, Capacidad.CUOTAS_CIERRE, Capacidad.FIXTURES})
     ligas = frozenset(SPORT_KEYS)
     presupuesto = "odds_api"
 
@@ -70,6 +78,8 @@ class OddsApi(Proveedor):
         self.http = ClienteHTTP(self.nombre, BASE_URL, **kw)
 
     def costo_estimado(self, s: Solicitud) -> int:
+        if s.capacidad is Capacidad.FIXTURES:
+            return 0     # VERIFICAR EN DOCUMENTACIÓN: /events no consume créditos (el contador real lo confirma)
         return len(self.regiones) * len(self.mercados)
 
     @staticmethod
@@ -87,6 +97,15 @@ class OddsApi(Proveedor):
 
     def obtener(self, s: Solicitud) -> list[Any]:
         ahora = datetime.now(timezone.utc)
+        if s.capacidad is Capacidad.FIXTURES:
+            # Solo partidos por venir; la consulta registra su costo real según el header del proveedor.
+            params = {"apiKey": self.api_key, "dateFormat": "iso"}
+            if s.hasta:
+                params["commenceTimeTo"] = _iso(datetime.combine(s.hasta, datetime.min.time(), timezone.utc)
+                                                + timedelta(days=1))
+            cuerpo = self.http.get_json(f"/v4/sports/{SPORT_KEYS[s.liga]}/events", params,
+                                        costo=self._costo, restante=self._restante)
+            return parse_calendario(cuerpo, s.liga)
         params: dict[str, Any] = {
             "apiKey": self.api_key, "regions": ",".join(self.regiones),
             "markets": ",".join(self.mercados), "oddsFormat": "decimal", "dateFormat": "iso",

@@ -246,7 +246,8 @@ def test_registro_desde_config_real():
     assert [e.proveedor.nombre for e in cadenas[Capacidad.CUOTAS_CIERRE].eslabones] == \
         ["odds_api", "api_football", "football_data_csv"]
     # sin llave de football-data.org, se omite de la cadena
-    assert [e.proveedor.nombre for e in cadenas[Capacidad.FIXTURES].eslabones] == ["api_football", "thesportsdb"]
+    assert [e.proveedor.nombre for e in cadenas[Capacidad.FIXTURES].eslabones] == \
+        ["api_football", "odds_api", "thesportsdb"]
     res = {e.proveedor.nombre: e.equivalente for e in cadenas[Capacidad.RESULTADOS].eslabones}
     assert res["thesportsdb"] is False
 
@@ -344,3 +345,26 @@ def test_resolver_subconjunto_unico_y_ambiguo():
     assert r.resolver("football_data_org", "Manchester United FC", 7) == 2     # abreviatura 'man'
     # 'Manchester' a secas encaja en United y City: NO se adivina
     assert r.resolver("otra", "Manchester", 7) is None and c.pend
+
+
+def test_odds_api_calendario_para_las_cinco_ligas():
+    evs = [{"id": "e1", "commence_time": "2026-11-09T02:00:00Z", "home_team": "Cruz Azul", "away_team": "Club America"}]
+    ps = oa.parse_calendario(evs, "MX1")
+    assert (ps[0].local, ps[0].estado, ps[0].id_externo, ps[0].fuente) == ("Cruz Azul", "programado", "e1", "odds_api")
+    with pytest.raises(ErrorFormato):
+        oa.parse_calendario({"message": "error"}, "MX1")
+
+    visto = []
+
+    def h(req):
+        visto.append(req.url.path)
+        assert "markets" not in req.url.params           # el calendario no pide cuotas
+        return httpx.Response(200, json=evs, headers={"x-requests-last": "0", "x-requests-remaining": "480"})
+
+    log = []
+    p = oa.OddsApi("k", regiones=["eu"], mercados=["h2h", "totals"], transport=httpx.MockTransport(h),
+                   registrar=lambda *a: log.append(a))
+    assert p.costo_estimado(Solicitud(Capacidad.FIXTURES, "MX1")) == 0
+    assert p.cubre(Solicitud(Capacidad.FIXTURES, "MLS"))
+    assert len(p.obtener(Solicitud(Capacidad.FIXTURES, "MX1", hasta=date(2026, 11, 12)))) == 1
+    assert visto == ["/v4/sports/soccer_mexico_ligamx/events"] and log[0][2:] == (0, 200, 480)

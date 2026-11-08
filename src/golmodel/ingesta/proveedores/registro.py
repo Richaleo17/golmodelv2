@@ -28,6 +28,8 @@ from golmodel.ingesta.tipos import Capacidad
 EQUIVALENCIA: dict[tuple[Capacidad, str], tuple[bool, str]] = {
     (Capacidad.FIXTURES, "api_football"): (True, ""),
     (Capacidad.FIXTURES, "football_data_org"): (True, "Sin ids de API-Football: lesiones/alineaciones no disponibles."),
+    (Capacidad.FIXTURES, "odds_api"): (True, "Calendario tomado del feed de cuotas: sin id de API-Football "
+                                             "(lesiones y alineaciones no disponibles)."),
     (Capacidad.FIXTURES, "thesportsdb"): (True, "Datos comunitarios: revisar horarios."),
     (Capacidad.RESULTADOS, "api_football"): (True, ""),
     (Capacidad.RESULTADOS, "football_data_org"): (True, ""),

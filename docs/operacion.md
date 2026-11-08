@@ -56,3 +56,28 @@ Corre 100 pruebas. Las de integración necesitan PostgreSQL vía `GOLMODEL_TEST_
 psql -f db/tests/test_schema.sql
 ```
 Corre las pruebas del esquema.
+
+## 9. Abrirla desde el celular
+La app corre en tu computadora; el celular solo es la pantalla. La computadora debe estar **encendida, con Docker abierto**.
+
+**En tu WiFi de casa:**
+```bash
+printf '\nUI_BIND=0.0.0.0\n' >> .env
+```
+```bash
+docker compose up -d --force-recreate
+```
+```bash
+ipconfig getifaddr en0
+```
+El último comando imprime la IP de tu Mac (por ejemplo `192.168.1.20`). En el celular, conectado a la misma WiFi, abre `http://ESA_IP:8501`.
+
+**Fuera de casa:** instala Tailscale (gratis) en la Mac y en el celular, con la misma cuenta. Abre `http://IP_DE_TAILSCALE_DE_LA_MAC:8501`. Es una red privada: no expone nada a internet.
+
+**Seguridad:** la app no tiene contraseña. Con `UI_BIND=0.0.0.0`, cualquiera en tu WiFi puede ver los picks y gastar tus consultas de API. Úsalo solo en redes de confianza y nunca publiques el puerto en internet. Para volver al modo privado, borra esa línea del `.env` y repite `docker compose up -d --force-recreate`.
+
+## 10. Si falta una liga
+Abre **Partidos → Cobertura por liga**: dice, por liga, cuántos partidos de histórico hay, cuántos próximos y por qué falta alguno.
+- **Sin histórico:** carga con `scripts/cargar_historico.py --ligas ...` (el panel te da el comando).
+- **Nombres por revisar:** pestaña Datos.
+- **Sin partidos próximos:** puede ser receso de la liga. El calendario viene de API-Football, football-data.org, The Odds API y TheSportsDB, en ese orden de respaldo.

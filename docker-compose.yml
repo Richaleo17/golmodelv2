@@ -38,7 +38,8 @@ services:
     command: streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
     environment:
       API_URL: http://api:8000
-    ports: ["127.0.0.1:8501:8501"]
+    # Por defecto solo tu computadora. Para abrirla desde el celular (misma WiFi): UI_BIND=0.0.0.0 en .env
+    ports: ["${UI_BIND:-127.0.0.1}:8501:8501"]
     depends_on: [api]
 
 volumes:

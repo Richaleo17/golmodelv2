@@ -386,3 +386,19 @@ def test_9_ejecucion_huerfana_se_libera(dsn, cfg):
     conn.execute("UPDATE ejecuciones SET estado = 'error' WHERE estado = 'en_curso'")
     conn.commit()
     conn.close()
+
+
+def test_10_cobertura_calibracion_y_resumen(dsn, cfg, mundo):
+    from golmodel.servicios import vistas
+    conn = db.conectar(dsn)
+    momento = pd.Timestamp(JORNADA).to_pydatetime() - timedelta(hours=3)
+    cov = {c["codigo"]: c for c in vistas.cobertura_ligas(conn, {**cfg, "ligas_activas": ["EPL", "MX1"]}, momento)}
+    assert cov["EPL"]["finalizados"] > 0 and cov["EPL"]["problema"] is None or cov["EPL"]["proximos"] == 0
+    assert "Sin histórico" in cov["MX1"]["problema"]                  # liga sin datos cargados
+    cal = vistas.calibracion(conn)
+    assert cal["calibrado"] and cal["filas"] and all("lectura" in f for f in cal["filas"])
+    dia = pd.Timestamp(JORNADA).tz_convert("America/Mexico_City").date()
+    txt = vistas.resumen_texto(conn, cfg, dia, momento)
+    for esperado in ("# golmodelv2", "## Modelo", "α=", "## Cobertura por liga", "## Partidos", "## Parlays", "## CLV"):
+        assert esperado in txt
+    conn.close()

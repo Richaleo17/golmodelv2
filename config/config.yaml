@@ -31,7 +31,7 @@ fuentes:
 # Orden de respaldo por capacidad. Solo se pueden usar combinaciones
 # aprobadas en golmodel/ingesta/proveedores/registro.py (EQUIVALENCIA).
 cadenas:
-  fixtures:      [api_football, football_data_org, thesportsdb]
+  fixtures:      [api_football, football_data_org, odds_api, thesportsdb]   # odds_api cubre las 5 ligas
   resultados:    [api_football, football_data_org, football_data_csv, thesportsdb]
   xg:            [understat]          # una sola familia de xG, sin sustitutos
   xg_jugadores:  [understat]

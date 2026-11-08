@@ -146,6 +146,11 @@ def get_dia(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion))
     return vistas.dia(conn, s.cfg, _dia(fecha, s), s.reloj())
 
 
+@app.get("/resumen/{fecha}")
+def get_resumen(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    return {"texto": vistas.resumen_texto(conn, s.cfg, _dia(fecha, s), s.reloj())}
+
+
 @app.get("/parlays/{fecha}")
 def get_parlays(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     return vistas.parlays(conn, _dia(fecha, s))
