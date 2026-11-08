@@ -1,0 +1,233 @@
+{
+  "origen_datos": {
+    "tipo": "SINTETICO",
+    "advertencia": "Liga simulada con parámetros conocidos. Cuotas = probabilidades verdaderas + 5% de margen (mercado eficiente). No usar para apostar."
+  },
+  "partido": {
+    "local": "SINT_03",
+    "visitante": "SINT_11"
+  },
+  "modelo": {
+    "version": "dixon_coles_xg_l2",
+    "datos_hasta": "2026-02-22T15:00:00+00:00",
+    "n_partidos": 1140,
+    "xi_por_dia": 0.0019,
+    "vida_media_dias": 364.8,
+    "w_xg": 0.5,
+    "rho": -0.0559,
+    "ventaja_local": 0.2418,
+    "convergencia": {
+      "iteraciones": 67,
+      "nll": 668.6481627909711,
+      "mensaje": "CONVERGENCE: RELATIVE REDUCTION OF F <= FACTR*EPSMCH",
+      "gradiente_proyectado": 1.5926895120754736e-05,
+      "reintentos": 0,
+      "rho_en_limite": false
+    }
+  },
+  "lambdas": {
+    "local": 1.8246,
+    "visitante": 1.6704
+  },
+  "matriz": {
+    "goles_max": 10,
+    "suma": 1.0,
+    "masa_truncada": 5.091063380646688e-06,
+    "rho_acotado": false,
+    "marcadores_mas_probables": [
+      {
+        "marcador": "1-1",
+        "p": 0.0977
+      },
+      {
+        "marcador": "2-1",
+        "p": 0.0844
+      },
+      {
+        "marcador": "1-2",
+        "p": 0.0773
+      },
+      {
+        "marcador": "2-2",
+        "p": 0.0705
+      },
+      {
+        "marcador": "3-1",
+        "p": 0.0513
+      },
+      {
+        "marcador": "2-0",
+        "p": 0.0505
+      }
+    ]
+  },
+  "combinacion": {
+    "alpha": 0.5,
+    "alpha_calibrado": false,
+    "umbral_edge_efectivo": 0.06,
+    "razones_umbral": [
+      "α no calibrado"
+    ]
+  },
+  "mercados": {
+    "1X2:1": {
+      "p_modelo": 0.4153,
+      "p_mercado": 0.4837,
+      "p_adj": 0.4495,
+      "cuota_justa": 2.225,
+      "cuota_casa": 1.99,
+      "ev": -0.1055,
+      "clasificacion": "sin_valor"
+    },
+    "1X2:X": {
+      "p_modelo": 0.2327,
+      "p_mercado": 0.2278,
+      "p_adj": 0.2302,
+      "cuota_justa": 4.344,
+      "cuota_casa": 4.11,
+      "ev": -0.0538,
+      "clasificacion": "sin_valor"
+    },
+    "1X2:2": {
+      "p_modelo": 0.352,
+      "p_mercado": 0.2885,
+      "p_adj": 0.3203,
+      "cuota_justa": 3.122,
+      "cuota_casa": 3.28,
+      "ev": 0.0505,
+      "clasificacion": "marginal"
+    },
+    "BTTS:si": {
+      "p_modelo": 0.6861,
+      "p_mercado": 0.6894,
+      "p_adj": 0.6877,
+      "cuota_justa": 1.454,
+      "cuota_casa": 1.4,
+      "ev": -0.0372,
+      "clasificacion": "sin_valor"
+    },
+    "BTTS:no": {
+      "p_modelo": 0.3139,
+      "p_mercado": 0.3106,
+      "p_adj": 0.3123,
+      "cuota_justa": 3.202,
+      "cuota_casa": 2.98,
+      "ev": -0.0694,
+      "clasificacion": "sin_valor"
+    },
+    "OU:1.5:over": {
+      "p_modelo": 0.8687,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 1.151,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    },
+    "OU:1.5:under": {
+      "p_modelo": 0.1313,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 7.619,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    },
+    "OU:2.5:over": {
+      "p_modelo": 0.6782,
+      "p_mercado": 0.6888,
+      "p_adj": 0.6835,
+      "cuota_justa": 1.463,
+      "cuota_casa": 1.4,
+      "ev": -0.0431,
+      "clasificacion": "sin_valor"
+    },
+    "OU:2.5:under": {
+      "p_modelo": 0.3218,
+      "p_mercado": 0.3112,
+      "p_adj": 0.3165,
+      "cuota_justa": 3.16,
+      "cuota_casa": 2.97,
+      "ev": -0.06,
+      "clasificacion": "sin_valor"
+    },
+    "OU:3.5:over": {
+      "p_modelo": 0.4623,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 2.163,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    },
+    "OU:3.5:under": {
+      "p_modelo": 0.5377,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 1.86,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    },
+    "ANOTA:local:si": {
+      "p_modelo": 0.8387,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 1.192,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    },
+    "ANOTA:local:no": {
+      "p_modelo": 0.1613,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 6.2,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    },
+    "ANOTA:visitante:si": {
+      "p_modelo": 0.8118,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 1.232,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    },
+    "ANOTA:visitante:no": {
+      "p_modelo": 0.1882,
+      "p_mercado": null,
+      "p_adj": null,
+      "cuota_justa": 5.314,
+      "cuota_casa": null,
+      "ev": null,
+      "clasificacion": "sin_cuota"
+    }
+  },
+  "consistencia": {
+    "1X2_suma": 1.0,
+    "BTTS_suma": 1.0,
+    "OU2.5_suma": 1.0
+  },
+  "sgp_ejemplo": {
+    "selecciones": [
+      "1X2:1",
+      "OU:2.5:over"
+    ],
+    "descripcion": "Gana local + Más de 2.5 goles",
+    "p_modelo_conjunta": 0.3146,
+    "verificacion_suma_celdas": 0.3146,
+    "p_si_se_multiplicara (INCORRECTO)": 0.2817,
+    "correlacion_lift": 1.117,
+    "p_mercado_conjunta": 0.3734,
+    "matriz_mercado_error_max": 0.00272,
+    "p_adj": 0.344,
+    "cuota_justa": 2.907,
+    "cuota_casa": null,
+    "ev": null,
+    "estado": "valido, requiere capturar la cuota SGP real de la casa",
+    "umbral_edge_sgp": 0.1
+  }
+}

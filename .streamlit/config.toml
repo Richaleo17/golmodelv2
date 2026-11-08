@@ -1,0 +1,14 @@
+# Tema "estadio de noche": césped oscuro, líneas de cal, acento verde cancha.
+[theme]
+base = "dark"
+primaryColor = "#2ee59d"              # verde cancha: acción y valor (+EV)
+backgroundColor = "#0a120e"           # césped bajo reflectores
+secondaryBackgroundColor = "#122019"  # franjas del pasto
+textColor = "#e8f3ec"                 # líneas de cal
+font = "sans serif"
+
+[server]
+headless = true
+
+[browser]
+gatherUsageStats = false

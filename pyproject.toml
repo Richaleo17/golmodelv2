@@ -1,0 +1,32 @@
+[project]
+name = "golmodel"
+version = "0.1.0"
+description = "golmodelv2: probabilidades calibradas, +EV y gestión de riesgo para apuestas de fútbol"
+requires-python = ">=3.11"
+dependencies = [
+    "httpx>=0.27",
+    "pydantic>=2.6",
+    "pyyaml>=6",
+    "pandas>=2.2",
+    "numpy>=1.26",
+    "scipy>=1.12",
+    "psycopg[binary]>=3.1",
+    "fastapi>=0.110",
+    "uvicorn>=0.29",
+    "apscheduler>=3.10,<4",
+    "streamlit>=1.33",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

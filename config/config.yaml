@@ -1,0 +1,159 @@
+# golmodelv2 · configuración única. Ningún umbral vive en el código.
+# Cada versión de modelo guarda una copia de este archivo y su hash.
+
+zona_horaria: America/Mexico_City
+
+ligas_activas: [EPL, SA, MX1, MLS, BR1]
+historico:
+  temporadas: 5            # + la temporada en curso
+  # EPL y SA: xG de Understat (goles + xG). MX1, MLS, BR1: solo goles.
+
+fuentes:
+  api_football:
+    plan: free
+    limite_diario: 100     # VERIFICAR EN DOCUMENTACIÓN (y acceso a temporada actual)
+    reserva_diaria: 10     # nunca gastar las últimas N
+  odds_api:
+    plan: free
+    creditos_mensuales: 500   # VERIFICAR EN DOCUMENTACIÓN
+    reserva_cierres: 150      # créditos apartados para snapshots de cierre
+    regiones: [eu]            # costo = mercados × regiones
+    mercados: [h2h, totals]   # BTTS / equipo anota: captura manual en el MVP
+  understat:
+    min_segundos_entre_requests: 5
+  football_data:
+    usar_cierre_como_respaldo: true
+  football_data_org:
+    plan: free              # 10 requests/min; cubre EPL, SA, BR1 (respaldo de fixtures/resultados)
+  thesportsdb:
+    plan: free              # último respaldo de fixtures; sus resultados no liquidan sin confirmar
+
+# Orden de respaldo por capacidad. Solo se pueden usar combinaciones
+# aprobadas en golmodel/ingesta/proveedores/registro.py (EQUIVALENCIA).
+cadenas:
+  fixtures:      [api_football, football_data_org, thesportsdb]
+  resultados:    [api_football, football_data_org, football_data_csv, thesportsdb]
+  xg:            [understat]          # una sola familia de xG, sin sustitutos
+  xg_jugadores:  [understat]
+  lesiones:      [api_football]       # sin respaldo gratis -> captura manual / aviso
+  alineaciones:  [api_football]
+  cuotas:        [odds_api, api_football]
+  cuotas_cierre: [odds_api, api_football, football_data_csv]
+  calendario:    [api_football]       # sin él, el parámetro de fatiga del CRS queda "no disponible"
+
+frescura:
+  cuotas_max_min: 60
+  cuotas_max_min_cerca: 15
+  horas_cerca_inicio: 3
+  modelo_max_dias: 3
+
+cierre:
+  minutos_antes: 5
+  solo_partidos_con_picks: true   # ahorra créditos del plan gratis
+  reintentos: 2
+
+modelo:
+  familia_xg: understat             # cambiarla exige reingerir histórico y recalibrar
+  goles_max: 10
+  calibracion_semanal_dias: 7
+  decaimiento_xi_inicial: 0.0019    # por día (vida media ≈ 365 d); se recalibra
+  w_xg_inicial: 0.5                 # se recalibra en EPL/SA; 0 donde no hay xG
+  l2_lambda_inicial: 1.0
+  prior_ascendidos: promedio_historico
+  rho_limites: [-0.2, 0.2]
+  rho_prior: {media: -0.06, desviacion: 0.05}   # prior normal sobre ρ (diseño; rango típico en la literatura)
+  rejilla_calibracion:              # walk-forward semanal (log-loss 1X2)
+    xi: [0.001, 0.002, 0.004, 0.007]
+    w_xg: [0.0, 0.3, 0.5, 0.7]
+
+contexto:
+  tope_ajuste_lambda: -0.15
+  minutos_min_jugador: 450          # menos minutos = no se ajusta
+  ligas_con_ajuste: [EPL, SA]       # requiere xG + xA por jugador (Understat)
+  factor_reemplazo: 0.5             # el reemplazo aporta en promedio la mitad (decisión de diseño)
+  tipos_con_ajuste: [lesion, suspension]   # 'duda' no ajusta λ, solo avisa
+  similitud_min_jugador: 0.85
+
+mercado:
+  metodo_devig: shin                # alternativa: potencia
+  casa_referencia: Pinnacle
+  # Casa contra la que se calcula el EV de los picks. Una sola casa fija: tomar la MEJOR
+  # cuota entre muchas casas sesga el EV hacia arriba (se elige el error más favorable).
+  # Una cuota capturada a mano para 'manual' reemplaza a esta si está vigente.
+  casa_ejecucion: pinnacle
+  alpha_por_defecto: 0.5            # si no se pudo calibrar
+  factor_alpha_no_calibrado: 0.5    # α_no_cal = factor × α(1X2 de la liga)
+  umbral_extra_no_calibrado: 0.02
+  # Si falta la casa de referencia, p_mercado = mediana sin margen del resto:
+  umbral_extra_referencia_sustituta: 0.02
+  min_casas_consenso: 3             # con menos casas no se calcula p_mercado (no se apuesta)
+
+# CRS · Casinazo Risk Score (heurística de dominio; pesos y umbrales NO calibrados)
+crs:
+  version: crs_v1
+  pesos: {divergencia_xpts: 20, brecha_probabilidad: 25, fatiga: 20, motivacion: 20, fragilidad_defensiva: 15}
+  umbrales:
+    divergencia_xpts: {partidos: 5, puntos: 4}       # (puntos reales − xPts) > 4 en últimos 5
+    brecha_probabilidad: 0.10                        # p_mercado(sin margen) − p_modelo del favorito
+    fatiga: {horas_descanso: 72, solo_si_previo_copa_o_fuera: true}
+    motivacion: {puntos_lucha: 3}
+    fragilidad_defensiva: {partidos: 3, xga: 1.5}
+  min_prob_favorito: 0.40          # por debajo no hay "favorito" y el CRS no aplica
+  min_parametros_disponibles: 3    # con menos, CRS = INSUFICIENTE
+  alerta: {alta: 70, media: 40}
+  veto:
+    umbral: 70
+    aplica_simples: true           # también bloquea picks simples del favorito (Módulo 1)
+    selecciones: [gana_favorito, handicap_favorito, doble_oportunidad_favorito]
+  ajuste_favorito:
+    modo: sombra                   # sombra = se calcula y guarda, NO entra a p_adj; activo tras validarlo
+    reduccion_lambda: 0.10         # λ_favorito × (1 − 0.10) si CRS >= umbral de veto
+    criterio_activacion: "walk-forward: log-loss con ajuste < sin ajuste en partidos con CRS ALTA (n >= 200)"
+  # Fronteras de la tabla por liga: la posición b separa b de b+1.  VERIFICAR formatos 2026.
+  objetivos:
+    EPL: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 17}]
+    SA:  [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 17}]
+    BR1: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 6}, {tipo: descenso, ultima_posicion: 16}]
+    MX1: [{tipo: clasificacion, ultima_posicion: 6}, {tipo: playoff, ultima_posicion: 10}]   # sin descenso
+    MLS: []                        # playoffs por conferencia: requiere equipo_temporada.grupo
+
+valor:
+  umbral_edge: 0.04
+  umbral_edge_sgp: 0.08
+  umbral_edge_sgp_sin_mercado: 0.12
+
+parlays:
+  bloques_min: 3
+  bloques_max: 5
+  p_min_bloque: 0.60
+  cuota_min_bloque: 1.30
+  cuota_max_bloque: 2.50
+  p_min_parlay: 0.15
+  max_selecciones_sgp: 2
+  redundancia_ratio: 0.98           # P_SGP / min(P_a, P_b) ≥ esto → redundante
+  top_n_partidos: 12
+  alternativas: 2
+
+bankroll:
+  unidad_pct_banca: 0.01
+  kelly_fraccion_simple: 0.25
+  kelly_fraccion_parlay: 0.10
+  stake_max_simple_u: 2.0
+  stake_max_parlay_u: 0.5
+  exposicion_diaria_max_u: 5.0
+  max_simples_con_stake_por_partido: 1
+  banca_inicial: 10000              # solo para mostrar dinero; todo se calcula en unidades
+
+liquidacion:
+  dias_espera_cierre_csv: 7        # si falta el snapshot de cierre, se espera al CSV antes de "sin CLV"
+
+recalculo:
+  dias: [0, 1]                     # hoy y mañana (America/Mexico_City)
+
+normalizacion:
+  similitud_min: 0.90              # alias automático solo si la similitud es alta...
+  margen_min: 0.08                 # ...y claramente mejor que el segundo candidato
+
+operacion:
+  picks_min_paper: 300
+  criterio_go: cota_inferior_95_clv_ev_mayor_a_0
