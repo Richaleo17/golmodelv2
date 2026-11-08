@@ -259,6 +259,18 @@ def test_registro_rechaza_combinacion_no_aprobada():
         construir_cadenas(cfg, provs, construir_presupuestos(cfg))
 
 
+def test_understat_usa_cookie_de_la_pagina():
+    def h(req):
+        if req.url.path.startswith("/league"):
+            return httpx.Response(200, text="<html></html>", headers={"set-cookie": "PHPSESSID=abc; Path=/"})
+        if "PHPSESSID=abc" not in req.headers.get("cookie", ""):
+            return httpx.Response(200, text="")                       # sin cookie: cuerpo vacío
+        return httpx.Response(200, json={"dates": [], "players": []})
+
+    u = us.Understat(pausa_s=0, transport=httpx.MockTransport(h), dormir=lambda s: None)
+    assert u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027")) == []
+
+
 def test_understat_envia_cabeceras_ajax_al_endpoint_json():
     fechas = [{"id": "1", "isResult": True, "datetime": "2026-11-08 15:00:00",
                "h": {"title": "Arsenal"}, "a": {"title": "Chelsea"}, "xG": {"h": "1.5", "a": "0.5"}}]
@@ -273,11 +285,12 @@ def test_understat_envia_cabeceras_ajax_al_endpoint_json():
     u = us.Understat(pausa_s=0, transport=httpx.MockTransport(h), dormir=lambda s: None)
     xs = u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027"))
     assert len(xs) == 1 and xs[0].xg_local == 1.5
-    assert vistos == [("/getLeagueData/EPL/2026", "XMLHttpRequest")]          # no hizo falta el HTML
+    # Primero la página (cookie de sesión), luego el endpoint AJAX
+    assert vistos == [("/league/EPL/2026", None), ("/getLeagueData/EPL/2026", "XMLHttpRequest")]
 
 
 def test_understat_error_explica_ambas_vias():
     u = us.Understat(pausa_s=0, transport=httpx.MockTransport(lambda r: httpx.Response(200, text="<html></html>")),
                      dormir=lambda s: None)
-    with pytest.raises(ErrorFormato, match="getLeagueData.*HTML"):
+    with pytest.raises(ErrorFormato, match="HTML sin datesData.*getLeagueData.*HTTP 200"):
         u.obtener(Solicitud(Capacidad.XG, "EPL", temporada="2026-2027"))

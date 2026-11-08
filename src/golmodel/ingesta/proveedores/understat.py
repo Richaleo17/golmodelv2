@@ -28,6 +28,12 @@ _RE_VAR = r"var\s+{}\s*=\s*JSON\.parse\('(?P<d>.*?)'\)"
 CABECERAS_AJAX = {"X-Requested-With": "XMLHttpRequest", "Accept": "application/json, text/javascript, */*; q=0.01"}
 
 
+def _resumen(r) -> str:
+    """Diagnóstico corto de una respuesta: estado, tipo, tamaño e inicio del cuerpo."""
+    cuerpo = " ".join(r.text[:120].split())
+    return f"HTTP {r.status_code}, {r.headers.get('content-type', '?')}, {len(r.content)} bytes: «{cuerpo}»"
+
+
 def _desde_html(html: str, variable: str) -> Any:
     m = re.search(_RE_VAR.format(variable), html, flags=re.S)
     if not m:
@@ -75,27 +81,28 @@ class Understat(Proveedor):
         if clave in self._cache:
             return self._cache[clave]
         codigo = CODIGOS[liga]
-        self._esperar()
-        datos: dict | None = None
+        pagina = f"/league/{codigo}/{anio}"
         fallas: list[str] = []
-        # 1) Endpoint JSON que usa la propia web. Exige las cabeceras de una petición AJAX:
-        #    sin X-Requested-With responde HTML y no los datos.
+        # 1) Página de la liga, como un navegador: crea la cookie de sesión que el endpoint de datos
+        #    exige, y además sirve si la web volviera a incrustar el JSON (formato anterior).
+        self._esperar()
+        r_pag = self.http.get(pagina, costo=0)
         try:
-            r = self.http.get(f"/getLeagueData/{codigo}/{anio}", costo=0, headers=CABECERAS_AJAX | {
-                "Referer": f"{BASE_URL}/league/{codigo}/{anio}"})
+            datos = {"dates": _desde_html(r_pag.text, "datesData"), "players": _desde_html(r_pag.text, "playersData")}
+            self._cache[clave] = datos
+            return datos
+        except ErrorFormato:
+            fallas.append(f"HTML sin datesData ({_resumen(r_pag)})")
+        # 2) Endpoint JSON que usa la web (petición AJAX con la cookie de la página y Referer).
+        self._esperar()
+        r = self.http.get(f"/getLeagueData/{codigo}/{anio}", costo=0,
+                          headers=CABECERAS_AJAX | {"Referer": f"{BASE_URL}{pagina}"})
+        try:
             cuerpo = r.json()
             datos = {"dates": cuerpo["dates"], "players": cuerpo["players"]}
-        except (ErrorProveedor, ValueError, KeyError, TypeError) as e:
-            fallas.append(f"getLeagueData: {type(e).__name__}: {e}")
-        # 2) Formato anterior: JSON incrustado en el HTML de la liga.
-        if datos is None:
-            self._esperar()
-            try:
-                html = self.http.get(f"/league/{codigo}/{anio}", costo=0).text
-                datos = {"dates": _desde_html(html, "datesData"), "players": _desde_html(html, "playersData")}
-            except ErrorProveedor as e:
-                fallas.append(f"HTML: {e}")
-                raise ErrorFormato(self.nombre, f"{codigo} {anio}: ninguna vía funcionó ({' | '.join(fallas)})") from e
+        except (ValueError, KeyError, TypeError) as e:
+            fallas.append(f"getLeagueData: {type(e).__name__} ({_resumen(r)})")
+            raise ErrorFormato(self.nombre, f"{codigo} {anio}: ninguna vía funcionó | " + " | ".join(fallas)) from e
         self._cache[clave] = datos
         return datos
 
