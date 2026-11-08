@@ -130,3 +130,52 @@ def panel_real(fecha: str | None = None, conn=Depends(conexion)):
     for p in pan["partidos"]:
         p.pop("jugadas", None)
     return pan
+
+
+# --------------------------------------------------------------- validación del prior de ascendidos (en segundo plano)
+import threading  # noqa: E402
+
+_VALIDACION: dict = {"estado": "sin_iniciar"}
+
+
+def _correr_validacion() -> None:
+    import time
+
+    import pandas as pd
+
+    from golmodel import repositorio as repo
+    from golmodel.backtest.validar_prior import validar
+    from golmodel.config import cargar
+    from golmodel.servicios.modelo import hiperparametros_vigentes, ligas_con_descenso
+
+    try:
+        cfg = cargar()
+        conn = db.conectar()
+        conn.execute("SET TRANSACTION READ ONLY")
+        df = repo.historial(conn)
+        df = df[df["goles_local"].notna()]
+        asc = {(r["e"], r["temporada"]) for r in conn.execute(
+            "SELECT equipo_id::text AS e, temporada FROM equipo_temporada WHERE ascendido")}
+        hp = hiperparametros_vigentes(conn, cfg)
+        conn.rollback()
+        conn.close()
+        ahora = pd.Timestamp.now(tz="UTC")
+        cortes = [pd.Timestamp(f"{y}-{m}-01", tz="UTC") for y in range(2023, 2027) for m in ("10-01", "12-01")]
+        cortes = [c for c in cortes if c < ahora - pd.Timedelta(days=14)]
+        _VALIDACION.update(estado="corriendo", inicio=time.time(), cortes=[str(c.date()) for c in cortes],
+                           ascendidos_marcados=len(asc), partidos=len(df))
+        res = validar(df, asc, ligas_con_descenso(cfg), xi=hp["xi"], l2=hp["l2"], l2_priors=[1.0, 4.0, 8.0, 16.0, 32.0],
+                      cortes=cortes)
+        _VALIDACION.update(estado="listo", resultado={str(k): v for k, v in res.items()},
+                           segundos=round(time.time() - _VALIDACION["inicio"]))
+    except Exception as e:  # noqa: BLE001
+        _VALIDACION.update(estado="error", error=f"{type(e).__name__}: {e}")
+
+
+@app.get("/diag/validar_prior", dependencies=[Depends(autorizar)])
+def validar_prior():
+    """Inicia (una vez) la validación del prior de ascendidos con los datos reales y devuelve su estado."""
+    if _VALIDACION["estado"] == "sin_iniciar":
+        _VALIDACION["estado"] = "iniciando"
+        threading.Thread(target=_correr_validacion, daemon=True).start()
+    return _VALIDACION

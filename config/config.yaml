@@ -61,7 +61,8 @@ modelo:
   decaimiento_xi_inicial: 0.0019    # por día (vida media ≈ 365 d); se recalibra
   w_xg_inicial: 0.5                 # se recalibra en EPL/SA; 0 donde no hay xG
   l2_lambda_inicial: 1.0
-  prior_ascendidos: promedio_historico
+  prior_ascendidos: ninguno         # 'promedio_historico' solo si backtest/validar_prior.py lo respalda con datos reales
+  l2_ascendidos: 8.0                # fuerza con la que un ascendido se jala a su prior (se elige con la validación)
   rho_limites: [-0.2, 0.2]
   rho_prior: {media: -0.06, desviacion: 0.05}   # prior normal sobre ρ (diseño; rango típico en la literatura)
   rejilla_calibracion:              # walk-forward semanal (log-loss 1X2)

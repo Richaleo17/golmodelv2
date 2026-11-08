@@ -166,11 +166,11 @@ def nll_y_gradiente(x: np.ndarray, D: _Datos, l2_e: float, l2_l: float,
     g_h = np.bincount(D.liga, rh, D.n_lig)
     g_rho = np.sum(D.phi * D.wt * dtr)
 
-    pen = (l2_e * (np.sum((a - a0) ** 2) + np.sum((d - d0) ** 2))
+    pen = (np.sum(l2_e * ((a - a0) ** 2 + (d - d0) ** 2))
            + l2_l * (np.sum((mu - mu_g) ** 2) + np.sum((h - h_g) ** 2))
            + k_rho * (rho - rho0) ** 2)
     grad = -np.concatenate([g_a, g_d, g_mu, g_h, [0.0, 0.0, g_rho]])
-    grad[:D.n_eq] += 2 * l2_e * (a - a0)
+    grad[:D.n_eq] += 2 * l2_e * (a - a0)             # l2_e: escalar o vector por equipo
     grad[D.n_eq:2 * D.n_eq] += 2 * l2_e * (d - d0)
     grad[2 * D.n_eq:2 * D.n_eq + D.n_lig] += 2 * l2_l * (mu - mu_g)
     grad[2 * D.n_eq + D.n_lig:2 * D.n_eq + 2 * D.n_lig] += 2 * l2_l * (h - h_g)
@@ -193,7 +193,7 @@ def _gradiente_proyectado(x, g, limites) -> float:
 def ajustar(df: pd.DataFrame, *, fecha_corte: datetime, xi: float, w_xg: float = 0.0,
             l2_equipos: float = 1.0, l2_ligas: float = 1.0,
             rho_limites: tuple[float, float] = (-0.2, 0.2),
-            priors: dict[str, tuple[float, float]] | None = None,
+            priors: dict[str, tuple[float, float]] | None = None, l2_prior: float | None = None,
             inicial: ModeloDC | None = None,
             rho_prior: tuple[float, float] | None = None) -> ModeloDC:
     """rho_prior = (media, desviación): prior normal sobre ρ [Diseño]. ρ solo se informa por
@@ -220,6 +220,9 @@ def ajustar(df: pd.DataFrame, *, fecha_corte: datetime, xi: float, w_xg: float =
     priors = priors or {}
     a0 = np.array([priors.get(e, (0.0, 0.0))[0] for e in equipos])
     d0 = np.array([priors.get(e, (0.0, 0.0))[1] for e in equipos])
+    # Los equipos con prior (ascendidos) pueden tener una penalización propia, más fuerte: sin ella, con l2 suave,
+    # el prior casi no mueve a un equipo con pocos partidos.
+    l2_e = np.array([l2_prior if (l2_prior is not None and e in priors) else l2_equipos for e in equipos])
 
     n_eq, n_lig = len(equipos), len(ligas)
     x0 = np.zeros(2 * n_eq + 2 * n_lig + 3)
@@ -240,7 +243,7 @@ def ajustar(df: pd.DataFrame, *, fecha_corte: datetime, xi: float, w_xg: float =
 
     limites = [(None, None)] * (len(x0) - 1) + [rho_limites]
     rho0, k_rho = (0.0, 0.0) if rho_prior is None else (rho_prior[0], 1.0 / (2.0 * rho_prior[1] ** 2))
-    args = (D, l2_equipos, l2_ligas, a0, d0, rho0, k_rho)
+    args = (D, l2_e, l2_ligas, a0, d0, rho0, k_rho)
     res = None
     for intento in range(3):   # reintentos desde el último punto (L-BFGS a veces corta la búsqueda lineal)
         res = minimize(nll_y_gradiente, x0 if res is None else res.x, args=args, jac=True,

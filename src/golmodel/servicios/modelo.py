@@ -15,6 +15,7 @@ from golmodel.config import hash_config
 from golmodel.modelos import devig
 from golmodel.modelos.calibracion import buscar
 from golmodel.modelos.dixon_coles import ModeloDC, ajustar
+from golmodel.modelos.prior_ascendidos import priors_para
 from golmodel.repositorio import historial
 
 GRUPOS_ALPHA = {"1X2": ("1X2:1", "1X2:X", "1X2:2"), "OU:2.5": ("OU:2.5:over", "OU:2.5:under")}
@@ -141,16 +142,36 @@ def alpha_para(hp: dict, cfg: dict, liga: str, grupo: str) -> tuple[float, bool]
     return mk["alpha_por_defecto"], False
 
 
+def ligas_con_descenso(cfg: dict) -> set[str]:
+    return {l for l, obj in cfg["crs"]["objetivos"].items() if any(o["tipo"] == "descenso" for o in obj)}
+
+
+def prior_de_ascendidos(conn, cfg: dict, df: pd.DataFrame) -> tuple[dict, set, dict]:
+    """(priors {equipo: (a0, d0)}, ascendidos vigentes, diagnóstico). Vacío si está desactivado."""
+    if cfg["modelo"].get("prior_ascendidos") != "promedio_historico" or df.empty:
+        return {}, set(), {"activo": False}
+    filas = conn.execute("""SELECT et.equipo_id::text AS e, et.temporada, l.codigo FROM equipo_temporada et
+                            JOIN ligas l ON l.id = et.liga_id WHERE et.ascendido""").fetchall()
+    con_desc = ligas_con_descenso(cfg)
+    hist = {(r["e"], r["temporada"]) for r in filas if r["codigo"] in con_desc}
+    en_curso = df.sort_values("inicio").groupby("liga").tail(1).set_index("liga")["temporada"].to_dict()
+    vigentes = {e for (e, t) in hist if t in set(en_curso.values())}
+    priors, d = priors_para(df[df["liga"].isin(con_desc)], vigentes, hist)
+    return priors, set(priors), {"activo": True, **d, "n_ascendidos_vigentes": len(priors)}
+
+
 def reajustar(conn, cfg: dict, ahora: datetime, *, semanal: bool,
               cuotas_pre: pd.DataFrame | None = None) -> tuple[int, ModeloDC, dict]:
     df = historial(conn, hasta=ahora)
     hp = calibrar(df, cfg, ahora, cuotas_pre if cuotas_pre is not None else pd.DataFrame()) if semanal \
         else hiperparametros_vigentes(conn, cfg)
     m = cfg["modelo"]
+    priors, vigentes, diag_prior = prior_de_ascendidos(conn, cfg, df)
     modelo = ajustar(df, fecha_corte=ahora, xi=hp["xi"], w_xg=hp["w_xg"], l2_equipos=hp["l2"], l2_ligas=hp["l2"],
-                     rho_limites=tuple(m["rho_limites"]), rho_prior=_rho_prior(cfg))
+                     rho_limites=tuple(m["rho_limites"]), rho_prior=_rho_prior(cfg), priors=priors or None,
+                     l2_prior=m.get("l2_ascendidos") if priors else None)
     hp_guardar = {**hp, "globales": {"rho": modelo.rho, "mu_global": modelo.mu_global,
-                                     "ventaja_global": modelo.ventaja_global}}
+                                     "ventaja_global": modelo.ventaja_global}, "prior_ascendidos": diag_prior}
     vid = conn.execute("""
         INSERT INTO versiones_modelo (origen, tipo_ajuste, datos_hasta, n_partidos, hiperparametros, config,
                                       config_hash, codigo_version, convergencia)
@@ -163,9 +184,10 @@ def reajustar(conn, cfg: dict, ahora: datetime, *, semanal: bool,
                         [(vid, ligas_id[l], float(modelo.mu[k]), float(modelo.ventaja_local[k]))
                          for k, l in enumerate(modelo.ligas)])
         cur.executemany("""INSERT INTO parametros_equipo (version_id, equipo_id, liga_id, ataque, defensa,
-                           peso_efectivo) VALUES (%s, %s, %s, %s, %s, %s)""",
+                           peso_efectivo, usa_prior_ascendido) VALUES (%s, %s, %s, %s, %s, %s, %s)""",
                         [(vid, int(e), ligas_id[modelo.liga_de_equipo[e]], float(modelo.ataque[k]),
-                          float(modelo.defensa[k]), modelo.peso_efectivo[e]) for k, e in enumerate(modelo.equipos)])
+                          float(modelo.defensa[k]), modelo.peso_efectivo[e], e in priors)
+                         for k, e in enumerate(modelo.equipos)])
     return vid, modelo, hp_guardar
 
 
