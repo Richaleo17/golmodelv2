@@ -3,7 +3,9 @@
 
 zona_horaria: America/Mexico_City
 
-ligas_activas: [EPL, SA, MX1, MLS, BR1]
+# Cada liga activa gasta ~2 créditos de The Odds API por actualización, pero SOLO si ese día tiene partidos.
+# Si te quedas corto de créditos (plan gratis: 500 al mes), quita ligas de esta lista.
+ligas_activas: [EPL, LL, SA, BUN, L1, MX1, MLS, BR1, ERE, BEL, POR]
 historico:
   temporadas: 5            # + la temporada en curso
   # EPL y SA: xG de Understat (goles + xG). MX1, MLS, BR1: solo goles.
@@ -82,7 +84,7 @@ mercado:
   # Una cuota capturada a mano para 'manual' reemplaza a esta si está vigente.
   casa_ejecucion: pinnacle
   casa_manual_nombre: Draftea       # cómo se llama en pantalla la casa donde capturas cuotas a mano
-  alpha_por_defecto: 0.5            # si no se pudo calibrar
+  alpha_por_defecto: 0.25           # si no hay ni α propio ni agrupado: el mercado manda (suele ser más preciso)
   factor_alpha_no_calibrado: 0.5    # α_no_cal = factor × α(1X2 de la liga)
   umbral_extra_no_calibrado: 0.02
   # Si falta la casa de referencia, p_mercado = mediana sin margen del resto:
@@ -117,6 +119,33 @@ crs:
     BR1: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 6}, {tipo: descenso, ultima_posicion: 16}]
     MX1: [{tipo: clasificacion, ultima_posicion: 6}, {tipo: playoff, ultima_posicion: 10}]   # sin descenso
     MLS: []                        # playoffs por conferencia: requiere equipo_temporada.grupo
+    LL:  [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 17}]
+    BUN: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 15}]
+    L1:  [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 3}, {tipo: descenso, ultima_posicion: 15}]
+    ERE: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 15}]
+    POR: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 15}]
+    BEL: []                        # formato con playoffs: sin parámetro de motivación
+
+# Panel "Diario" y "Qué meter"
+sugerencias:
+  p_segura: 0.72                    # probabilidad desde la que una jugada se etiqueta "segura"
+  p_equilibrada: 0.55
+  confianza_min_segura: 5.0         # con poca confianza en los datos, una jugada no se etiqueta "segura"
+  cuota_justa_minima: 1.20          # no se sugieren jugadas que pagarían menos (no valen la comisión)
+  valor_p_min: 0.30                 # «con valor» solo para jugadas con al menos esta probabilidad (las de muy baja
+                                    # probabilidad con EV enorme casi siempre son error del modelo)
+  valor_ev_sospechoso: 0.20         # EV mayor a esto se marca «desconfía»
+  max_por_partido: 3
+  max_mejores: 12
+  rompe:                            # cuándo un partido "rompe parlays"
+    caida_modelo_vs_mercado: 0.06
+    empate_alto: 0.30
+    confianza_max: 3.5
+  top_piernas: 14
+  perfiles:                         # el parlay MÁS probable que paga lo objetivo
+    seguro:      {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.70, p_max_pierna: 0.84}
+    equilibrado: {piernas_min: 3, piernas_max: 5, cuota_min: 3.5, cuota_max: 7.0, p_min_pierna: 0.50, p_max_pierna: 0.80}
+    ambicioso:   {piernas_min: 4, piernas_max: 5, cuota_min: 8.0, cuota_max: 25.0, p_min_pierna: 0.30, p_max_pierna: 0.65}
 
 valor:
   umbral_edge: 0.04

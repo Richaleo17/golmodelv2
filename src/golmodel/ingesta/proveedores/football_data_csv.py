@@ -18,7 +18,9 @@ from golmodel.ingesta.tipos import Capacidad, CuotaExterna, PartidoExterno, Soli
 
 BASE_URL = "https://www.football-data.co.uk"
 CODIGOS = {"EPL": ("E0", "principal"), "SA": ("I1", "principal"),
-           "MX1": ("MEX", "extra"), "MLS": ("USA", "extra"), "BR1": ("BRA", "extra")}
+           "MX1": ("MEX", "extra"), "MLS": ("USA", "extra"), "BR1": ("BRA", "extra"),
+           "LL": ("SP1", "principal"), "BUN": ("D1", "principal"), "L1": ("F1", "principal"),
+           "ERE": ("N1", "principal"), "BEL": ("B1", "principal"), "POR": ("P1", "principal")}
 ZONA_CSV = ZoneInfo("Europe/London")  # VERIFICAR EN DOCUMENTACIÓN: hora del campo Time
 
 # (prefijo de casa, casa normalizada). Pre-partido = sin 'C'; cierre = con 'C'.

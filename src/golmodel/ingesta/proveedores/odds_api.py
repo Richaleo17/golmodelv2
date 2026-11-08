@@ -19,6 +19,12 @@ SPORT_KEYS = {  # VERIFICAR EN DOCUMENTACIÓN con GET /v4/sports (no cuesta cré
     "MX1": "soccer_mexico_ligamx",
     "MLS": "soccer_usa_mls",
     "BR1": "soccer_brazil_campeonato",
+    "LL": "soccer_spain_la_liga",
+    "BUN": "soccer_germany_bundesliga",
+    "L1": "soccer_france_ligue_one",
+    "ERE": "soccer_netherlands_eredivisie",
+    "BEL": "soccer_belgium_first_div",
+    "POR": "soccer_portugal_primeira_liga",
 }
 LINEAS = {1.5, 2.5, 3.5}
 

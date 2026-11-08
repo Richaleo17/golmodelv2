@@ -21,7 +21,7 @@ from golmodel.ingesta.pipeline import ETAPAS, Pipeline
 from golmodel.ingesta.proveedores.cadena import Interruptor
 from golmodel.ingesta.proveedores.registro import construir_cadenas, construir_presupuestos, construir_proveedores
 from golmodel.modelos.mercados import CONDICIONES
-from golmodel.servicios import captura, vistas
+from golmodel.servicios import captura, sugerencias, vistas
 
 
 class Servicio:
@@ -156,6 +156,14 @@ def get_dia(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion))
 @app.get("/resumen/{fecha}")
 def get_resumen(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     return {"texto": vistas.resumen_texto(conn, s.cfg, _dia(fecha, s), s.reloj())}
+
+
+@app.get("/panel/{fecha}")
+def get_panel(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Diario (probabilidades por partido) y Qué meter (jugadas, rompen parlays, parlays por perfil)."""
+    pan = sugerencias.panel(conn, s.cfg, _dia(fecha, s), s.reloj())
+    pan["texto"] = sugerencias.texto_panel(pan)
+    return pan
 
 
 @app.get("/parlays/{fecha}")

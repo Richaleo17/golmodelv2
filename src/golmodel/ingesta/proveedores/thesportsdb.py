@@ -21,6 +21,12 @@ NOMBRES_LIGA = {  # VERIFICAR EN DOCUMENTACIÓN
     "MX1": "Mexican Primera League",
     "MLS": "American Major League Soccer",
     "BR1": "Brazilian Serie A",
+    "LL": "Spanish La Liga",
+    "BUN": "German Bundesliga",
+    "L1": "French Ligue 1",
+    "ERE": "Dutch Eredivisie",
+    "BEL": "Belgian First Division A",
+    "POR": "Portuguese Primeira Liga",
 }
 
 

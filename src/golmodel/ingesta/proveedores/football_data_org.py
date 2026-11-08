@@ -5,6 +5,7 @@ No cubre Liga MX ni MLS.  Documentación: https://docs.football-data.org
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -13,7 +14,8 @@ from golmodel.ingesta.proveedores.http import ClienteHTTP
 from golmodel.ingesta.tipos import Capacidad, PartidoExterno, Solicitud
 
 BASE_URL = "https://api.football-data.org"
-COMPETICIONES = {"EPL": "PL", "SA": "SA", "BR1": "BSA"}  # VERIFICAR EN DOCUMENTACIÓN
+COMPETICIONES = {"EPL": "PL", "SA": "SA", "BR1": "BSA", "LL": "PD", "BUN": "BL1", "L1": "FL1", "ERE": "DED",
+                 "POR": "PPL"}  # VERIFICAR EN DOCUMENTACIÓN
 
 ESTADOS = {
     "SCHEDULED": "programado", "TIMED": "programado",
@@ -46,10 +48,17 @@ class FootballDataOrg(Proveedor):
     capacidades = frozenset({Capacidad.FIXTURES, Capacidad.RESULTADOS})
     ligas = frozenset(COMPETICIONES)
 
-    def __init__(self, api_key: str, **kw: Any):
+    def __init__(self, api_key: str, pausa_s: float = 6.5, **kw: Any):
+        # Plan gratis: 10 consultas por minuto. Con muchas ligas, sin pausa se dispararía el 429.
+        self.pausa_s = pausa_s
+        self._ultimo = 0.0
         self.http = ClienteHTTP(self.nombre, BASE_URL, headers={"X-Auth-Token": api_key}, **kw)
 
     def obtener(self, s: Solicitud) -> list[Any]:
+        falta = self.pausa_s - (time.monotonic() - self._ultimo)
+        if falta > 0:
+            time.sleep(falta)
+        self._ultimo = time.monotonic()
         params = {}
         if s.desde:
             params["dateFrom"] = s.desde.isoformat()

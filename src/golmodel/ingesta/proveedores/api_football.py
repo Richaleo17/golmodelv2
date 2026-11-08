@@ -28,7 +28,8 @@ from golmodel.ingesta.tipos import (
 
 BASE_URL = "https://v3.football.api-sports.io"
 
-LIGAS = {"EPL": 39, "SA": 135, "MX1": 262, "MLS": 253, "BR1": 71}  # VERIFICAR EN DOCUMENTACIÓN
+LIGAS = {"EPL": 39, "SA": 135, "MX1": 262, "MLS": 253, "BR1": 71, "LL": 140, "BUN": 78, "L1": 61,
+         "ERE": 88, "BEL": 144, "POR": 94}  # VERIFICAR EN DOCUMENTACIÓN
 
 ESTADOS = {
     **dict.fromkeys(["TBD", "NS"], "programado"),

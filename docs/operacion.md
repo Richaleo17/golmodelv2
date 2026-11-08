@@ -107,3 +107,20 @@ Abre **Partidos → Cobertura por liga**: dice, por liga, cuántos partidos de h
 - **Sin histórico:** carga con `scripts/cargar_historico.py --ligas ...` (el panel te da el comando).
 - **Nombres por revisar:** pestaña Datos.
 - **Sin partidos próximos:** puede ser receso de la liga. El calendario viene de API-Football, football-data.org, The Odds API y TheSportsDB, en ese orden de respaldo.
+
+## 11. Ligas y créditos
+Ligas activas (en `config/config.yaml → ligas_activas`): Premier, La Liga, Serie A, Bundesliga, Ligue 1, Liga MX, MLS, Brasileirão, Eredivisie, Bélgica y Portugal. Las nuevas se agregan solas a tu base al reiniciar con `docker compose up -d --build` (migración 002).
+
+Carga el histórico de las que falten (una vez; es idempotente):
+```bash
+docker compose run --rm api python scripts/cargar_historico.py --temporadas 5 --sin-xg --ligas LL BUN L1 ERE BEL POR MX1 MLS BR1
+```
+**Créditos de The Odds API (500 al mes en el plan gratis):** cada liga con partidos ese día cuesta ~2 créditos por actualización; las ligas sin partidos no se consultan. En días con muchas ligas pueden ser 15–20 créditos por actualización. Si te quedas corto, quita ligas de `ligas_activas` o actualiza menos veces. El contador de la barra lateral muestra lo gastado.
+
+**Calendario:** The Odds API también entrega el calendario de todas las ligas (así salen Liga MX y MLS aunque API-Football esté en pausa). *Pendiente de verificar con tu llave: que esa consulta de calendario no gaste créditos; el contador lo mostrará.*
+
+## 12. Diario y Qué meter
+- **📅 Diario:** una tarjeta por partido: quién gana (con empate), primer gol (aproximado), «el otro anota», forma reciente (G/E/P), goles esperados y confianza. Las probabilidades mezclan el modelo con el mercado.
+- **🎯 Qué meter:** las jugadas del día con su probabilidad, cuota justa y **cuota mínima** (la más baja a la que vale la pena). Si capturaste las cuotas de tu casa, dice ✅ vale o ❌ no vale. También: partidos que **rompen parlays** (con una alternativa más segura) y tres parlays por perfil (seguro, equilibrado, ambicioso).
+- **Honestidad del panel:** ninguna jugada es segura (82% falla 1 de cada 5). Un parlay que paga 20x acierta ~4 de cada 100; ganar uno así es varianza, no un sistema. «Confianza» mide el respaldo de los datos, no la probabilidad de acertar.
+- **Límite actual:** solo conoce las ligas locales. Champions, Europa League y copas todavía no están: un equipo no rinde igual en liga que en Champions, y eso exige parámetros propios por competición (siguiente paso).

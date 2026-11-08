@@ -93,7 +93,7 @@ class Pipeline:
             if "alineaciones" in etapas:
                 sumar(Capacidad.ALINEACIONES, cerca)
             if "cuotas" in etapas:
-                for l in ligas:
+                for l in sorted({p["liga"] for p in partidos}):      # solo ligas con partidos próximos
                     sumar(Capacidad.CUOTAS, liga=l)
             return dict(total)
         finally:
@@ -149,7 +149,11 @@ class Pipeline:
         res = {"partidos": defaultdict(int), "sin_resolver": 0, "xg": defaultdict(int), "avisos": []}
         hoy = st.hoy()
         for codigo in self.cfg["ligas_activas"]:
-            liga = st.ligas[codigo]
+            liga = st.ligas.get(codigo)
+            if liga is None:
+                res["avisos"].append(f"La liga {codigo} no existe en la base: reinicia la API para aplicar las "
+                                     "migraciones (docker compose up -d --build).")
+                continue
             temporada = repo.temporada_de(liga, st.ahora)
             for cap in (Capacidad.FIXTURES, Capacidad.RESULTADOS):
                 r = self._obtener(cap, Solicitud(cap, codigo, temporada=temporada, desde=hoy - timedelta(days=7),
@@ -304,8 +308,11 @@ class Pipeline:
                       partidos: list[dict] | None = None) -> dict:
         res = {"cuotas": 0, "sin_partido": 0, "avisos": [], "calidad": {}}
         hoy = st.hoy()
-        ligas_obj = {p["liga"] for p in partidos} if partidos else set(self.cfg["ligas_activas"])
-        for codigo in ligas_obj:
+        ligas_obj = {p["liga"] for p in (partidos if partidos is not None else repo.partidos_de_dias(st.conn, st.dias()))}
+        if not ligas_obj:
+            res["avisos"].append("Sin partidos programados en los próximos días: no se consultaron cuotas "
+                                 "(así no se gastan créditos).")
+        for codigo in sorted(ligas_obj):
             liga = st.ligas[codigo]
             ids = ",".join(p["odds_api_id"] for p in partidos or [] if p.get("odds_api_id")) or None
             sol = Solicitud(cap, codigo, temporada=repo.temporada_de(liga, st.ahora), desde=hoy, hasta=hoy + timedelta(days=max(self.cfg["recalculo"]["dias"])),

@@ -15,7 +15,7 @@ import psycopg
 import uvicorn
 
 RAIZ = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(RAIZ / "src"), str(RAIZ / "tests")]
+sys.path[:0] = [str(RAIZ / "src"), str(RAIZ / "tests"), str(RAIZ)]
 
 import test_integracion as mundo_sim  # noqa: E402
 from golmodel import db  # noqa: E402
@@ -35,13 +35,32 @@ def preparar(admin_dsn: str, nombre: str) -> str:
     return dsn
 
 
+def demo_multiliga(dsn: str, puerto: int) -> None:
+    from tests import mundo_multiliga as mm
+    mundo = mm.Mundo()
+    cfg = mm.configuracion(mundo_sim.cargar())
+    conn = db.conectar(dsn)
+    for liga in mm.LIGAS:
+        cargar_historico(conn, liga, mundo.hist[liga], mundo.cuotas_prepartido(liga))
+    conn.commit()
+    conn.close()
+    Pipeline(cfg, mm.cadenas(mundo), dsn=dsn, reloj=lambda: mundo.ahora).ejecutar("actualizar_todo")
+    fecha = mundo.jornada.tz_convert("America/Mexico_City").date()
+    print(f"Base de datos lista: {dsn}\nFecha de la jornada simulada (GOLMODEL_FECHA): {fecha}", flush=True)
+    main._servicio = main.Servicio(cfg, mm.cadenas(mundo), dsn=dsn, reloj=lambda: mundo.ahora + timedelta(minutes=10))
+    uvicorn.run(main.app, host="127.0.0.1", port=puerto, log_level="warning")
+
+
 def main_() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--admin-dsn", required=True)
     ap.add_argument("--db", default="golmodel_demo")
     ap.add_argument("--puerto", type=int, default=8000)
+    ap.add_argument("--multiliga", action="store_true", help="5 ligas simuladas (Premier, La Liga, Liga MX, MLS, Bundesliga)")
     a = ap.parse_args()
     dsn = preparar(a.admin_dsn, a.db)
+    if a.multiliga:
+        return demo_multiliga(dsn, a.puerto)
     cfg = mundo_sim.cargar()
     cfg["ligas_activas"] = ["EPL"]
     cfg["mercado"]["casa_ejecucion"] = "bet365"

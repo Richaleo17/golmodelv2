@@ -12,7 +12,7 @@ import yaml
 RUTA_DEFECTO = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 
 SECCIONES = ("zona_horaria", "ligas_activas", "fuentes", "cadenas", "frescura", "cierre", "modelo",
-             "contexto", "mercado", "crs", "valor", "parlays", "bankroll", "operacion")
+             "contexto", "mercado", "crs", "sugerencias", "valor", "parlays", "bankroll", "operacion")
 
 
 def cargar(ruta: Path | str = RUTA_DEFECTO) -> dict[str, Any]:

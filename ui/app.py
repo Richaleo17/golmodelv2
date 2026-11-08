@@ -4,6 +4,7 @@
 """
 from __future__ import annotations
 
+import html as _html
 import os
 import time
 from datetime import date, datetime
@@ -34,7 +35,9 @@ NOMBRES = {
 ICONO_CRS = {"ALTA": "🔴", "MEDIA": "🟠", "BAJA": "🟢", "INSUFICIENTE": "⚪"}
 TITULO_PARAM = {"divergencia_xpts": "Divergencia xPts", "brecha_probabilidad": "Brecha de probabilidad",
                 "fatiga": "Fatiga", "motivacion": "Motivación", "fragilidad_defensiva": "Fragilidad defensiva"}
-NOMBRE_LIGA = {"EPL": "Premier League", "SA": "Serie A", "MX1": "Liga MX", "MLS": "MLS", "BR1": "Brasileirão"}
+NOMBRE_LIGA = {"EPL": "Premier League", "SA": "Serie A", "MX1": "Liga MX", "MLS": "MLS", "BR1": "Brasileirão",
+               "LL": "La Liga", "BUN": "Bundesliga", "L1": "Ligue 1", "ERE": "Eredivisie", "BEL": "Bélgica",
+               "POR": "Primeira Liga"}
 NOMBRE_ETAPA = {"resultados_xg": "Resultados y xG", "liquidacion_clv": "Liquidación y CLV",
                 "reajuste_modelo": "Modelo", "lesiones": "Lesiones", "alineaciones": "Alineaciones",
                 "cuotas": "Cuotas", "recalculo_modulos": "Predicciones y picks"}
@@ -73,7 +76,38 @@ h1, h2, h3, h4, [data-testid="stMetricLabel"] { font-family:'Barlow Condensed',s
 .oport .ev { font-family:'JetBrains Mono',monospace; font-size:1.15rem; color:var(--cancha); }
 .paso { border:1px solid rgba(232,243,236,.15); border-radius:12px; padding:14px; background:rgba(18,32,25,.6); height:100%; }
 .paso b { font-family:'Barlow Condensed',sans-serif; font-size:1.25rem; color:var(--cancha); }
-@media (max-width: 640px) {   /* celular: encabezado compacto para llegar rápido a los partidos */
+.dia { border:1px solid rgba(232,243,236,.18); border-radius:12px; padding:12px 16px; margin:8px 0;
+  background:linear-gradient(180deg, rgba(18,32,25,.85), rgba(10,18,14,.85)); }
+.dia-top { display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:.74rem;
+  color:rgba(232,243,236,.6); letter-spacing:.06em; text-transform:uppercase; }
+.dia-eq { font-family:'Barlow Condensed',sans-serif; font-size:1.45rem; font-weight:700; color:var(--cal); margin:2px 0 6px; }
+.ind { display:grid; grid-template-columns:118px 1fr auto; gap:8px; align-items:baseline; padding:7px 0;
+  border-top:1px solid rgba(232,243,236,.1); }
+.ind .lab { font-family:'JetBrains Mono',monospace; font-size:.72rem; color:rgba(232,243,236,.55); letter-spacing:.08em; }
+.ind .txt { font-size:1.05rem; color:var(--cal); }
+.ind .txt small { color:rgba(232,243,236,.55); font-size:.78rem; margin-left:4px; }
+.ind .pct { font-family:'JetBrains Mono',monospace; font-size:1.25rem; font-weight:600; }
+.dia-foot { font-family:'JetBrains Mono',monospace; font-size:.72rem; color:rgba(232,243,236,.55); margin-top:4px; }
+.forma span { display:inline-block; width:19px; height:19px; line-height:19px; text-align:center; border-radius:4px;
+  font-family:'JetBrains Mono',monospace; font-size:.66rem; margin-right:3px; color:#0a120e; font-weight:700; }
+.forma .G { background:var(--cancha); } .forma .E { background:#9aa7a0; } .forma .P { background:#ff7a9c; }
+.rompe { margin-top:6px; padding:5px 10px; border-left:4px solid var(--rojo); background:rgba(255,93,93,.09);
+  border-radius:4px; font-size:.84rem; color:#ffb0b0; }
+.jug { margin-top:6px; padding:5px 10px; border-left:4px solid var(--cancha); background:rgba(46,229,157,.07);
+  border-radius:4px; font-size:.9rem; color:var(--cal); }
+.jug-fila { border-left:4px solid #5c6a62; padding:8px 12px; margin:7px 0; border-radius:6px; background:rgba(18,32,25,.7); }
+.jug-fila.segura { border-left-color:var(--cancha); } .jug-fila.equilibrada { border-left-color:var(--ambar); }
+.jug-fila.arriesgada { border-left-color:#ff7a9c; }
+.jug-nom { font-family:'Barlow Condensed',sans-serif; font-size:1.35rem; font-weight:700; color:var(--cal); }
+.jug-nom small { font-family:'Source Sans Pro',sans-serif; font-size:.78rem; font-weight:400; color:rgba(232,243,236,.55); margin-left:6px; }
+.jug-num { font-size:.9rem; color:rgba(232,243,236,.85); }
+.ok { color:var(--cancha); font-weight:600; font-size:.88rem; } .no { color:#ff9a9a; font-size:.88rem; }
+.parlay { border:1px solid rgba(232,243,236,.2); border-radius:12px; padding:12px 14px; background:rgba(18,32,25,.75); height:100%; }
+.parlay h4 { margin:0 0 6px; color:var(--cancha); } .parlay .pierna { font-size:.86rem; margin:4px 0; color:var(--cal); }
+@media (max-width: 640px) {
+  div[data-testid="stHorizontalBlock"] { flex-wrap:wrap !important; gap:.4rem !important; }
+  div[data-testid="stColumn"], div[data-testid="column"] { min-width:calc(50% - .5rem) !important; flex:1 1 calc(50% - .5rem) !important; }
+  .ind { grid-template-columns:86px 1fr auto; } .ind .pct { font-size:1.05rem; }   /* celular: encabezado compacto para llegar rápido a los partidos */
   .marcador { padding:10px 14px; }
   .marcador h1 { font-size:1.7rem; }
   .lema { display:none; }
@@ -433,11 +467,177 @@ oportunidades = [(p, m) for p in con_pred for m in p["mercados"] if m.get("clasi
 picks_hoy = [k for p in partidos for k in p["picks"]]
 exposicion = sum(float(k["stake_u"]) for k in picks_hoy if k["estado"] not in ("valor_perdido", "descartado_usuario"))
 
-tabs = st.tabs(["🏟️ Partidos", "🎯 Parlay del día", "✍️ Capturar cuotas", "📈 CLV y resultados",
-                "🧭 Cómo leer esto", "🛠️ Datos"])
+tabs = st.tabs(["📅 Diario", "🎯 Qué meter", "🏟️ Análisis", "🧾 Parlay con cuotas", "✍️ Capturar cuotas",
+                "📈 CLV y resultados", "🧭 Cómo leer esto", "🛠️ Datos"])
 
-# ------------------------------------------------------------------ Partidos
+# ------------------------------------------------------------------ Diario y Qué meter
+def esc(x) -> str:
+    return _html.escape(str(x))
+
+
+def color_p(p: float) -> str:
+    return VERDE if p >= 0.65 else (AMBAR if p >= 0.45 else "#ff7a9c")
+
+
+def html_forma(f: str) -> str:
+    return "".join(f'<span class="{c}">{c}</span>' for c in f) or '<span class="meta">sin datos</span>'
+
+
+def fila_ind(lab: str, txt: str, p: float) -> str:
+    return (f'<div class="ind"><span class="lab">{lab}</span><span class="txt">{txt}</span>'
+            f'<span class="pct" style="color:{color_p(p)}">{p:.0%}</span></div>')
+
+
+def tarjeta_diario(p: dict) -> str:
+    liga = NOMBRE_LIGA.get(p["liga"], p["liga"])
+    cab = f'<div class="dia-top"><span>{esc(liga)} · {p["hora"]}</span>'
+    if not p["prediccion"]:
+        return (f'<div class="dia">{cab}</span></div><div class="dia-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
+                f'<div class="meta">⚠ {esc(p["motivo"])}</div></div>')
+    g, pg, ot = p["gana"], p["primer_gol"], p["otro_anota"]
+    final = f' · FINAL {esc(p["marcador"])}' if p["marcador"] else ""
+    h = (f'<div class="dia">{cab}{final}</span><span>CONF {p["confianza"]}/10</span></div>'
+         f'<div class="dia-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
+         f'<div class="meta">Forma: {esc(p["local"])} <span class="forma">{html_forma(p["forma"]["local"])}</span> · '
+         f'{esc(p["visitante"])} <span class="forma">{html_forma(p["forma"]["visitante"])}</span></div>')
+    h += fila_ind("GANA", f'{esc(g["favorito"])} <small>empate {g["empate"]:.0%}</small>', g["p"])
+    h += fila_ind("PRIMER GOL", f'{esc(pg["equipo"])} <small>(aprox.)</small>', pg["p"])
+    h += fila_ind("EL OTRO ANOTA", f'{esc(ot["equipo"])} <small>aunque pierda, ≥1 gol</small>', ot["p"])
+    ge = p["goles_esperados"]
+    h += (f'<div class="dia-foot">Ventaja del favorito: +{100 * g["margen"]:.0f} pts sobre {esc(g["rival"])} · '
+          f'Más de 2.5: {p["over25"]:.0%} · Ambos anotan: {p["btts"]:.0%} · Goles esperados {ge["local"]:.1f}–{ge["visitante"]:.1f} · '
+          f'{esc(p["fuente"])}</div>')
+    if p.get("rompe"):
+        h += f'<div class="rompe">💥 Rompe parlays: {esc("; ".join(p["rompe"]["razones"]))}</div>'
+    if p["jugadas"]:
+        j = p["jugadas"][0]
+        h += (f'<div class="jug">🎯 {esc(j["jugada"])} · {j["p"]:.0%} · mete si paga ≥ <b>{j["cuota_min"]:.2f}</b></div>')
+    return h + "</div>"
+
+
+def fila_jugada(x: dict, con_partido: bool = True) -> str:
+    ver = ""
+    if x.get("cuota_casa"):
+        vale = x["cuota_casa"] >= x["cuota_min"]
+        ver = (f'<div class="ok">✅ {esc(x["casa"])} paga {x["cuota_casa"]:.2f}: vale la pena (EV {x["ev"]:+.1%})</div>' if vale else
+               f'<div class="no">❌ {esc(x["casa"])} paga {x["cuota_casa"]:.2f}: NO vale (necesita ≥ {x["cuota_min"]:.2f})</div>')
+    sosp = ('<div class="no">⚠ EV muy alto: desconfía. Casi siempre es error del modelo o una cuota mal capturada; '
+            'verifícala antes de apostar.</div>') if x.get("ev_sospechoso") else ""
+    liga = NOMBRE_LIGA.get(x["liga"], x["liga"])
+    return (f'<div class="jug-fila {x["categoria"]}">'
+            f'<div class="meta">{x["hora"]} · {esc(liga)} · {esc(x["partido"])}</div>'
+            f'<div class="jug-nom">{esc(x["jugada"])}<small>{esc(x["detalle"])}</small></div>'
+            f'<div class="jug-num"><b style="color:{color_p(x["p"])}">{x["p"]:.0%}</b> de acertar · cuota justa {x["cuota_justa"]:.2f} · '
+            f'<b>mete si paga ≥ {x["cuota_min"]:.2f}</b> · {{ETIQ}} · confianza {x["confianza"]}/10</div>{ver}{sosp}</div>'
+            ).replace("{ETIQ}", {"segura": "🛡️ Segura", "equilibrada": "⚖️ Equilibrada", "arriesgada": "🎲 Arriesgada"}[x["categoria"]])
+
+
+def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
+    if par is None:
+        return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>'
+                '<div class="meta">Hoy no hay jugadas suficientes para este perfil.</div></div>')
+    piernas = "".join(f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{esc(x["partido"])} · {x["p"]:.0%}</span></div>'
+                      for x in par["piernas"])
+    casa = ""
+    if par.get("cuota_casa"):
+        ok = par["cuota_casa"] >= par["cuota_min"]
+        casa = (f'<div class="{"ok" if ok else "no"}">{"✅" if ok else "❌"} Con tus cuotas pagaría {par["cuota_casa"]:.2f}</div>')
+    return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>{piernas}'
+            f'<div class="jug-num" style="margin-top:8px"><b style="color:{color_p(min(1.0, par["p"] * 2))}">{par["p"]:.1%}</b> de acertar '
+            f'(1 de cada {par["uno_de_cada"]:.0f})<br>Cuota justa <b>{par["cuota_justa"]:.2f}</b> · '
+            f'mete si paga ≥ <b>{par["cuota_min"]:.2f}</b></div>{casa}</div>')
+
+
+pan, err_pan = api("GET", f"/panel/{dia.isoformat()}")
+
 with tabs[0]:
+    if pan is None:
+        st.error(f"No se pudo armar el diario: {err_pan}")
+    else:
+        part = pan["partidos"]
+        if not part:
+            st.info("No hay partidos para este día. Cambia la fecha o presiona **Actualizar datos**. "
+                    "Si faltan ligas, abre «Análisis → Cobertura por liga».")
+        else:
+            d1, d2, d3, d4 = st.columns(4)
+            d1.metric("Partidos", len(part))
+            d2.metric("Ligas", len(pan["resumen"]["ligas"]))
+            d3.metric("Con análisis", pan["resumen"]["con_prediccion"])
+            d4.metric("Rompen parlays", len(pan["rompe"]))
+            if pan["resumen"]["sin_prediccion"]:
+                with st.expander(f"⚠️ {len(pan['resumen']['sin_prediccion'])} partidos sin análisis (ver por qué)"):
+                    for x in pan["resumen"]["sin_prediccion"]:
+                        st.write(f"**{NOMBRE_LIGA.get(x['liga'], x['liga'])}** · {x['partido']}: {x['motivo']}")
+            ligas_d = sorted({p["liga"] for p in part})
+            f1, f2 = st.columns([3, 2])
+            sel_d = f1.multiselect("Ligas", ligas_d, default=ligas_d, format_func=lambda x: NOMBRE_LIGA.get(x, x),
+                                   key="ligas_diario")
+            orden_d = f2.radio("Ordenar por", ["Hora", "Confianza", "Ventaja"], horizontal=True, key="orden_diario")
+            lista = [p for p in part if p["liga"] in sel_d]
+            if orden_d == "Confianza":
+                lista.sort(key=lambda p: -(p.get("confianza") or -1))
+            elif orden_d == "Ventaja":
+                lista.sort(key=lambda p: -(p["gana"]["margen"] if p["prediccion"] else -1))
+            st.caption("Cada porcentaje es la probabilidad (mezcla de modelo y mercado) de que ocurra eso. "
+                       "Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. "
+                       "«Primer gol» es una estimación aproximada.")
+            if orden_d == "Hora":
+                for liga_c in sel_d:
+                    grupo = [p for p in lista if p["liga"] == liga_c]
+                    if grupo:
+                        st.markdown(f"#### {NOMBRE_LIGA.get(liga_c, liga_c)}")
+                        for p in grupo:
+                            st.markdown(tarjeta_diario(p), unsafe_allow_html=True)
+            else:
+                for p in lista:
+                    st.markdown(tarjeta_diario(p), unsafe_allow_html=True)
+
+with tabs[1]:
+    if pan is None:
+        st.error(f"No se pudieron armar las sugerencias: {err_pan}")
+    else:
+        st.info("**Cuota mínima** = la cuota más baja a la que la jugada deja ganancia a la larga. Si tu casa paga menos, "
+                "no la metas aunque sea probable. Ninguna jugada es segura: un 80% falla 1 de cada 5 veces.")
+        top = [x for x in pan["mejores"] if x["categoria"] == "segura"][:3] or pan["mejores"][:3]
+        st.markdown("### 🎯 Apuesta por esto hoy")
+        if not top:
+            st.warning("Todavía no hay jugadas: faltan predicciones o cuotas de referencia. Presiona **Actualizar datos** "
+                       "y revisa «Datos → Última actualización».")
+        for x in top:
+            st.markdown(fila_jugada(x), unsafe_allow_html=True)
+        if pan["valor"]:
+            st.markdown("### 💎 Con valor ahora (según las cuotas que capturaste)")
+            st.caption("Solo jugadas con al menos 30% de probabilidad. Un valor esperado muy alto casi nunca es real.")
+            for x in pan["valor"][:6]:
+                st.markdown(fila_jugada(x), unsafe_allow_html=True)
+        else:
+            st.caption("💎 «Con valor ahora» aparece cuando captures las cuotas de tu casa en «Capturar cuotas».")
+        resto = [x for x in pan["mejores"] if x not in top]
+        if resto:
+            with st.expander(f"Más jugadas del día ({len(resto)})"):
+                for x in resto:
+                    st.markdown(fila_jugada(x), unsafe_allow_html=True)
+        st.markdown("### 💥 Rompen parlays: evítalos en combinadas")
+        if not pan["rompe"]:
+            st.caption("Hoy ningún partido muestra señales de riesgo claras.")
+        for r in pan["rompe"]:
+            alt_html = (f'<div class="ok">Mejor úsalo así: {esc(r["alternativa"]["jugada"])} · {r["alternativa"]["p"]:.0%} · '
+                   f'mete si paga ≥ {r["alternativa"]["cuota_min"]:.2f}</div>') if r["alternativa"] else ""
+            st.markdown(f'<div class="jug-fila arriesgada"><div class="meta">{r["hora"]} · '
+                        f'{esc(NOMBRE_LIGA.get(r["liga"], r["liga"]))} · {esc(r["partido"])}</div>'
+                        f'<div class="jug-num">{esc("; ".join(r["razones"]))}</div>{alt_html}</div>', unsafe_allow_html=True)
+        st.markdown("### 🧩 Parlays sugeridos")
+        st.caption("Para cada pago objetivo, la combinación MÁS probable de partidos distintos. Entre más paga, menos "
+                   "probable es: el porcentaje de cada tarjeta es la verdad sin adornos.")
+        pc1, pc2, pc3 = st.columns(3)
+        pc1.markdown(tarjeta_parlay("🛡️ Seguro", "pago bajo, acierta seguido", pan["parlays"].get("seguro")), unsafe_allow_html=True)
+        pc2.markdown(tarjeta_parlay("⚖️ Equilibrado", "pago medio", pan["parlays"].get("equilibrado")), unsafe_allow_html=True)
+        pc3.markdown(tarjeta_parlay("🎲 Ambicioso", "pago alto, acierta pocas veces", pan["parlays"].get("ambicioso")), unsafe_allow_html=True)
+        with st.expander("📋 Copiar este resumen"):
+            st.code(pan["texto"], language="markdown")
+
+# ------------------------------------------------------------------ Análisis (detalle técnico)
+with tabs[2]:
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Partidos", len(partidos), help="Partidos del día en las ligas activas.")
     k2.metric("Con valor", sum(1 for _, m in oportunidades if m["clasificacion"] == "valor"),
@@ -597,7 +797,7 @@ with tabs[0]:
         st.code(st.session_state["resumen"], language="markdown")
 
 # ------------------------------------------------------------------ Parlay
-with tabs[1]:
+with tabs[3]:
     pls, _ = api("GET", f"/parlays/{dia.isoformat()}")
     if not pls:
         st.info("No hay parlay para este día. Se genera solo si hay al menos 3 partidos con un bloque que cumpla: "
@@ -644,7 +844,7 @@ def recalcular_y_mostrar() -> None:
         st.rerun()
 
 
-with tabs[2]:
+with tabs[4]:
     casa_manual = estado.get("casa_manual", "tu casa")
     if ROL != acceso.ADMIN:
         st.info("Solo el administrador puede capturar cuotas.")
@@ -718,7 +918,7 @@ with tabs[2]:
                 st.info("No hay partidos por jugar este día.")
 
 # ------------------------------------------------------------------ CLV
-with tabs[3]:
+with tabs[5]:
     c, _ = api("GET", "/clv")
     k = c["criterio"]
     st.markdown("#### ¿El modelo le gana al mercado?")
@@ -752,11 +952,11 @@ with tabs[3]:
         st.dataframe(pd.DataFrame(c["crs_efectividad"]), hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------ Cómo leer esto
-with tabs[4]:
+with tabs[6]:
     st.markdown("### Tu rutina en 4 pasos")
     pasos = [("1 · Actualiza", "En la mañana presiona <b>Actualizar datos</b>. Trae resultados, reajusta el modelo y baja cuotas."),
-             ("2 · Revisa", "En <b>Partidos</b> mira la gráfica de oportunidades. Solo lo <b>verde</b> cruza el umbral."),
-             ("3 · Confirma", "1–3 h antes del partido presiona <b>Actualizar solo cuotas</b>: si el valor desaparece, se marca."),
+             ("2 · Revisa", "En <b>Qué meter</b> ves las jugadas del día con su probabilidad y su <b>cuota mínima</b>."),
+             ("3 · Confirma", "Compara con tu casa (o captura tus cuotas): si paga menos que la mínima, no la metas."),
              ("4 · Mide", "En <b>CLV</b> ves si le ganas al mercado. Sin 300 partidos con CLV positivo, no hay dinero real.")]
     for col, (t, d) in zip(st.columns(4), pasos):
         col.markdown(f'<div class="paso"><b>{t}</b><br>{d}</div>', unsafe_allow_html=True)
@@ -766,6 +966,10 @@ with tabs[4]:
                 unsafe_allow_html=True)
     st.markdown("### Glosario")
     glosario = {
+        "Cuota mínima": "La cuota más baja a la que una jugada deja ganancia a la larga: (1 + umbral) ÷ probabilidad. Si tu casa paga menos, no conviene aunque sea probable.",
+        "Confianza (0–10)": "Cuánto respaldo tienen los datos del partido: historial de los equipos, cuotas de referencia, acuerdo entre modelo y mercado, riesgo CRS. NO es la probabilidad de acertar.",
+        "Rompe parlays": "Partido donde el favorito se ve más seguro de lo que realmente es (el modelo discrepa del mercado, empate probable, riesgo CRS o pocos datos). Evítalo en combinadas.",
+        "Perfiles de parlay": "Seguro, equilibrado y ambicioso: para cada pago objetivo, la combinación más probable de partidos distintos. Más pago = menos probabilidad, sin excepciones.",
         "Probabilidad del mercado": "Lo que piensa la casa de apuestas, después de quitarle su comisión (margen) con el método de Shin.",
         "Probabilidad del modelo": "Lo que calcula golmodelv2 con Dixon-Coles a partir de la historia de goles (y xG cuando hay).",
         "Probabilidad de decisión (p_adj)": "Mezcla de las dos: α·modelo + (1−α)·mercado. α se calibra con datos: si el mercado acierta más, pesa más el mercado. Todas las decisiones usan esta.",
@@ -782,7 +986,7 @@ with tabs[4]:
             st.write(texto)
 
 # ------------------------------------------------------------------ Datos
-with tabs[5]:
+with tabs[7]:
     ult = estado.get("ultima_ejecucion")
     st.markdown("#### 🧾 Última actualización")
     if ult:

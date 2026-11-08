@@ -336,7 +336,8 @@ def test_8_api(dsn, cfg, mundo):
     est = cli.get("/estado").json()
     assert set(est["frescura"]) == {"Resultados", "Modelo", "Lesiones", "Cuotas"}
     assert est["modelo"]["calibrado"] and est["alias_pendientes"] == 1
-    assert "odds_api" in cli.get("/costo/solo_cuotas").json()["costo_estimado"]
+    # Sin partidos por jugar en estos días no se gastan créditos de cuotas (el caso con partidos va en test_multiliga)
+    assert cli.get("/costo/solo_cuotas").json()["costo_estimado"] == {}
     dia = pd.Timestamp(JORNADA).tz_convert("America/Mexico_City").date().isoformat()
     partidos = cli.get(f"/dia/{dia}").json()
     assert len(partidos) == len(HOY) and all(p["prediccion"]["crs"]["alerta"] for p in partidos)

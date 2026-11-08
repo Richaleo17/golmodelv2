@@ -22,7 +22,7 @@ from golmodel.ingesta.tipos import Capacidad, Solicitud, XgJugador, XgPartido
 
 BASE_URL = "https://understat.com"
 FAMILIA = "understat"
-CODIGOS = {"EPL": "EPL", "SA": "Serie_A"}
+CODIGOS = {"EPL": "EPL", "SA": "Serie_A", "LL": "La_liga", "BUN": "Bundesliga", "L1": "Ligue_1"}
 ZONA_FECHAS = ZoneInfo("UTC")  # VERIFICAR: zona horaria del campo 'datetime'
 _RE_VAR = r"var\s+{}\s*=\s*JSON\.parse\('(?P<d>.*?)'\)"
 MANTENIMIENTO = "we will come back soon"

@@ -100,7 +100,8 @@ def calibracion(conn) -> dict | None:
                 lectura = "El modelo por sí solo supera al mercado."
             else:
                 lectura = "La mezcla mejora al mercado: el modelo aporta información propia."
-            filas.append({"liga": liga, "mercado": grupo, "alpha": a["valor"], "partidos": a["n"],
+            filas.append({"liga": "Todas (agrupado)" if liga == "_global" else liga, "mercado": grupo,
+                          "alpha": a["valor"], "partidos": a["n"],
                           "log_loss_modelo": ll_mod, "log_loss_mercado": ll_mer, "log_loss_mezcla": ll_adj,
                           "mejora_vs_mercado": ll_mer - ll_adj, "lectura": lectura})
     return {"version_id": v["id"], "creado": v["creado_en"], "calibrado": bool(hp.get("calibrado")),

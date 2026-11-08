@@ -2,7 +2,7 @@
 
 **Probabilidades calibradas · valor sin margen (+EV) · riesgo controlado.**
 
-Aplicación analítica para apuestas de fútbol (Premier League, Serie A, Liga MX, MLS, Brasileirão). Prioriza tres cosas: que las probabilidades estén bien calibradas, que el valor esperado se mida después de quitar el margen de la casa y que la gestión de riesgo sea conservadora. Todo el stack de esta versión es gratuito.
+Aplicación analítica para apuestas de fútbol (11 ligas: Premier, La Liga, Serie A, Bundesliga, Ligue 1, Liga MX, MLS, Brasileirão, Eredivisie, Bélgica y Portugal). Prioriza tres cosas: que las probabilidades estén bien calibradas, que el valor esperado se mida después de quitar el margen de la casa y que la gestión de riesgo sea conservadora. Todo el stack de esta versión es gratuito.
 
 ![Módulo 1 · Valor](docs/capturas/m1.png)
 
@@ -11,6 +11,7 @@ Aplicación analítica para apuestas de fútbol (Premier League, Serie A, Liga M
 |---|---|
 | Marcadores | Dixon-Coles (1997) con decaimiento exp(−ξt), xG como insumo (w_xG), pooling parcial por liga y prior suave sobre ρ |
 | Mercado | Margen quitado con Shin (1993) o potencia; p_adj = α·p_modelo + (1−α)·p_mercado, con α calibrado en walk-forward |
+| Diario y Qué meter | Tarjeta por partido (gana, primer gol, el otro anota, forma) y jugadas del día con **cuota mínima**, partidos que rompen parlays y parlays por perfil |
 | Módulo 1 | 1X2, doble oportunidad, BTTS, O/U 1.5/2.5/3.5, equipo anota y hándicap asiático ±1.0/±1.5 (con push), todos desde la matriz |
 | Módulo 2 | Parlays de 3 a 5 bloques; los SGP se calculan sumando celdas de la matriz (nunca multiplicando) y se ordenan por crecimiento logarítmico (Kelly) |
 | CRS | Casinazo Risk Score: veto a las selecciones del favorito en riesgo; el ajuste de probabilidad queda en modo sombra hasta validarlo |

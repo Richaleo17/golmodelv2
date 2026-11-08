@@ -96,9 +96,8 @@ def calibrar_alpha(pred: pd.DataFrame, cuotas_pre: pd.DataFrame, metodo: str) ->
         pm = pd.DataFrame([devig.quitar_margen(r, metodo) for r in comp.to_numpy()], index=comp.index,
                           columns=[f"{s}_mk" for s in sels])
         datos = pred.merge(pm, left_on="partido_id", right_index=True)
-        for liga, d in datos.groupby("liga"):
-            if len(d) < MIN_PARTIDOS_CALIBRAR:
-                continue
+
+        def calcular(d: pd.DataFrame) -> dict:
             if grupo == "1X2":
                 p_mod = d[["1X2:1", "1X2:X", "1X2:2"]].to_numpy()
                 p_mk = d[["1X2:1_mk", "1X2:X_mk", "1X2:2_mk"]].to_numpy()
@@ -112,20 +111,33 @@ def calibrar_alpha(pred: pd.DataFrame, cuotas_pre: pd.DataFrame, metodo: str) ->
             ll = [float(-np.mean(np.log(np.clip(a * p_mod[idx, y] + (1 - a) * p_mk[idx, y], 1e-15, 1))))
                   for a in rejilla]
             k = int(np.argmin(ll))
-            salida.setdefault(liga, {})[grupo] = {
-                "valor": float(rejilla[k]), "n": int(len(y)), "log_loss_adj": ll[k],
-                "log_loss_modelo": ll[-1], "log_loss_mercado": ll[0]}
+            return {"valor": float(rejilla[k]), "n": int(len(y)), "log_loss_adj": ll[k],
+                    "log_loss_modelo": ll[-1], "log_loss_mercado": ll[0]}
+
+        for liga, d in datos.groupby("liga"):
+            if len(d) >= MIN_PARTIDOS_CALIBRAR:
+                salida.setdefault(liga, {})[grupo] = calcular(d)
+        # α AGRUPADO de todas las ligas: respaldo para las ligas con pocos partidos (p. ej. Liga MX, con dos
+        # torneos cortos al año), mejor que un valor fijo que le daría demasiado peso al modelo.
+        if len(datos) >= MIN_PARTIDOS_CALIBRAR:
+            salida.setdefault("_global", {})[grupo] = calcular(datos)
     return salida
 
 
 def alpha_para(hp: dict, cfg: dict, liga: str, grupo: str) -> tuple[float, bool]:
-    """(α, calibrado). Sin calibración: factor × α(1X2 de la liga), o el α por defecto."""
+    """(α, calibrado). Orden: α propio de la liga y mercado > factor × α(1X2 de la liga) > α agrupado de todas
+    las ligas (el mercado correspondiente, o su 1X2 × factor) > α por defecto (conservador)."""
     a = hp.get("alpha", {}).get(liga, {})
     if grupo in a:
         return a[grupo]["valor"], True
     mk = cfg["mercado"]
     if "1X2" in a:
         return round(mk["factor_alpha_no_calibrado"] * a["1X2"]["valor"], 4), False
+    g = hp.get("alpha", {}).get("_global", {})
+    if grupo in g:
+        return g[grupo]["valor"], False
+    if "1X2" in g:
+        return round(mk["factor_alpha_no_calibrado"] * g["1X2"]["valor"], 4), False
     return mk["alpha_por_defecto"], False
 
 
