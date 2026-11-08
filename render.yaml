@@ -41,7 +41,7 @@ services:
     plan: free
     region: oregon
     dockerfilePath: ./Dockerfile
-    dockerCommand: sh -c "uvicorn golmodel.diag:app --host 0.0.0.0 --port $PORT"
+    dockerCommand: sh scripts/arranque_diag.sh
     healthCheckPath: /salud
     autoDeployTrigger: commit
     envVars:
