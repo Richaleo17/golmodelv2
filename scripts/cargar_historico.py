@@ -43,19 +43,26 @@ def main() -> None:
     fd = FootballDataCsv(registrar=reg)
     und = Understat(pausa_s=cfg["fuentes"]["understat"]["min_segundos_entre_requests"], registrar=reg)
     conn = db.conectar()
+    fallos: list[str] = []
     for codigo in ligas:
         liga = repo.ligas(conn)[codigo]
         cod_fd, formato = CODIGOS[codigo]
         anios = list(range(anio_actual - n_temp, anio_actual + 1))
         rutas = [ruta_csv(codigo, None)] if formato == "extra" else [ruta_csv(codigo, y) for y in anios]
         for ruta in ([] if a.solo_xg else rutas):
-            texto = fd.http.get(ruta, costo=0).text
-            partidos, cuotas, rep = limpiar(texto, codigo)
-            if formato == "extra":                       # un solo archivo con todas las temporadas
-                corte = datetime(anio_actual - n_temp, 1, 1, tzinfo=timezone.utc)
-                partidos = partidos[partidos["inicio"] >= corte]
-            n = cargar_historico(conn, codigo, partidos, cuotas)
-            conn.commit()
+            try:
+                texto = fd.http.get(ruta, costo=0).text
+                partidos, cuotas, rep = limpiar(texto, codigo)
+                if formato == "extra":                       # un solo archivo con todas las temporadas
+                    corte = datetime(anio_actual - n_temp, 1, 1, tzinfo=timezone.utc)
+                    partidos = partidos[partidos["inicio"] >= corte]
+                n = cargar_historico(conn, codigo, partidos, cuotas)
+                conn.commit()
+            except Exception as e:                           # un archivo malo no debe tumbar las demás ligas
+                conn.rollback()
+                fallos.append(f"{codigo} {ruta}: {type(e).__name__}: {e}")
+                print(f"  ⚠ {codigo} {ruta}: se omitió ({type(e).__name__}: {e})")
+                continue
             print(f"{codigo} {ruta}: {n} · descartes {rep.descartes}")
         if liga["usa_xg"] and not a.sin_xg:
             resolver = ResolverEquipos(conn, similitud_min=cfg["normalizacion"]["similitud_min"],
@@ -85,6 +92,10 @@ def main() -> None:
                 print(f"  ⚠ {len(set(resolver.pendientes))} nombres de Understat sin resolver: "
                       "revísalos en la UI (pestaña Datos) y vuelve a correr este script.")
     conn.close()
+    if fallos:
+        print(f"\n⚠ {len(fallos)} archivo(s) omitidos; el resto quedó cargado:")
+        for f in fallos:
+            print("  -", f)
 
 
 if __name__ == "__main__":

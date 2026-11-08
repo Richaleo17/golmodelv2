@@ -68,6 +68,14 @@ def partidos_desde_df(df: pd.DataFrame) -> list[PartidoExterno]:
     return salida
 
 
+def _numero(v: Any) -> float | None:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if x == x else None                          # descarta NaN
+
+
 def cuotas_desde_df(df: pd.DataFrame, *, cierre: bool) -> list[CuotaExterna]:
     salida = []
     tipo = "cierre" if cierre else "prepartido"
@@ -80,9 +88,9 @@ def cuotas_desde_df(df: pd.DataFrame, *, cierre: bool) -> list[CuotaExterna]:
             # football-data la toma ~viernes/martes previo -> se fecha 2 días antes (conservador).
             capt = inicio if cierre else inicio - pd.Timedelta(days=2).to_pytimedelta()
             for col, sel in presentes.items():
-                v = r.get(col)
-                if v is not None and pd.notna(v) and float(v) > 1.0:
-                    salida.append(CuotaExterna("football_data_csv", casa, sel, float(v), tipo, capt,
+                v = _numero(r.get(col))             # celdas con texto («x», «-») cuentan como sin cuota
+                if v is not None and v > 1.0:
+                    salida.append(CuotaExterna("football_data_csv", casa, sel, v, tipo, capt,
                                                str(r["HomeTeam"]).strip(), str(r["AwayTeam"]).strip(),
                                                inicio))
     return salida

@@ -368,3 +368,13 @@ def test_odds_api_calendario_para_las_cinco_ligas():
     assert p.cubre(Solicitud(Capacidad.FIXTURES, "MLS"))
     assert len(p.obtener(Solicitud(Capacidad.FIXTURES, "MX1", hasta=date(2026, 11, 12)))) == 1
     assert visto == ["/v4/sports/soccer_mexico_ligamx/events"] and log[0][2:] == (0, 200, 480)
+
+
+def test_cuotas_csv_ignoran_celdas_con_texto():
+    """Liga MX trae «x» en algunas celdas de cuotas: deben ignorarse, no romper la carga."""
+    import pandas as pd
+    from golmodel.ingesta.proveedores.football_data_csv import cuotas_desde_df
+    df = pd.DataFrame([{"inicio": pd.Timestamp("2025-08-01", tz="UTC"), "HomeTeam": "A", "AwayTeam": "B",
+                        "PSH": "x", "PSD": 3.4, "PSA": "-"}])
+    cuotas = cuotas_desde_df(df, cierre=False)
+    assert [c.cuota for c in cuotas] == [3.4]
