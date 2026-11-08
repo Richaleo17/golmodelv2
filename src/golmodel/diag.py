@@ -111,3 +111,22 @@ def alpha(conn=Depends(conexion)):
     r = conn.execute("""SELECT hiperparametros -> 'alpha' AS a FROM versiones_modelo
                         WHERE origen = 'produccion' ORDER BY creado_en DESC LIMIT 1""").fetchone()
     return {"alpha": (r or {}).get("a")}
+
+
+@app.get("/diag/panel", dependencies=[Depends(autorizar)])
+def panel_real(fecha: str | None = None, conn=Depends(conexion)):
+    """Lo mismo que ve la UI en Diario / Qué meter, para revisarlo con datos reales."""
+    from datetime import date, datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    from golmodel.config import cargar
+    from golmodel.servicios import sugerencias
+
+    cfg = cargar()
+    ahora = datetime.now(timezone.utc)
+    d = date.fromisoformat(fecha) if fecha else ahora.astimezone(ZoneInfo(cfg["zona_horaria"])).date()
+    pan = sugerencias.panel(conn, cfg, d, ahora)
+    pan.pop("texto", None)
+    for p in pan["partidos"]:
+        p.pop("jugadas", None)
+    return pan
