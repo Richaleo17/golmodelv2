@@ -179,3 +179,19 @@ def validar_prior():
         _VALIDACION["estado"] = "iniciando"
         threading.Thread(target=_correr_validacion, daemon=True).start()
     return _VALIDACION
+
+
+@app.get("/diag/etapas", dependencies=[Depends(autorizar)])
+def etapas(conn=Depends(conexion)):
+    """Qué devolvió cada etapa de la última actualización (avisos incluidos) y las últimas llamadas a APIs."""
+    ult = conn.execute("SELECT id FROM ejecuciones WHERE tipo = 'actualizar_todo' ORDER BY id DESC LIMIT 1").fetchone()
+    et = [dict(r) for r in conn.execute(
+        "SELECT etapa, estado, error, resumen FROM ejecucion_etapas WHERE ejecucion_id = %s ORDER BY orden",
+        (ult["id"],))] if ult else []
+    ll = [dict(r) for r in conn.execute(
+        """SELECT proveedor, endpoint, costo, http_status, realizada_en FROM llamadas_api
+           ORDER BY id DESC LIMIT 60""")]
+    prog = [dict(r) for r in conn.execute(
+        """SELECT l.codigo, min(p.inicio) AS primero, max(p.inicio) AS ultimo, count(*) AS n
+           FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE p.estado = 'programado' GROUP BY 1 ORDER BY 1""")]
+    return {"ejecucion": ult and ult["id"], "etapas": et, "llamadas": ll, "programados": prog}

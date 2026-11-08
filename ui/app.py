@@ -19,7 +19,7 @@ from golmodel import acceso
 
 API = os.environ.get("API_URL", "http://localhost:8000")
 ZONA = ZoneInfo("America/Mexico_City")
-VERDE, AMBAR, ROJO, GRIS, CAL = "#2ee59d", "#f5b84b", "#ff5d5d", "#7d8c84", "#e8f3ec"
+VERDE, AMBAR, ROJO, GRIS, CAL, VIOLETA = "#3ee6a8", "#f7c948", "#ff6b8b", "#8a88b8", "#e8e8ff", "#9a85ff"
 NOMBRES = {
     "1X2:1": "Gana local", "1X2:X": "Empate", "1X2:2": "Gana visitante",
     "DC:1X": "Local o empate", "DC:X2": "Empate o visitante", "DC:12": "Local o visitante",
@@ -45,80 +45,117 @@ NOMBRE_ETAPA = {"resultados_xg": "Resultados y xG", "liquidacion_clv": "Liquidac
 st.set_page_config(page_title="golmodelv2", page_icon="⚽", layout="wide")
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;600&display=swap');
-:root { --cancha:#2ee59d; --cal:#e8f3ec; --ambar:#f5b84b; --rojo:#ff5d5d; --pasto1:#0a120e; --pasto2:#0d1812; }
-.stApp { background: radial-gradient(ellipse at 50% -10%, rgba(46,229,157,.10), transparent 55%),
-         repeating-linear-gradient(90deg, var(--pasto1) 0 120px, var(--pasto2) 120px 240px); }
-section[data-testid="stSidebar"] { background:#0e1a14; border-right:2px solid rgba(232,243,236,.12); }
-h1, h2, h3, h4, [data-testid="stMetricLabel"] { font-family:'Barlow Condensed',sans-serif !important; letter-spacing:.02em; }
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=JetBrains+Mono:wght@400;500;600&family=Inter:wght@400;500;600&display=swap');
+:root { --vio:#9a85ff; --vio2:#6f5cd6; --cal:#e8e8ff; --tenue:#a9a7d6; --verde:#3ee6a8; --ambar:#f7c948; --rojo:#ff6b8b;
+        --fondo:#0a0a1f; --panel:#10102b; --borde:rgba(154,133,255,.30); }
+html, body, .stApp { font-family:'Inter',sans-serif; }
+.stApp { background:
+  radial-gradient(ellipse 60% 40% at 88% 8%, rgba(111,92,214,.28), transparent 70%),
+  radial-gradient(circle, rgba(154,133,255,.14) 1px, transparent 1.4px) 0 0 / 26px 26px,
+  var(--fondo); }
+.block-container { padding-top:1.4rem; padding-bottom:7rem; max-width:1100px; }
+header[data-testid="stHeader"] { background:transparent; }
+section[data-testid="stSidebar"] { background:#0c0c26; border-right:1px solid var(--borde); }
+h1, h2, h3, h4, [data-testid="stMetricLabel"] { font-family:'Barlow Condensed',sans-serif !important; letter-spacing:.03em; text-transform:uppercase; }
 [data-testid="stMetricValue"], .stDataFrame, code { font-family:'JetBrains Mono',monospace !important; }
-[data-testid="stMetricValue"] { color:var(--cancha); }
-.marcador { position:relative; overflow:hidden; border:2px solid rgba(232,243,236,.35); border-radius:14px;
-  padding:18px 24px; margin-bottom:8px; background:linear-gradient(180deg,rgba(18,32,25,.95),rgba(10,18,14,.95)); }
-.marcador::before { content:""; position:absolute; left:50%; top:50%; width:150px; height:150px;
-  transform:translate(-50%,-50%); border:2px solid rgba(232,243,236,.08); border-radius:50%; }
-.marcador::after { content:""; position:absolute; left:50%; top:0; bottom:0; border-left:2px solid rgba(232,243,236,.08); }
-.marcador h1 { margin:0; font-size:2.6rem; color:var(--cal); }
-.marcador h1 span { color:var(--cancha); }
-.lema { font-family:'JetBrains Mono',monospace; font-size:.8rem; color:rgba(232,243,236,.65); letter-spacing:.08em; }
-.chip { display:inline-block; padding:2px 10px; margin:6px 6px 0 0; border-radius:999px; font-family:'JetBrains Mono',monospace;
-  font-size:.75rem; border:1px solid rgba(232,243,236,.25); color:var(--cal); background:rgba(232,243,236,.04); }
-.chip.ok { border-color:rgba(46,229,157,.6); color:var(--cancha); }
-.chip.viejo { border-color:rgba(245,184,75,.7); color:var(--ambar); }
-.chip.rojo { border-color:rgba(255,93,93,.7); color:var(--rojo); }
+[data-testid="stMetricValue"] { color:var(--vio); }
+/* --- encabezado --- */
+.marcador { border:1px solid var(--borde); padding:14px 20px; margin-bottom:10px; background:rgba(16,16,43,.8); }
+.marcador h1 { margin:0; font-size:2rem; color:var(--cal); text-transform:none; }
+.marcador h1 span { color:var(--vio); }
+.lema { font-family:'JetBrains Mono',monospace; font-size:.7rem; color:var(--tenue); letter-spacing:.14em; margin:2px 0 4px; }
+.chip { display:inline-block; padding:2px 9px; margin:6px 6px 0 0; font-family:'JetBrains Mono',monospace; font-size:.68rem;
+  letter-spacing:.06em; text-transform:uppercase; border:1px solid var(--borde); color:var(--tenue); background:rgba(154,133,255,.05); }
+.chip.ok { border-color:rgba(62,230,168,.55); color:var(--verde); }
+.chip.viejo { border-color:rgba(247,201,72,.6); color:var(--ambar); }
+.chip.rojo { border-color:rgba(255,107,139,.65); color:var(--rojo); }
+/* --- título de sección --- */
+.sec { display:flex; align-items:baseline; gap:12px; margin:6px 0 4px; }
+.sec .n { font-family:'JetBrains Mono',monospace; color:var(--vio); font-size:1.05rem; }
+.sec .t { font-family:'Barlow Condensed',sans-serif; font-weight:700; font-size:2.6rem; letter-spacing:.02em; color:var(--cal); line-height:1; }
+.sec-txt { color:var(--tenue); font-size:.95rem; max-width:880px; margin:0 0 14px; line-height:1.5; }
 .equipos { font-family:'Barlow Condensed',sans-serif; font-size:1.55rem; font-weight:700; color:var(--cal); line-height:1.15; }
-.equipos small { color:rgba(232,243,236,.55); font-weight:600; font-size:1rem; }
-.meta { font-family:'JetBrains Mono',monospace; font-size:.78rem; color:rgba(232,243,236,.6); }
-.oport { border-left:4px solid var(--cancha); padding:6px 12px; background:rgba(46,229,157,.07); border-radius:6px; }
-.oport.gris { border-left-color:#5c6a62; background:rgba(232,243,236,.03); }
-.oport .t { font-size:.78rem; color:rgba(232,243,236,.6); text-transform:uppercase; letter-spacing:.06em; }
+.equipos small { color:var(--tenue); font-weight:600; font-size:1rem; }
+.meta { font-family:'JetBrains Mono',monospace; font-size:.74rem; color:var(--tenue); letter-spacing:.03em; }
+.oport { border-left:3px solid var(--vio); padding:6px 12px; background:rgba(154,133,255,.08); }
+.oport.gris { border-left-color:#4a4878; background:rgba(154,133,255,.03); }
+.oport .t { font-size:.74rem; color:var(--tenue); text-transform:uppercase; letter-spacing:.1em; font-family:'JetBrains Mono',monospace; }
 .oport .s { font-family:'Barlow Condensed',sans-serif; font-size:1.3rem; color:var(--cal); font-weight:700; }
-.oport .ev { font-family:'JetBrains Mono',monospace; font-size:1.15rem; color:var(--cancha); }
-.paso { border:1px solid rgba(232,243,236,.15); border-radius:12px; padding:14px; background:rgba(18,32,25,.6); height:100%; }
-.paso b { font-family:'Barlow Condensed',sans-serif; font-size:1.25rem; color:var(--cancha); }
-.dia { border:1px solid rgba(232,243,236,.18); border-radius:12px; padding:12px 16px; margin:8px 0;
-  background:linear-gradient(180deg, rgba(18,32,25,.85), rgba(10,18,14,.85)); }
-.dia-top { display:flex; justify-content:space-between; font-family:'JetBrains Mono',monospace; font-size:.74rem;
-  color:rgba(232,243,236,.6); letter-spacing:.06em; text-transform:uppercase; }
-.dia-eq { font-family:'Barlow Condensed',sans-serif; font-size:1.45rem; font-weight:700; color:var(--cal); margin:2px 0 6px; }
-.ind { display:grid; grid-template-columns:118px 1fr auto; gap:8px; align-items:baseline; padding:7px 0;
-  border-top:1px solid rgba(232,243,236,.1); }
-.ind .lab { font-family:'JetBrains Mono',monospace; font-size:.72rem; color:rgba(232,243,236,.55); letter-spacing:.08em; }
-.ind .txt { font-size:1.05rem; color:var(--cal); }
-.ind .txt small { color:rgba(232,243,236,.55); font-size:.78rem; margin-left:4px; }
-.ind .pct { font-family:'JetBrains Mono',monospace; font-size:1.25rem; font-weight:600; }
-.dia-foot { font-family:'JetBrains Mono',monospace; font-size:.72rem; color:rgba(232,243,236,.55); margin-top:4px; }
-.forma span { display:inline-block; width:19px; height:19px; line-height:19px; text-align:center; border-radius:4px;
-  font-family:'JetBrains Mono',monospace; font-size:.66rem; margin-right:3px; color:#0a120e; font-weight:700; }
-.forma .G { background:var(--cancha); } .forma .E { background:#9aa7a0; } .forma .P { background:#ff7a9c; }
-.rompe { margin-top:6px; padding:5px 10px; border-left:4px solid var(--rojo); background:rgba(255,93,93,.09);
-  border-radius:4px; font-size:.84rem; color:#ffb0b0; }
-.jug { margin-top:6px; padding:5px 10px; border-left:4px solid var(--cancha); background:rgba(46,229,157,.07);
-  border-radius:4px; font-size:.9rem; color:var(--cal); }
-.jug-fila { border-left:4px solid #5c6a62; padding:8px 12px; margin:7px 0; border-radius:6px; background:rgba(18,32,25,.7); }
-.jug-fila.segura { border-left-color:var(--cancha); } .jug-fila.equilibrada { border-left-color:var(--ambar); }
-.jug-fila.arriesgada { border-left-color:#ff7a9c; }
-.jug-nom { font-family:'Barlow Condensed',sans-serif; font-size:1.35rem; font-weight:700; color:var(--cal); }
-.jug-nom small { font-family:'Source Sans Pro',sans-serif; font-size:.78rem; font-weight:400; color:rgba(232,243,236,.55); margin-left:6px; }
-.jug-num { font-size:.9rem; color:rgba(232,243,236,.85); }
-.ok { color:var(--cancha); font-weight:600; font-size:.88rem; } .no { color:#ff9a9a; font-size:.88rem; }
-.parlay { border:1px solid rgba(232,243,236,.2); border-radius:12px; padding:12px 14px; background:rgba(18,32,25,.75); height:100%; }
-.parlay h4 { margin:0 0 6px; color:var(--cancha); } .parlay .pierna { font-size:.86rem; margin:4px 0; color:var(--cal); }
-.parlay ul.porque { margin:2px 0 6px 18px; padding:0; font-size:.76rem; color:var(--cal); opacity:.85; }
+.oport .ev { font-family:'JetBrains Mono',monospace; font-size:1.1rem; color:var(--verde); }
+.paso { border:1px solid var(--borde); padding:14px; background:rgba(16,16,43,.7); height:100%; }
+.paso b { font-family:'Barlow Condensed',sans-serif; font-size:1.25rem; color:var(--vio); }
+/* --- tarjeta de partido (Diario) --- */
+.mc { position:relative; border:1px solid var(--borde); padding:22px 20px 12px; margin:20px 0 6px; background:rgba(16,16,43,.78); }
+.mc-code { position:absolute; top:-11px; left:14px; padding:0 8px; background:var(--fondo); color:var(--vio);
+  font-family:'JetBrains Mono',monospace; font-weight:600; font-size:.8rem; letter-spacing:.1em; }
+.mc-dot { position:absolute; top:12px; right:12px; width:13px; height:13px; border-radius:50%; border:2px solid var(--vio2); }
+.mc-dot.vivo { background:var(--verde); border-color:var(--verde); box-shadow:0 0 8px var(--verde); }
+.mc-top { display:flex; justify-content:space-between; gap:10px; padding-right:26px; font-family:'JetBrains Mono',monospace;
+  font-size:.74rem; letter-spacing:.09em; text-transform:uppercase; color:var(--tenue); }
+.mc-eq { font-family:'Inter',sans-serif; font-size:1.3rem; font-weight:600; color:var(--cal); margin:6px 0 8px; }
+.mc-badges { margin:0 0 8px; }
+.mc-badges .chip { margin:0 6px 4px 0; color:var(--cal); border-color:var(--vio2); }
+.ind { display:grid; grid-template-columns:120px 1fr auto; gap:8px; align-items:baseline; padding:8px 0 10px;
+  border-top:1px solid rgba(154,133,255,.22); }
+.ind .lab { font-family:'JetBrains Mono',monospace; font-size:.74rem; color:var(--tenue); letter-spacing:.12em; text-transform:uppercase; }
+.ind .txt { font-size:1.2rem; color:var(--cal); }
+.ind .txt small { color:var(--tenue); font-size:.82rem; margin-left:4px; }
+.ind .pct { font-family:'Barlow Condensed',sans-serif; font-size:1.9rem; font-weight:700; }
+.barra { grid-column:1 / -1; height:4px; background:rgba(154,133,255,.14); margin-top:-4px; }
+.barra i { display:block; height:100%; }
+.dia-foot { font-family:'JetBrains Mono',monospace; font-size:.7rem; color:var(--tenue); margin-top:6px; letter-spacing:.03em; line-height:1.5; }
+.forma span { display:inline-block; width:19px; height:19px; line-height:19px; text-align:center;
+  font-family:'JetBrains Mono',monospace; font-size:.66rem; margin-right:3px; color:#0a0a1f; font-weight:700; }
+.forma .G { background:var(--verde); } .forma .E { background:#9a98c8; } .forma .P { background:var(--rojo); }
+.rompe { margin-top:8px; padding:6px 10px; border-left:3px solid var(--rojo); background:rgba(255,107,139,.10); font-size:.84rem; color:#ffc2d0; }
+.jug { margin-top:8px; padding:6px 10px; border-left:3px solid var(--verde); background:rgba(62,230,168,.08); font-size:.9rem; color:var(--cal); }
+.jug-fila { border:1px solid var(--borde); border-left:3px solid #4a4878; padding:10px 14px; margin:8px 0; background:rgba(16,16,43,.75); }
+.jug-fila.segura { border-left-color:var(--verde); } .jug-fila.equilibrada { border-left-color:var(--ambar); }
+.jug-fila.arriesgada { border-left-color:var(--rojo); }
+.jug-nom { font-family:'Barlow Condensed',sans-serif; font-size:1.4rem; font-weight:700; color:var(--cal); }
+.jug-nom small { font-family:'Inter',sans-serif; font-size:.78rem; font-weight:400; color:var(--tenue); margin-left:6px; }
+.jug-num { font-size:.9rem; color:rgba(232,232,255,.88); }
+.ok { color:var(--verde); font-weight:600; font-size:.88rem; } .no { color:#ff9db3; font-size:.88rem; }
+.parlay { border:1px solid var(--borde); padding:12px 14px; background:rgba(16,16,43,.8); height:100%; margin-bottom:10px; }
+.parlay h4 { margin:0 0 6px; color:var(--vio); } .parlay .pierna { font-size:.86rem; margin:4px 0; color:var(--cal); }
+.parlay ul.porque { margin:2px 0 6px 18px; padding:0; font-size:.76rem; color:var(--tenue); }
+/* --- selector de día y navegación inferior (st.radio con estilo) --- */
+.st-key-dias, .st-key-subnav { width:100% !important; }
+.st-key-dias [data-testid="stRadioGroup"], .st-key-subnav [data-testid="stRadioGroup"] { gap:8px; flex-wrap:wrap; }
+.st-key-dias label[data-testid="stRadioOption"], .st-key-subnav label[data-testid="stRadioOption"] {
+  border:1px solid var(--borde); padding:9px 18px; margin:0; background:rgba(16,16,43,.8); cursor:pointer; }
+.st-key-dias label > div > div:first-child, .st-key-subnav label > div > div:first-child, .st-key-nav label > div > div:first-child { display:none !important; }
+.st-key-dias label p, .st-key-subnav label p { font-family:'JetBrains Mono',monospace; font-size:.82rem; font-weight:600;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--cal); margin:0; }
+.st-key-dias label[data-selected="true"], .st-key-subnav label[data-selected="true"] { background:var(--vio); border-color:var(--vio); }
+.st-key-dias label[data-selected="true"] p, .st-key-subnav label[data-selected="true"] p { color:#0a0a1f; }
+.st-key-nav { position:fixed !important; left:0; right:0; bottom:0; width:100% !important; z-index:1000002;
+  background:rgba(10,10,31,.97); border-top:1px solid var(--borde); padding:0 !important; }
+section[data-testid="stSidebar"] > div { padding-bottom:96px; }
+.st-key-nav [data-testid="stRadioGroup"] { display:grid !important; grid-template-columns:repeat(5, 1fr); gap:0; width:100%; }
+.st-key-nav [data-testid="stWidgetLabel"] { display:none; }
+.st-key-nav label[data-testid="stRadioOption"] { display:flex; justify-content:center; margin:0; padding:12px 4px 10px; cursor:pointer;
+  border-top:3px solid transparent; }
+.st-key-nav label p { font-family:'JetBrains Mono',monospace; font-size:.74rem; letter-spacing:.14em; text-align:center;
+  color:var(--tenue); white-space:pre-line; line-height:1.35; margin:0; }
+.st-key-nav label[data-selected="true"] { border-top-color:var(--vio); background:rgba(154,133,255,.08); }
+.st-key-nav label[data-selected="true"] p { color:var(--vio); font-weight:600; }
 @media (max-width: 640px) {
   div[data-testid="stHorizontalBlock"] { flex-wrap:wrap !important; gap:.4rem !important; }
   div[data-testid="stColumn"], div[data-testid="column"] { min-width:calc(50% - .5rem) !important; flex:1 1 calc(50% - .5rem) !important; }
-  .ind { grid-template-columns:86px 1fr auto; } .ind .pct { font-size:1.05rem; }   /* celular: encabezado compacto para llegar rápido a los partidos */
-  .marcador { padding:10px 14px; }
-  .marcador h1 { font-size:1.7rem; }
-  .lema { display:none; }
-  .chip { font-size:.62rem; padding:1px 7px; margin:4px 4px 0 0; }
-  .equipos { font-size:1.3rem; }
+  .block-container { padding-left:.8rem; padding-right:.8rem; }
+  .ind { grid-template-columns:92px 1fr auto; } .ind .pct { font-size:1.5rem; } .ind .txt { font-size:1.05rem; }
+  .marcador { padding:10px 14px; } .marcador h1 { font-size:1.5rem; } .lema { display:none; }
+  .chip { font-size:.6rem; padding:1px 6px; margin:4px 4px 0 0; }
+  .sec .t { font-size:2rem; } .sec-txt { font-size:.86rem; }
+  .st-key-dias label[data-testid="stRadioOption"], .st-key-subnav label[data-testid="stRadioOption"] { padding:7px 11px; } .st-key-dias label p, .st-key-subnav label p { font-size:.7rem; }
+  .st-key-nav label p { font-size:.6rem; letter-spacing:.06em; }
+  .mc { padding:20px 14px 10px; } .mc-eq { font-size:1.12rem; } .mc-top { font-size:.64rem; }
   [data-testid="stMetricValue"] { font-size:1.6rem; }
 }
-div[data-testid="stExpander"] { border:1px solid rgba(232,243,236,.15); border-radius:10px; background:rgba(18,32,25,.55); }
-.stButton > button { border:1px solid rgba(46,229,157,.5); font-weight:600; }
-.stButton > button:hover { border-color:var(--cancha); color:var(--cancha); }
+div[data-testid="stExpander"] { border:1px solid var(--borde); background:rgba(16,16,43,.6); border-radius:0; }
+.stButton > button { border:1px solid var(--vio2); border-radius:0; font-weight:600; background:rgba(154,133,255,.08); }
+.stButton > button:hover { border-color:var(--vio); color:var(--vio); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -233,11 +270,11 @@ def barra_1x2(item: dict) -> alt.Chart | None:
     barras = alt.Chart(df).mark_bar().encode(
         y=y, x=alt.X("x0:Q", axis=None, scale=alt.Scale(domain=[0, 1])), x2="x1:Q",
         color=alt.Color("resultado:N", scale=alt.Scale(domain=["Local", "Empate", "Visita"],
-                                                       range=[VERDE, "#5c6a62", "#5aa9ff"]),
+                                                       range=[VERDE, "#4a4878", "#5aa9ff"]),
                         legend=alt.Legend(orient="top", title=None, labelColor=CAL)),
         tooltip=[alt.Tooltip("fuente:N", title="Fuente"), alt.Tooltip("resultado:N", title="Resultado"),
                  alt.Tooltip("p:Q", title="Probabilidad", format=".1%")])
-    textos = alt.Chart(df).mark_text(color="#0a120e", fontWeight="bold", fontSize=11).encode(
+    textos = alt.Chart(df).mark_text(color="#0a0a1f", fontWeight="bold", fontSize=11).encode(
         y=y, x="xm:Q", text="etiqueta:N")
     return (barras + textos).properties(height=alt.Step(26))
 
@@ -251,11 +288,11 @@ def mapa_marcadores(item: dict) -> alt.Chart:
                 axis=alt.Axis(labelColor=CAL, titleColor=CAL)),
         tooltip=[alt.Tooltip("local:O", title=item["local"]), alt.Tooltip("visita:O", title=item["visitante"]),
                  alt.Tooltip("p:Q", title="Probabilidad", format=".1%")])
-    celdas = base.mark_rect(stroke="#0a120e").encode(
-        color=alt.Color("p:Q", scale=alt.Scale(range=["#0d1812", VERDE]), legend=None))
+    celdas = base.mark_rect(stroke="#0a0a1f").encode(
+        color=alt.Color("p:Q", scale=alt.Scale(range=["#14142e", VERDE]), legend=None))
     textos = base.mark_text(fontSize=11).encode(
         text=alt.Text("p:Q", format=".0%"),
-        color=alt.condition("datum.p > 0.07", alt.value("#0a120e"), alt.value(CAL)))
+        color=alt.condition("datum.p > 0.07", alt.value("#0a0a1f"), alt.value(CAL)))
     return (celdas + textos).properties(height=260)
 
 
@@ -369,7 +406,7 @@ def chip_fuente(n: str) -> str:
 
 
 st.markdown('<div class="marcador"><h1>⚽ gol<span>model</span>v2</h1>'
-            '<div class="lema">PROBABILIDADES CALIBRADAS · VALOR SIN MARGEN (+EV) · RIESGO CONTROLADO</div>'
+            '<div class="lema">PROBABILIDADES CALIBRADAS · VALOR SIN MARGEN · RIESGO CONTROLADO</div>'
             + "".join(chip_fuente(n) for n in ("Resultados", "Modelo", "Lesiones", "Cuotas"))
             + f'<span class="chip">CDMX {estado["ahora_local"]}</span>'
             + ('' if ROL == acceso.ADMIN else '<span class="chip viejo">👀 Solo consulta</span>') + '</div>',
@@ -391,12 +428,20 @@ if estado.get("ejecuciones_interrumpidas"):
 for a in estado["alertas"]:
     st.warning(a)
 
+# ------------------------------------------------------------------ selector de día (arriba, como botones)
+DIAS_ES = ["LUN", "MAR", "MIÉ", "JUE", "VIE", "SÁB", "DOM"]
+hoy_mx = date.fromisoformat(os.environ["GOLMODEL_FECHA"]) if os.environ.get("GOLMODEL_FECHA") else datetime.now(ZONA).date()
+opciones_dia = {"HOY": hoy_mx, "MAÑANA": hoy_mx + pd.Timedelta(days=1)}
+for k_ in range(2, 6):
+    d_ = hoy_mx + pd.Timedelta(days=k_)
+    opciones_dia[f"{DIAS_ES[d_.weekday()]} {d_.day}"] = d_
+sel_dia = st.radio("Día", list(opciones_dia), horizontal=True, key="dias", label_visibility="collapsed")
+
 # ------------------------------------------------------------------ barra lateral
 with st.sidebar:
-    st.header("📅 Día")
-    por_defecto = date.fromisoformat(os.environ["GOLMODEL_FECHA"]) if os.environ.get("GOLMODEL_FECHA") \
-        else datetime.now(ZONA).date()
-    dia: date = st.date_input("Partidos del", value=por_defecto, format="DD/MM/YYYY")
+    st.header("📅 Otra fecha")
+    otra = st.date_input("Partidos del", value=None, format="DD/MM/YYYY", key="otra_fecha",
+                         help="Déjala vacía para usar los botones de día (HOY, MAÑANA…).")
     st.header("🔄 Actualizar")
     botones = {"actualizar_todo": ("Actualizar datos", "Una vez al día: resultados, modelo, lesiones, cuotas y picks."),
                "solo_cuotas": ("Actualizar solo cuotas", "Cerca de los partidos: refresca cuotas y recalcula picks."),
@@ -439,6 +484,10 @@ with st.sidebar:
             st.query_params.clear()
             st.rerun()
 
+dia: date = otra if otra else opciones_dia[sel_dia]
+if otra:
+    st.caption(f"Mostrando la fecha elegida en la barra lateral: {otra.strftime('%d/%m/%Y')}")
+
 # ------------------------------------------------------------------ progreso de la actualización
 if not st.session_state.get("ejecucion") and estado["ejecucion_en_curso"]:
     st.session_state["ejecucion"] = estado["ejecucion_en_curso"]["id"]
@@ -468,8 +517,22 @@ oportunidades = [(p, m) for p in con_pred for m in p["mercados"] if m.get("clasi
 picks_hoy = [k for p in partidos for k in p["picks"]]
 exposicion = sum(float(k["stake_u"]) for k in picks_hoy if k["estado"] not in ("valor_perdido", "descartado_usuario"))
 
-tabs = st.tabs(["📅 Diario", "🎯 Qué meter", "🏟️ Análisis", "🧾 Parlay con cuotas", "✍️ Capturar cuotas",
-                "📈 CLV y resultados", "🧭 Cómo leer esto", "🛠️ Datos"])
+SECCIONES = ["01\nDIARIO", "02\nQUÉ METER", "03\nANÁLISIS", "04\nCUOTAS", "05\nMÁS"]
+SEC = SECCIONES.index(st.radio("Sección", SECCIONES, horizontal=True, key="nav", label_visibility="collapsed"))
+SUB = 0
+if SEC == 3:
+    SUB = ["Parlay con cuotas", "Capturar cuotas"].index(
+        st.radio("Vista", ["Parlay con cuotas", "Capturar cuotas"], horizontal=True, key="subnav", label_visibility="collapsed"))
+elif SEC == 4:
+    SUB = ["CLV y resultados", "Cómo leer esto", "Datos"].index(
+        st.radio("Vista", ["CLV y resultados", "Cómo leer esto", "Datos"], horizontal=True, key="subnav", label_visibility="collapsed"))
+VISTA = {0: 0, 1: 1, 2: 2, 3: 3 + SUB, 4: 5 + SUB}[SEC]
+
+
+def titulo(num: str, nombre: str, texto: str) -> None:
+    st.markdown(f'<div class="sec"><span class="n">{num}</span><span class="t">{nombre}</span></div>'
+                f'<div class="sec-txt">{texto}</div>', unsafe_allow_html=True)
+
 
 # ------------------------------------------------------------------ Diario y Qué meter
 def esc(x) -> str:
@@ -484,37 +547,59 @@ def html_forma(f: str) -> str:
     return "".join(f'<span class="{c}">{c}</span>' for c in f) or '<span class="meta">sin datos</span>'
 
 
+PAIS = {"EPL": "Inglaterra", "LL": "España", "SA": "Italia", "BUN": "Alemania", "L1": "Francia", "MX1": "México",
+        "MLS": "EE. UU.", "BR1": "Brasil", "ERE": "Países Bajos", "BEL": "Bélgica", "POR": "Portugal"}
+
+
+def codigo(nombre_eq: str) -> str:
+    base = _sin_acentos(nombre_eq).replace(".", " ").split()
+    return (base[0] if base else "???")[:3].upper()
+
+
+def barra_p(p: float) -> str:
+    return f'<div class="barra"><i style="width:{max(2, min(100, 100 * p)):.0f}%;background:{color_p(p)}"></i></div>'
+
+
 def fila_ind(lab: str, txt: str, p: float) -> str:
     return (f'<div class="ind"><span class="lab">{lab}</span><span class="txt">{txt}</span>'
-            f'<span class="pct" style="color:{color_p(p)}">{p:.0%}</span></div>')
+            f'<span class="pct" style="color:{color_p(p)}">{p:.0%}</span>{barra_p(p)}</div>')
 
 
 def tarjeta_diario(p: dict) -> str:
-    liga = NOMBRE_LIGA.get(p["liga"], p["liga"])
-    cab = f'<div class="dia-top"><span>{esc(liga)} · {p["hora"]}</span>'
+    liga = f'{PAIS.get(p["liga"], "")} · {NOMBRE_LIGA.get(p["liga"], p["liga"])}'.strip(" ·").upper()
+    en_juego = p.get("estado") == "en_juego"
+    cod = f'{codigo(p["local"])}·{codigo(p["visitante"])}'
+    punto = f'<span class="mc-dot{" vivo" if en_juego else ""}"></span>'
+    final = f' · FINAL {esc(p["marcador"])}' if p.get("marcador") and p.get("estado") == "finalizado" else (
+        " · EN JUEGO" if en_juego else "")
     if not p["prediccion"]:
-        return (f'<div class="dia">{cab}</span></div><div class="dia-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
+        return (f'<div class="mc"><span class="mc-code">{esc(cod)}</span>{punto}'
+                f'<div class="mc-top"><span>{esc(liga)}</span><span>{p["hora"]}{final}</span></div>'
+                f'<div class="mc-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
                 f'<div class="meta">⚠ {esc(p["motivo"])}</div></div>')
     g, pg, ot = p["gana"], p["primer_gol"], p["otro_anota"]
-    final = f' · FINAL {esc(p["marcador"])}' if p["marcador"] else ""
-    h = (f'<div class="dia">{cab}{final}</span><span>CONF {p["confianza"]}/10</span></div>'
-         f'<div class="dia-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
-         f'<div class="meta">Forma: {esc(p["local"])} <span class="forma">{html_forma(p["forma"]["local"])}</span> · '
-         f'{esc(p["visitante"])} <span class="forma">{html_forma(p["forma"]["visitante"])}</span></div>')
+    badges = f'<span class="chip">{esc(p["fuente"])}</span>'
     crs = p.get("crs") or {}
-    if crs.get("alerta"):
+    if crs.get("alerta") and crs["alerta"] != "INSUFICIENTE":
         cl = {"ALTA": "rojo", "MEDIA": "viejo", "BAJA": "ok"}.get(crs["alerta"], "ok")
-        h += (f'<div class="meta"><span class="chip {cl}">{ICONO_CRS.get(crs["alerta"], "")} CRS {crs["total"] if crs["total"] is not None else "—"}'
-              f' · riesgo {esc(crs["alerta"].lower())} de que el favorito tropiece</span></div>')
+        badges += (f'<span class="chip {cl}">{ICONO_CRS.get(crs["alerta"], "")} CRS {crs["total"] if crs["total"] is not None else "—"}'
+                   f' · riesgo {esc(crs["alerta"].lower())}</span>')
+    if p.get("rompe"):
+        badges += '<span class="chip rojo">💥 rompe parlays</span>'
+    h = (f'<div class="mc"><span class="mc-code">{esc(cod)}</span>{punto}'
+         f'<div class="mc-top"><span>{esc(liga)}</span><span>{p["hora"]}{final} · CONF {p["confianza"]}/10</span></div>'
+         f'<div class="mc-eq">{esc(p["local"])} vs {esc(p["visitante"])}</div>'
+         f'<div class="mc-badges">{badges}</div>')
     h += fila_ind("GANA", f'{esc(g["favorito"])} <small>empate {g["empate"]:.0%}</small>', g["p"])
     h += fila_ind("PRIMER GOL", f'{esc(pg["equipo"])} <small>(aprox.)</small>', pg["p"])
     h += fila_ind("EL OTRO ANOTA", f'{esc(ot["equipo"])} <small>aunque pierda, ≥1 gol</small>', ot["p"])
     ge = p["goles_esperados"]
-    h += (f'<div class="dia-foot">Ventaja del favorito: +{100 * g["margen"]:.0f} pts sobre {esc(g["rival"])} · '
-          f'Más de 2.5: {p["over25"]:.0%} · Ambos anotan: {p["btts"]:.0%} · Goles esperados {ge["local"]:.1f}–{ge["visitante"]:.1f} · '
-          f'{esc(p["fuente"])}</div>')
+    h += (f'<div class="dia-foot">Forma {esc(p["local"])} <span class="forma">{html_forma(p["forma"]["local"])}</span> · '
+          f'{esc(p["visitante"])} <span class="forma">{html_forma(p["forma"]["visitante"])}</span><br>'
+          f'Ventaja del favorito +{100 * g["margen"]:.0f} pts sobre {esc(g["rival"])} · Más de 2.5: {p["over25"]:.0%} · '
+          f'Ambos anotan: {p["btts"]:.0%} · Goles esperados {ge["local"]:.1f}–{ge["visitante"]:.1f}</div>')
     if p.get("rompe"):
-        h += f'<div class="rompe">💥 Rompe parlays: {esc("; ".join(p["rompe"]["razones"]))}</div>'
+        h += f'<div class="rompe">💥 {esc("; ".join(p["rompe"]["razones"]))}</div>'
     if p["jugadas"]:
         j = p["jugadas"][0]
         h += (f'<div class="jug">🎯 {esc(j["jugada"])} · {j["p"]:.0%} · mete si paga ≥ <b>{j["cuota_min"]:.2f}</b></div>')
@@ -585,7 +670,8 @@ def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
 
 pan, err_pan = api("GET", f"/panel/{dia.isoformat()}")
 
-with tabs[0]:
+if VISTA == 0:
+    titulo('01', 'DIARIO', 'Los partidos del día con tres indicadores: quién gana, quién mete el primer gol y la opción del equipo más débil de anotar al menos un gol. Cada porcentaje mezcla modelo y mercado.')
     if pan is None:
         st.error(f"No se pudo armar el diario: {err_pan}")
     else:
@@ -625,17 +711,12 @@ with tabs[0]:
                        "Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. "
                        "«Primer gol» es una estimación aproximada.")
             if orden_d == "Hora":
-                for liga_c in sel_d:
-                    grupo = [p for p in lista if p["liga"] == liga_c]
-                    if grupo:
-                        st.markdown(f"#### {NOMBRE_LIGA.get(liga_c, liga_c)}")
-                        for p in grupo:
-                            st.markdown(tarjeta_diario(p), unsafe_allow_html=True)
-            else:
-                for p in lista:
-                    st.markdown(tarjeta_diario(p), unsafe_allow_html=True)
+                lista.sort(key=lambda p: p["hora"])
+            for p in lista:
+                st.markdown(tarjeta_diario(p), unsafe_allow_html=True)
 
-with tabs[1]:
+if VISTA == 1:
+    titulo('02', 'QUÉ METER', 'Las jugadas del día con su probabilidad real, su cuota justa y la <b>cuota mínima</b> a la que vale la pena. Ninguna jugada es segura.')
     if pan is None:
         st.error(f"No se pudieron armar las sugerencias: {err_pan}")
     else:
@@ -700,7 +781,8 @@ with tabs[1]:
             st.code(pan["texto"], language="markdown")
 
 # ------------------------------------------------------------------ Análisis (detalle técnico)
-with tabs[2]:
+if VISTA == 2:
+    titulo('03', 'ANÁLISIS', 'El detalle técnico de cada partido: mercados, marcadores probables, riesgo CRS y picks.')
     k1, k2, k3, k4, k5 = st.columns(5)
     k1.metric("Partidos", len(partidos), help="Partidos del día en las ligas activas.")
     k2.metric("Con valor", sum(1 for _, m in oportunidades if m["clasificacion"] == "valor"),
@@ -813,7 +895,7 @@ with tabs[2]:
                                                       "cuota_no_vigente": "Cuota no vigente"}.get(m.get("clasificacion"), ""))})
                         if filas:
                             def color(r):
-                                c = {"VALOR": "background-color:rgba(46,229,157,.22); color:#2ee59d; font-weight:600",
+                                c = {"VALOR": "background-color:rgba(62,230,168,.22); color:#3ee6a8; font-weight:600",
                                      "marginal": "color:#b8c7be",
                                      "Cuota no vigente": "background-color:rgba(245,184,75,.16); color:#f5b84b",
                                      "Filtrado por CRS": "background-color:rgba(255,93,93,.16); color:#ff8a8a"}
@@ -860,7 +942,8 @@ with tabs[2]:
         st.code(st.session_state["resumen"], language="markdown")
 
 # ------------------------------------------------------------------ Parlay
-with tabs[3]:
+if VISTA == 3:
+    titulo('04', 'CUOTAS', 'Arma parlays con las cuotas reales de tu casa.')
     pls, _ = api("GET", f"/parlays/{dia.isoformat()}")
     if not pls:
         st.info("No hay parlay para este día. Se genera solo si hay al menos 3 partidos con un bloque que cumpla: "
@@ -907,7 +990,8 @@ def recalcular_y_mostrar() -> None:
         st.rerun()
 
 
-with tabs[4]:
+if VISTA == 4:
+    titulo('04', 'CUOTAS', 'Captura las cuotas de tu casa (una lista, una tabla o una sola) y recalcula sin gastar consultas.')
     casa_manual = estado.get("casa_manual", "tu casa")
     if ROL != acceso.ADMIN:
         st.info("Solo el administrador puede capturar cuotas.")
@@ -981,7 +1065,8 @@ with tabs[4]:
                 st.info("No hay partidos por jugar este día.")
 
 # ------------------------------------------------------------------ CLV
-with tabs[5]:
+if VISTA == 5:
+    titulo('05', 'MÁS · CLV', 'Si las cuotas que tomaste superaron al cierre del mercado, y cuántos partidos faltan para usar dinero real.')
     c, _ = api("GET", "/clv")
     k = c["criterio"]
     st.markdown("#### ¿El modelo le gana al mercado?")
@@ -1015,7 +1100,8 @@ with tabs[5]:
         st.dataframe(pd.DataFrame(c["crs_efectividad"]), hide_index=True, width="stretch")
 
 # ------------------------------------------------------------------ Cómo leer esto
-with tabs[6]:
+if VISTA == 6:
+    titulo('05', 'MÁS · GUÍA', 'Cómo leer cada número de la app.')
     st.markdown("### Tu rutina en 4 pasos")
     pasos = [("1 · Actualiza", "En la mañana presiona <b>Actualizar datos</b>. Trae resultados, reajusta el modelo y baja cuotas."),
              ("2 · Revisa", "En <b>Qué meter</b> ves las jugadas del día con su probabilidad y su <b>cuota mínima</b>."),
@@ -1049,7 +1135,8 @@ with tabs[6]:
             st.write(texto)
 
 # ------------------------------------------------------------------ Datos
-with tabs[7]:
+if VISTA == 7:
+    titulo('05', 'MÁS · DATOS', 'Estado de las fuentes, nombres por resolver y cobertura por liga.')
     ult = estado.get("ultima_ejecucion")
     st.markdown("#### 🧾 Última actualización")
     if ult:

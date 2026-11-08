@@ -1,10 +1,10 @@
-# Tema "estadio de noche": césped oscuro, líneas de cal, acento verde cancha.
+# Tema "noche de estadio": azul-violeta profundo, acento violeta; verde/ámbar/rosa solo para probabilidades.
 [theme]
 base = "dark"
-primaryColor = "#2ee59d"              # verde cancha: acción y valor (+EV)
-backgroundColor = "#0a120e"           # césped bajo reflectores
-secondaryBackgroundColor = "#122019"  # franjas del pasto
-textColor = "#e8f3ec"                 # líneas de cal
+primaryColor = "#9a85ff"              # violeta: acción
+backgroundColor = "#0a0a1f"
+secondaryBackgroundColor = "#12122e"
+textColor = "#e8e8ff"
 font = "sans serif"
 
 [server]
