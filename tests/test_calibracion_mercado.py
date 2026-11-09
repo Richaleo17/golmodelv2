@@ -4,6 +4,7 @@ Incluye el caso NEGATIVO obligatorio: un modelo mal calibrado a propósito debe
 hacer FALLAR el gate. Un gate que nunca falla no es un gate.
 """
 import numpy as np
+import pytest
 
 from golmodel.modelos import calibracion_mercado as cm
 
@@ -148,3 +149,54 @@ def test_pooling_platt_interpola_y_no_mezcla_metodos():
     # métodos distintos no se mezclan: devuelve el hijo sin tocar
     t = cm.Calibrador("temperature", 2, {"T": 1.5})
     assert cm.poolear(t, padre, 100, {}).metodo == "temperature"
+
+
+# ------------------------------------------------------------------ segmento_de (fuente única del segmento)
+
+def test_rango_cuota_bordes_inferior_incluido_superior_excluido():
+    from golmodel.modelos.calibracion_mercado import rango_cuota
+    b = [1.3, 1.6, 2.0]
+    assert [rango_cuota(c, b) for c in (1.05, 1.2999, 1.3, 1.5999, 1.6, 1.9999, 2.0, 7.0)] == \
+        ["<1.3", "<1.3", "1.3-1.6", "1.3-1.6", "1.6-2", "1.6-2", ">=2", ">=2"]
+
+
+@pytest.mark.parametrize("bordes", [[], [2.0, 1.5], [1.5, 1.5]])
+def test_rango_cuota_rechaza_bordes_invalidos(bordes):
+    from golmodel.modelos.calibracion_mercado import rango_cuota
+    with pytest.raises(ValueError):
+        rango_cuota(2.0, bordes)
+
+
+@pytest.mark.parametrize("cuota", [0.0, -1.0, float("nan")])
+def test_rango_cuota_rechaza_cuota_invalida(cuota):
+    from golmodel.modelos.calibracion_mercado import rango_cuota
+    with pytest.raises(ValueError):
+        rango_cuota(cuota, [1.3, 2.0])
+
+
+def test_segmento_de_liga_mercado_rango_y_sgp_independiente_del_orden():
+    from golmodel.modelos.calibracion_mercado import segmento_de
+    cfg = {"calibracion_mercado": {"rangos_cuota": [1.3, 2.0, 3.0]}}
+    assert segmento_de("EPL", ("1X2:1",), 1.8, cfg) == ("EPL", "1X2", "1.3-2")
+    assert segmento_de("MX1", ("OU:2.5:over",), 2.0, cfg) == ("MX1", "OU:2.5", "2-3")              # borde 2.0 pertenece a [2,3)
+    a = segmento_de("EPL", ("1X2:1", "OU:2.5:over"), 3.4, cfg)
+    assert a == segmento_de("EPL", ("OU:2.5:over", "1X2:1"), 3.4, cfg) and a[2] == ">=3"
+    assert "+" in a[1]                                                                           # varios grupos => SGP
+    assert segmento_de("EPL", ("1X2:1", "1X2:1"), 2.5, cfg)[1] == "1X2"                           # el mismo grupo no se duplica
+
+
+def test_segmento_de_falla_cerrado_con_entradas_invalidas():
+    from golmodel.modelos.calibracion_mercado import segmento_de
+    cfg = {"calibracion_mercado": {"rangos_cuota": [1.3, 2.0]}}
+    with pytest.raises(ValueError):
+        segmento_de("EPL", (), 2.0, cfg)
+    with pytest.raises(KeyError):
+        segmento_de("EPL", ("NO_EXISTE",), 2.0, cfg)
+
+
+def test_los_rangos_de_la_config_real_son_validos():
+    import yaml
+    from golmodel.modelos.calibracion_mercado import segmento_de
+    cfg = yaml.safe_load(open("config/v3_umbrales.yaml", encoding="utf-8"))
+    assert segmento_de("EPL", ("1X2:1",), 1.01, cfg)[2].startswith("<")
+    assert segmento_de("EPL", ("1X2:1",), 99.0, cfg)[2].startswith(">=")

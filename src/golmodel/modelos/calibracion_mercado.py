@@ -306,6 +306,37 @@ class SeleccionCalibrada:
                 f"el sentinel {SENTINEL_SIN_CALIBRADOR!r}, no ausencia (ausencia = bug de pipeline).")
 
 
+def rango_cuota(cuota: float, bordes: list[float]) -> str:
+    """Etiqueta del intervalo [b_k, b_{k+1}) que contiene a `cuota` (bordes estrictamente crecientes)."""
+    bordes = [float(b) for b in bordes]
+    if not bordes or any(b2 <= b1 for b1, b2 in zip(bordes, bordes[1:])):
+        raise ValueError(f"calibracion_mercado.rangos_cuota debe ser una lista estrictamente creciente, no vacía: {bordes}")
+    if not cuota > 0:
+        raise ValueError(f"cuota inválida para segmentar: {cuota!r}")
+    if cuota < bordes[0]:
+        return f"<{bordes[0]:g}"
+    for lo, hi in zip(bordes, bordes[1:]):
+        if lo <= cuota < hi:
+            return f"{lo:g}-{hi:g}"
+    return f">={bordes[-1]:g}"
+
+
+def segmento_de(liga: str, selecciones, cuota: float, cfg: dict) -> tuple[str, str, str]:
+    """Segmento (liga, mercado, rango_cuota) de una pierna. FUENTE ÚNICA: lo usan por igual el pipeline en vivo
+    (`integracion/candidatas.py`) y el histórico (`integracion/cestas_historicas.py`); si difirieran, los calibradores
+    ajustados con un segmento nunca se aplicarían al otro. `mercado` = grupo(s) de mercado de las selecciones
+    (varios grupos ⇒ SGP). Los bordes de cuota son PROVISIONALES (config calibracion_mercado.rangos_cuota)."""
+    from golmodel.modelos.mercados import GRUPO_DE
+    sels = tuple(selecciones)
+    if not sels:
+        raise ValueError("segmento_de: pierna sin selecciones")
+    desconocidas = [x for x in sels if x not in GRUPO_DE]
+    if desconocidas:
+        raise KeyError(f"Selección fuera de catálogo: {desconocidas}")
+    mercado = "+".join(sorted({GRUPO_DE[x] for x in sels}))
+    return (str(liga), mercado, rango_cuota(float(cuota), cfg["calibracion_mercado"]["rangos_cuota"]))
+
+
 def aplicar_por_segmento(p_modelo: np.ndarray, segmentos, registro: dict) -> list[SeleccionCalibrada]:
     """Aplica el calibrador de cada segmento. `incertidumbre` consume ESTO, nunca reimplementa.
 

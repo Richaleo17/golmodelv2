@@ -113,6 +113,9 @@ calibracion_mercado:
   margen_logloss: 0.002              # mejora mínima para subir de complejidad (parsimonia)
   # pooling seg -> liga -> global
   n0: 150                            # fuerza de shrinkage: w = n_eff/(n_eff+n0)
+  # bordes de cuota del segmento (liga, mercado, rango_cuota). PROVISIONAL: no pre-registrado; lo fija el responsable
+  # del proyecto. Mismo valor para el pipeline en vivo y el histórico (modelos.calibracion_mercado.segmento_de).
+  rangos_cuota: [1.30, 1.60, 2.00, 3.00, 5.00]
   # gate de despliegue (pre-registro §2.4, enmienda v0.2)
   gate_bins: 10
   gate_n_min_bin: 50
