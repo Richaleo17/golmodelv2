@@ -180,6 +180,21 @@ def construir_mercado(conn, cfg: dict, modelo: ModeloDC, version_id: int, partid
     return pid
 
 
+def cuotas_ejecucion(cuotas: pd.DataFrame, partido: dict, ahora: datetime, cfg: dict) -> dict[str, dict]:
+    """Cuota de ejecución por selección: casa fija; la captura manual VIGENTE la reemplaza.
+    Fuente única: la usan `construir` (V2) y `integracion/candidatas.py` (V3) para no divergir."""
+    ejec: dict[str, dict] = {}
+    if not cuotas.empty:
+        for casa in (cfg["mercado"]["casa_ejecucion"], "manual"):
+            for r in cuotas[cuotas["casa"] == casa].itertuples():
+                vig = vigente(r.capturada_en, partido["inicio"], ahora, cfg)
+                if casa == "manual" and not vig:
+                    continue
+                ejec[r.seleccion] = {"cuota": float(r.cuota), "cuota_id": int(r.id), "casa_id": int(r.casa_id),
+                                     "capturada_en": r.capturada_en, "vigente": vig, "casa": casa}
+    return ejec
+
+
 def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, partido: dict,
               hist: pd.DataFrame, ahora: datetime) -> Contexto | None:
     kl, kv = str(partido["local_id"]), str(partido["visitante_id"])
@@ -255,15 +270,7 @@ def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, part
                f["alpha_calibrado"], f["p_adj"]) for s, f in sel.items()])
 
     # --- cuotas de ejecución: casa fija; la captura manual vigente la reemplaza
-    ejec: dict[str, dict] = {}
-    if not cuotas.empty:
-        for casa in (cfg["mercado"]["casa_ejecucion"], "manual"):
-            for r in cuotas[cuotas["casa"] == casa].itertuples():
-                vig = vigente(r.capturada_en, partido["inicio"], ahora, cfg)
-                if casa == "manual" and not vig:
-                    continue
-                ejec[r.seleccion] = {"cuota": float(r.cuota), "cuota_id": int(r.id), "casa_id": int(r.casa_id),
-                                     "capturada_en": r.capturada_en, "vigente": vig, "casa": casa}
+    ejec = cuotas_ejecucion(cuotas, partido, ahora, cfg)
     ctx = Contexto(partido, pid, m, m_dec, res, sel, ejec, p_mk, sust, mm)
     if res.veto:
         ctx.sugerencia_ah = {"base": crs_mod.sugerencia_handicap(m, fav),
