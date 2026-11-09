@@ -957,21 +957,27 @@ if VISTA == 2:
 if VISTA == 3:
     titulo('04', 'CUOTAS', 'Arma parlays con las cuotas reales de tu casa.')
     pls, _ = api("GET", f"/parlays/{dia.isoformat()}")
+    dec_v3, _ = api("GET", f"/tickets/{dia.isoformat()}")
     for aviso in sorted({p["advertencia"] for p in pls or [] if p.get("advertencia")}):
         st.warning("⚠️ " + aviso)
-    if not pls:
-        st.info("No hay parlay para este día. Se genera solo si hay al menos 3 partidos con un bloque que cumpla: "
-                "probabilidad ≥ 60%, cuota entre 1.30 y 2.50, EV ≥ umbral y probabilidad total ≥ 15%.")
+    if dec_v3 and not dec_v3.get("ticket"):
+        st.info(f"**V3: abstención** — {dec_v3.get('motivo') or 'sin ticket'}. El sistema prefiere no proponer ticket antes que "
+                "inventar una probabilidad (no se usa independencia como respaldo).")
+    elif not dec_v3:
+        st.info("Todavía no hay decisión V3 para este día (se genera al actualizar/recalcular; requiere la migración 004).")
     for par in pls or []:
         with st.container(border=True):
-            titulo = "🎯 Parlay del día" if par["es_apuesta_del_dia"] else f"Alternativa {par['ranking'] - 1}"
+            v3 = par.get("fuente") == "v3"
+            titulo = (f"🎫 Ticket V3 · {par['estado']} (calibración provisional)" if v3
+                      else "🎯 Parlay del día" if par["es_apuesta_del_dia"] else f"Alternativa {par['ranking'] - 1}")
             st.markdown(f"### {titulo} · {par['n_bloques']} partidos"
                         + ("" if par["es_apuesta_del_dia"] else " <span class='meta'>(no suma a la exposición)</span>"),
                         unsafe_allow_html=True)
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric("Cuota casa", num(par["cuota_combinada"]))
             c2.metric("Cuota justa", num(par["cuota_justa"]), help="La cuota a la que el EV sería cero según el modelo.")
-            c3.metric("Probabilidad", pct(par["p_parlay"]))
+            c3.metric("Prob. conservadora" if v3 else "Probabilidad", pct(par["p_parlay"]),
+                      help="Cuantil bajo (q=0.25) de la probabilidad conjunta con dependencia entre partidos." if v3 else None)
             c4.metric("EV", pct(par["ev"]))
             c5.metric("Stake", f"{float(par['stake_u']):.2f} u")
             df_b = pd.DataFrame([{
@@ -990,6 +996,10 @@ if VISTA == 3:
                                 legend=alt.Legend(orient="top", title=None, labelColor=CAL)),
                 tooltip=["bloque:N", alt.Tooltip("p:Q", format=".1%"), alt.Tooltip("cuota:Q", format=".2f"), "tipo:N", "crs:N"])
             st.altair_chart(ch.properties(height=alt.Step(32)), width="stretch")
+            if v3:
+                st.caption(f"Probabilidad media {pct(par['p_media'])} · si los partidos fueran independientes: "
+                           f"{pct(par['p_independencia'])} · factor de dependencia {par['lift']:.2f}. "
+                           "Stake propuesto, NO promovido a paper/real mientras la calibración sea provisional.")
             if par["resultado"]:
                 st.caption(f"Resultado: {par['resultado']} · {par['ganancia_u']} u (los mismos bloques como simples: "
                            f"{par['ganancia_simples_u']} u)")

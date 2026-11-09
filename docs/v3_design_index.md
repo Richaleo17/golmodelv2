@@ -36,6 +36,7 @@ Dos categorías de "aprobado", explícitamente distintas:
 |---|---|---|
 | Mapa de migración / arquitectura Fase 1 | `docs/README_implementacion.md` | Referencia de implementación, no decisión gateada |
 | `modelos/calibracion_mercado.py` (nivel de p) | Implementación bajo disciplinas ya aprobadas | Reusa walk-forward, pooling jerárquico, versionado, cobertura |
+| `integracion/` (adaptadores BD ↔ V3) | `docs/README_implementacion.md` §6 | Sin lógica de modelo; las decisiones de negocio viven en cada módulo. Verificado con sintéticos |
 
 Estados posibles: **borrador** → **aprobado (cerrada | provisional)** → **implementado** → **obsoleto**.
 

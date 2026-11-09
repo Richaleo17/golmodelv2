@@ -16,7 +16,7 @@ import numpy as np
 import pandas as pd
 from psycopg.types.json import Jsonb
 
-from golmodel.config import hash_config
+from golmodel.config import cargar_v3, hash_config
 from golmodel.modelos import crs as crs_mod
 from golmodel.modelos import devig
 from golmodel.modelos.combinacion import matriz_mercado, p_ajustada, p_ajustada_push
@@ -24,7 +24,6 @@ from golmodel.modelos.contexto import ajuste_equipo
 from golmodel.modelos.dixon_coles import ModeloDC
 from golmodel.modelos.matriz import Matriz
 from golmodel.modelos.mercados import CONDICIONES, GRUPO_DE, GRUPOS, PUSH, probabilidad, probabilidad_push
-from golmodel.motor import modulo2
 from golmodel.motor.bankroll import (
     Apuesta,
     asignar_exposicion,
@@ -308,24 +307,6 @@ def simples(ctx: Contexto, cfg: dict) -> list[dict]:
     return out
 
 
-def entrada_modulo2(conn, ctx: Contexto, cfg: dict, ahora: datetime) -> modulo2.EntradaPartido:
-    cuotas = {s: q["cuota"] for s, q in ctx.cuotas_ejec.items() if q["vigente"]}
-    vig_todas = bool(cuotas) and all(q["vigente"] for q in ctx.cuotas_ejec.values())
-    sgp = {}
-    for casa in (cfg["mercado"]["casa_ejecucion"], "manual"):
-        cid = repo.casa_id(conn, casa)
-        for k, (c, _id, capt) in repo.cuotas_sgp_vigentes(conn, ctx.partido["id"], cid).items():
-            if vigente(capt, ctx.partido["inicio"], ahora, cfg):
-                sgp[k] = c
-    a1, c1 = ctx.sel["1X2:1"]["alpha"], ctx.sel["1X2:1"]["alpha_calibrado"]
-    return modulo2.EntradaPartido(
-        ctx.partido["id"], ctx.partido["liga"], ctx.partido["inicio"], ctx.partido["local"], ctx.partido["visitante"],
-        ctx.matriz_decision, {s: p for s, p in ctx.p_mercado.items()}, cuotas, sgp, alpha=a1, alpha_calibrado=c1,
-        cuotas_vigentes=vig_todas, matriz_mercado=ctx.mm, crs=ctx.crs,
-        alpha_sel={s: (f["alpha"], f["alpha_calibrado"]) for s, f in ctx.sel.items()},
-        sustituta_sel=frozenset(ctx.sustitutas))
-
-
 # ------------------------------------------------------------------ orquestación
 
 def _picks_abiertos(conn, dia: date) -> list[dict]:
@@ -339,7 +320,12 @@ def _picks_abiertos(conn, dia: date) -> list[dict]:
 
 
 def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dias: list[date],
-               ahora: datetime) -> dict:
+               ahora: datetime, cfg_v3: dict | None = None) -> dict:
+    if cfg_v3 is None:                           # por defecto se usa la política V3 del repo; si no existe, sin ticket (con aviso)
+        try:
+            cfg_v3 = cargar_v3()
+        except FileNotFoundError:
+            cfg_v3 = None
     hist = repo.historial(conn, hasta=ahora)
     resumen = {"predicciones": 0, "omitidos": [], "picks_nuevos": 0, "valor_perdido": 0,
                "cuota_no_vigente": 0, "parlays_registrados": 0, "crs_alta": 0, "avisos": []}
@@ -405,10 +391,9 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
                 key = f"s:{pid}:{s['seleccion']}"
                 cand[key] = (c, s)
                 apuestas.append(Apuesta(key, "simple", frozenset({pid}), s["stake_u"], s["log_crec"]))
-        r2 = modulo2.generar([entrada_modulo2(conn, c, cfg, ahora) for c in ctxs], cfg)
-        if r2.parlays and parlay_dia is None:
-            apuestas.append(Apuesta("p:1", "parlay", frozenset(b_.partido_id for b_ in r2.parlays[0].bloques),
-                                    r2.parlays[0].stake_u, r2.parlays[0].log_crec))
+        # Los parlays YA NO se arman con modulo2.generar (producto de probabilidades = independencia): el ticket del día lo
+        # propone V3 (probabilidad conjunta real) más abajo y, bajo modo_experimental, NO es promovible a paper/real, así
+        # que no entra a la asignación de exposición.
         asign = asignar_exposicion(apuestas, max_diaria_u=max(b["exposicion_diaria_max_u"] - usado, 0.0),
                                    max_simples_por_partido=b["max_simples_con_stake_por_partido"])
         cierres = set()
@@ -426,13 +411,7 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
                       ch, c.crs.total, c.crs.alerta))
                 resumen["picks_nuevos"] += 1
                 cierres.add(c.partido["id"])
-        if any(a.id == "p:1" for a in asign.apuestas):
-            stake_final = next(a.stake_final_u for a in asign.apuestas if a.id == "p:1")
-            for rank, par in enumerate(r2.parlays, start=1):
-                st = stake_final if rank == 1 else par.stake_u        # alternativas: no suman a la exposición
-                _insertar_parlay(conn, par, rank, st, por_partido, version_id, dia, ch, cfg)
-                cierres |= {b_.partido_id for b_ in par.bloques}
-            resumen["parlays_registrados"] += len(r2.parlays)
+        _ticket_v3(conn, dia, ahora, cfg, resumen, cfg_v3, cierres)
         for pid in cierres:
             p = por_partido[pid].partido
             conn.execute("""INSERT INTO cierres_programados (partido_id, programado_para) VALUES (%s, %s)
@@ -443,28 +422,26 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
     return resumen
 
 
-def _insertar_parlay(conn, par, rank, stake, por_partido, version_id, dia, ch, cfg):
-    pid = conn.execute("""
-        INSERT INTO parlays_sugeridos (origen, version_id, dia, ranking, n_bloques, p_parlay, cuota_combinada,
-            cuota_justa, ev, log_crecimiento, kelly_completo, stake_u, config_hash)
-        VALUES ('paper', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-    """, (version_id, dia, rank, len(par.bloques), par.p, round(par.cuota, 3), round(par.cuota_justa, 3), par.ev,
-          par.log_crec, par.kelly, stake, ch)).fetchone()["id"]
-    for k, bl in enumerate(par.bloques, start=1):
-        c = por_partido[bl.partido_id]
-        cuota_id = sgp_id = None
-        if bl.tipo == "simple":
-            cuota_id = c.cuotas_ejec[bl.selecciones[0]]["cuota_id"]
-        else:
-            casa = repo.casa_id(conn, "manual")
-            sgp = repo.cuotas_sgp_vigentes(conn, bl.partido_id, casa) or repo.cuotas_sgp_vigentes(
-                conn, bl.partido_id, repo.casa_id(conn, cfg["mercado"]["casa_ejecucion"]))
-            sgp_id = sgp[tuple(bl.selecciones)][1]
-        conn.execute("""
-            INSERT INTO parlay_bloques (parlay_id, origen, orden, partido_id, prediccion_id, tipo, seleccion_a,
-                seleccion_b, p_modelo, p_mercado, p_adj, cuota, cuota_id, cuota_sgp_id, ev, crs_total, crs_alerta,
-                correlacion)
-            VALUES (%s,'paper',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (pid, k, bl.partido_id, c.prediccion_id, bl.tipo, bl.selecciones[0],
-              bl.selecciones[1] if len(bl.selecciones) > 1 else None, bl.p_modelo, bl.p_mercado, bl.p_adj, bl.cuota,
-              cuota_id, sgp_id, bl.ev, c.crs.total, c.crs.alerta, bl.correlacion))
+def _ticket_v3(conn, dia: date, ahora: datetime, cfg: dict, resumen: dict, cfg_v3: dict | None, cierres: set) -> None:
+    """Ejecuta V3 (candidatas -> tickets.py + dependencia.py -> cerebro2) y guarda la decisión en `auditoria_decisiones`.
+    Corre en un SAVEPOINT: si algo falla (p. ej. la migración 004 sin aplicar) se registra un aviso y NO se cae a
+    independencia ni se pierden los picks simples. Sin `cfg_v3` (config V3 ausente) no se genera ticket, con aviso."""
+    from golmodel.integracion import benchmark
+    if cfg_v3 is None:
+        resumen["avisos"].append("V3: config/v3_umbrales.yaml no cargada; sin ticket V3 (no se usa independencia).")
+        return
+    try:
+        with conn.transaction():
+            d = benchmark.generar_decision_v3(conn, dia, ahora, cfg, cfg_v3)
+            if d.error is not None:
+                resumen["avisos"].append(f"V3: ABSTENCIÓN por error en tickets/dependencia ({d.error}); sin ticket.")
+            ids = benchmark.persistir(conn, d)
+    except Exception as e:                       # noqa: BLE001 — fail-closed: sin ticket, nunca independencia
+        resumen["avisos"].append(f"V3: no se pudo generar/guardar la decisión ({type(e).__name__}: {e}); sin ticket.")
+        resumen["tickets_v3"] = resumen.get("tickets_v3", []) + [{"dia": str(dia), "estado": "ABSTENCION", "error": type(e).__name__}]
+        return
+    resumen["tickets_v3"] = resumen.get("tickets_v3", []) + [
+        {"dia": str(dia), "estado": d.estado, "ticket": d.ticket is not None, "n_candidatas": len(d.candidatas.candidatas),
+         "motivo": None if d.salida is None else d.salida.auditoria.motivo_abstencion, "ids": ids}]
+    if d.ticket is not None:
+        cierres |= {pt.partido_id for pt in d.ticket.piernas}

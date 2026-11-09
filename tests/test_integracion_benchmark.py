@@ -280,3 +280,187 @@ def test_version_provisional_respeta_sigma_g_y_sigma_liga_de_la_config():
     cfg_v3["calibracion_tickets"]["version_provisional"].update({"c_global": 0.7, "sigma_g": 0.3, "sigma_liga": {"EPL": 0.2}})
     v = bm.version_provisional(cfg_v3, AHORA)
     assert (v.c_global, v.sigma_g, v.sigma_liga) == (0.7, 0.3, {"EPL": 0.2}) and v.calibrado_con == "no_calibrado"
+
+
+# ------------------------------------------------------------------ lectura: vistas / API (el ticket V3 llega a /parlays y /tickets)
+
+def _ticket_con_partidos_reales(con, dia):
+    """Un ticket PROPUESTO por tickets.py, pero con partido_id de partidos REALES de la BD (para que la vista los resuelva)."""
+    from tests.test_tickets import DATOS_POOL
+    ids = [r["id"] for r in con.execute("SELECT id FROM partidos ORDER BY id LIMIT %s", (len(DATOS_POOL),))]
+    assert len(ids) == len(DATOS_POOL)
+    pool = [_cand(i, d[1], d[2], d[3]) for i, d in zip(ids, DATOS_POOL)]
+    salida, veredicto, error = bm.decidir(pool, {}, _version(), _cfg(), semilla=11, ahora=AHORA)
+    assert salida.ticket is not None
+    from golmodel.integracion.candidatas import ResultadoCandidatas
+    return bm.DecisionV3(dia, AHORA, ResultadoCandidatas(dia, AHORA, tuple(pool), ()), salida, veredicto, error)
+
+
+def test_la_decision_se_guarda_con_su_dia_y_se_lee_de_vuelta(con):
+    from datetime import date as _d
+    from golmodel.servicios import vistas
+    dia = _d(2026, 11, 9)
+    d = _ticket_con_partidos_reales(con, dia)
+    bm.persistir(con, d)
+    dec = vistas.decision_v3(con, dia)
+    assert dec["dia"] == "2026-11-09" and dec["estado"] == d.veredicto.estado and dec["estado_tickets"] == "PROPUESTO"
+    assert dec["modo_experimental"] is True and dec["ticket"]["n"] == d.ticket.n and dec["veredicto"]["estado"] == d.veredicto.estado
+    assert vistas.decision_v3(con, _d(2026, 11, 10)) is None                 # otro día: nada
+
+
+def test_parlays_trae_el_ticket_v3_con_la_forma_que_consume_la_ui(con):
+    from datetime import date as _d
+    from golmodel.servicios import vistas
+    dia = _d(2026, 11, 9)
+    d = _ticket_con_partidos_reales(con, dia)
+    bm.persistir(con, d)
+    filas = vistas.parlays(con, dia)
+    f = filas[0]
+    assert f["fuente"] == "v3" and f["es_apuesta_del_dia"] is False and f["ranking"] == 1 and f["n_bloques"] == d.ticket.n
+    # claves que la UI lee de cada parlay y de cada bloque
+    for k in ("cuota_combinada", "cuota_justa", "p_parlay", "ev", "stake_u", "resultado", "ganancia_u", "ganancia_simples_u", "bloques"):
+        assert k in f
+    assert f["p_parlay"] == pytest.approx(d.ticket.p_conservadora) and f["cuota_justa"] == pytest.approx(1 / d.ticket.p_conservadora)
+    assert f["ev"] == pytest.approx(d.ticket.ev_cons) and f["advertencia"] == vistas.ADVERTENCIA_V3
+    assert len(f["bloques"]) == d.ticket.n
+    for b, pt in zip(f["bloques"], d.ticket.piernas):
+        for k in ("local", "visitante", "seleccion_a", "seleccion_b", "p_adj", "cuota", "tipo", "crs_alerta", "crs_total"):
+            assert k in b
+        assert b["local"] != "?" and b["partido_id"] == pt.partido_id and b["p_adj"] == pytest.approx(pt.p_calibrada)
+        assert b["p_conservadora"] == pytest.approx(pt.p_conservadora) and b["cuota"] == pytest.approx(pt.cuota)
+
+
+def test_una_abstencion_no_aparece_como_parlay_pero_si_como_decision(con):
+    from datetime import date as _d
+    from golmodel.servicios import vistas
+    dia = _d(2026, 11, 8)
+    salida, veredicto, error = bm.decidir([], {}, _version(), _cfg(), semilla=11, ahora=AHORA)
+    bm.persistir(con, bm.DecisionV3(dia, AHORA, None, salida, veredicto, error))
+    assert vistas.parlays(con, dia) == []                                     # no hay parlay inventado
+    dec = vistas.decision_v3(con, dia)
+    assert dec["estado"] == "ABSTENCION" and dec["motivo"] and dec["ticket"] is None and dec["veredicto"] is None
+
+
+def test_la_ultima_decision_del_dia_manda(con):
+    from datetime import date as _d
+    from golmodel.servicios import vistas
+    dia = _d(2026, 11, 7)
+    vacia, _, _ = bm.decidir([], {}, _version(), _cfg(), semilla=11, ahora=AHORA)
+    bm.persistir(con, bm.DecisionV3(dia, AHORA, None, vacia, None, None))
+    d2 = _ticket_con_partidos_reales(con, dia)
+    bm.persistir(con, d2)
+    assert vistas.decision_v3(con, dia)["estado_tickets"] == "PROPUESTO"      # la más reciente, no la primera
+
+
+def test_sin_la_migracion_004_la_vista_devuelve_none_no_inventa(con):
+    from datetime import date as _d
+    from golmodel.servicios import vistas
+    con.execute("DROP TABLE auditoria_decisiones CASCADE")                    # DDL transaccional: el rollback del fixture lo deshace
+    assert vistas.decision_v3(con, _d(2026, 11, 9)) is None
+
+
+def test_api_parlays_y_tickets_sirven_la_decision_v3(con, bd, monkeypatch):
+    from datetime import date as _d, datetime, timezone
+    from fastapi.testclient import TestClient
+    from golmodel.api import main
+    from golmodel.servicios import vistas
+    dia = _d(2026, 11, 9)
+    d = _ticket_con_partidos_reales(con, dia)
+    bm.persistir(con, d)
+    con.commit()                                                              # la API usa su propia conexión
+    try:
+        class _S:
+            cfg = {"zona_horaria": "America/Mexico_City"}
+            reloj = staticmethod(lambda: datetime(2026, 11, 9, 18, tzinfo=timezone.utc))
+        main.app.dependency_overrides[main.servicio] = lambda: _S()
+        def _conexion():
+            c = db.conectar(bd)
+            try:
+                yield c
+            finally:
+                c.close()
+        main.app.dependency_overrides[main.conexion] = _conexion
+        cli = TestClient(main.app)
+        pls = cli.get("/parlays/2026-11-09").json()
+        assert pls[0]["fuente"] == "v3" and pls[0]["advertencia"] == vistas.ADVERTENCIA_V3     # V3: SU aviso, no el de independencia
+        assert main.ADVERTENCIA_INDEPENDENCIA not in [p.get("advertencia") for p in pls if p["fuente"] == "v3"]
+        dec = cli.get("/tickets/2026-11-09").json()
+        assert dec["estado"] == d.veredicto.estado and dec["ticket"]["n"] == d.ticket.n
+        assert cli.get("/tickets/2026-11-10").json() is None
+    finally:
+        main.app.dependency_overrides.clear()                                # (las filas commiteadas quedan: las tablas son inmutables)
+
+
+# ------------------------------------------------------------------ cableado en la ruta en vivo (prediccion._ticket_v3)
+
+def _ctx_v3(con, cfg, v3):
+    from datetime import date as _d
+    resumen = {"avisos": []}
+    return _dia(con), AHORA_BD, cfg, resumen, v3, set()
+
+
+def test_recalcular_ejecuta_v3_y_guarda_la_decision_del_dia(con, cfg, v3):  # noqa: F811
+    from golmodel.servicios import prediccion
+    dia, ahora, c2, resumen, v, cierres = _ctx_v3(con, cfg, v3)
+    prediccion._ticket_v3(con, dia, ahora, c2, resumen, v, cierres)
+    x = resumen["tickets_v3"][0]
+    assert x["dia"] == str(dia) and x["n_candidatas"] > 0 and "tickets" in x["ids"]
+    assert con.execute("SELECT payload ->> 'dia' AS d FROM auditoria_decisiones WHERE id = %s", (x["ids"]["tickets"],)).fetchone()["d"] == str(dia)
+
+
+def test_si_v3_falla_se_registra_aviso_y_la_conexion_sigue_usable(con, cfg, v3, monkeypatch):  # noqa: F811
+    """Fail-closed + aislamiento: sin la 004 el INSERT falla; el SAVEPOINT evita dejar la transacción abortada (los picks
+    simples del mismo recálculo siguen) y NO se genera ningún ticket por independencia."""
+    from golmodel.servicios import prediccion
+    dia, ahora, c2, resumen, v, cierres = _ctx_v3(con, cfg, v3)
+    con.execute("DROP TABLE auditoria_decisiones CASCADE")
+    prediccion._ticket_v3(con, dia, ahora, c2, resumen, v, cierres)
+    assert any("no se pudo generar/guardar" in a and "UndefinedTable" in a for a in resumen["avisos"])
+    assert resumen["tickets_v3"][0]["estado"] == "ABSTENCION" and cierres == set()
+    assert con.execute("SELECT 1 AS uno").fetchone()["uno"] == 1             # la transacción NO quedó abortada
+
+
+def test_si_dependencia_falla_en_la_ruta_en_vivo_no_hay_ticket_ni_independencia(con, cfg, v3, monkeypatch):  # noqa: F811
+    from golmodel.servicios import prediccion
+    dia, ahora, c2, resumen, v, cierres = _ctx_v3(con, cfg, v3)
+    antes = con.execute("SELECT count(*) AS n FROM auditoria_decisiones").fetchone()["n"]
+    monkeypatch.setattr(dep, "p_pierna_sorteos", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("dependencia rota")))
+    prediccion._ticket_v3(con, dia, ahora, c2, resumen, v, cierres)
+    assert any("ABSTENCIÓN por error" in a and "dependencia rota" in a for a in resumen["avisos"])
+    assert resumen["tickets_v3"][0]["estado"] == "ABSTENCION" and resumen["tickets_v3"][0]["ticket"] is False and cierres == set()
+    assert con.execute("SELECT count(*) AS n FROM auditoria_decisiones").fetchone()["n"] == antes     # y no se guardó un ticket
+
+
+def test_sin_config_v3_no_hay_ticket_y_se_avisa(con, cfg):  # noqa: F811
+    from golmodel.servicios import prediccion
+    resumen = {"avisos": []}
+    prediccion._ticket_v3(con, _dia(con), AHORA_BD, cfg, resumen, None, set())
+    assert any("config/v3_umbrales.yaml" in a for a in resumen["avisos"]) and "tickets_v3" not in resumen
+
+
+def test_recalcular_ya_no_usa_modulo2_ni_el_producto_de_probabilidades():
+    import inspect
+    from golmodel.servicios import prediccion
+    src = inspect.getsource(prediccion)
+    assert "modulo2" not in src.replace("Los parlays YA NO se arman con modulo2.generar", "") and "math.prod" not in src
+    assert not hasattr(prediccion, "entrada_modulo2") and not hasattr(prediccion, "_insertar_parlay")
+
+
+def test_el_ticket_con_piernas_cierra_esos_partidos_para_la_captura_de_cierre(con, cfg, v3, monkeypatch):  # noqa: F811
+    from golmodel.servicios import prediccion
+    dia, ahora, c2, resumen, v, cierres = _ctx_v3(con, cfg, v3)
+    d = _ticket_con_partidos_reales(con, dia)
+    monkeypatch.setattr(bm, "generar_decision_v3", lambda *a, **k: d)
+    prediccion._ticket_v3(con, dia, ahora, c2, resumen, v, cierres)
+    assert cierres == {pt.partido_id for pt in d.ticket.piernas}
+
+
+def test_el_ticket_v3_va_primero_y_los_parlays_legados_de_v2_despues(con, monkeypatch):
+    from datetime import date as _d
+    from golmodel.servicios import vistas
+    dia = _d(2026, 11, 9)
+    bm.persistir(con, _ticket_con_partidos_reales(con, dia))
+    monkeypatch.setattr(vistas, "_parlays_legados", lambda conn, d: [{"fuente": "v2", "ranking": 1, "id": 99}])
+    assert [f["fuente"] for f in vistas.parlays(con, dia)] == ["v3", "v2"]
+    monkeypatch.setattr(vistas, "_parlays_legados", lambda conn, d: [{"fuente": "v2", "ranking": 1, "id": 99}])
+    assert [f["fuente"] for f in vistas.parlays(con, _d(2026, 1, 1))] == ["v2"]          # sin V3 ese día: solo los legados

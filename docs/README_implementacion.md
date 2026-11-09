@@ -178,21 +178,51 @@ El desarrollo de módulos de V3 está completo en el orden acordado (`calibracio
 6. Job de metacalibración (`python -m golmodel.cerebro2.metacalibracion`) sobre el histórico resuelto; revisar la alarma de
    falsos rechazos y el yield de los rechazados.
 
-### Brecha conocida entre "módulos terminados" y "ejecutable con datos reales" (decisión del responsable)
+### Estado de la integración (adaptadores escritos; verificado con SINTÉTICOS, no validado con datos reales)
 
-Comprobado en el código, no supuesto. **Nada de V3 está conectado a la aplicación**, y faltan los adaptadores de datos:
+Los adaptadores de `src/golmodel/integracion/` cierran la brecha "V3 no está conectado a la aplicación". Ninguno contiene
+lógica de modelo: leen la BD o orquestan módulos V3 ya existentes.
 
-- **`math.prod` sigue vivo y en uso.** `motor/modulo2.py:229` (`p = math.prod(...)`) lo sigue llamando
-  `servicios/prediccion.py` (`modulo2.generar`) y lo sirve la API (`/parlays/{fecha}`). V3 *sustituye* ese cálculo, pero la
-  sustitución **no está integrada**: hoy la app sigue generando parlays bajo independencia. El defecto central que motivó V3 no
-  está corregido en la ruta que se ejecuta.
-- **`tickets.py`, `cerebro2/`, `dependencia`, `incertidumbre`, `calibracion_*` no tienen ningún consumidor** fuera de sus
-  tests (ni `api/`, ni `servicios/`, ni `ui/`, ni `jobs/`).
-- **No existe código que construya sus entradas desde la BD:** `Candidata` (desde `predicciones`/`predicciones_seleccion`,
-  CRS, cuotas), `MercadoPierna` (desde `cuotas` de varias casas del mismo lote) y las cestas históricas ex-post
-  (`CestaHistorica`/`PiernaHistorica`) para `calibracion_tickets`. Hoy solo los tests construyen esos objetos.
-- Por tanto el paso 3 (backtest OOS real) **no es ejecutable todavía**: no hay camino de la BD a `calibracion_tickets`.
-  `servicios/prediccion.py::entrada_modulo2` es el precedente de cómo se arma una entrada desde la BD.
+| Pieza | Qué hace | Garantías con test (y mutantes) |
+|---|---|---|
+| `candidatas.py` | BD → `Candidata` as-of `ahora` (predicción, cuotas de ejecución y SGP, pesos de la versión de ESA predicción) | `None` explícito / omisión con motivo si falta un dato; sin leakage; reproducible; BD real poblada por el pipeline V2 real |
+| `cestas_historicas.py` | BD histórica → `CestaHistorica` ex-post walk-forward, **sin filtrar por aprobación** (decisión 5 pre-registrada) | leakage (futuro alterado ⇒ salida idéntica; pasado alterado ⇒ cambia), cobertura de cuotas, incluye rechazadas y perdedoras, anuladas contadas (no descartadas en silencio) |
+| `benchmark.py` | `tickets.py` (+`dependencia.py`) → `cerebro2` y su persistencia | paridad con llamadas directas; si `dependencia.py` falla ⇒ **ABSTENCIÓN**, jamás independencia |
+| `modelos/calibracion_mercado.segmento_de` | única definición de `(liga, mercado, rango_cuota)` para el vivo y el histórico | bordes, orden, validaciones |
 
-Cerrar esta brecha es código de integración (cargar datos y conectar), no un módulo de modelo, pero **no está escrito ni
-autorizado**; queda como decisión explícita del responsable.
+**Conectado:** `servicios/prediccion.recalcular` ya NO arma parlays con `modulo2.generar` (producto de probabilidades). En su
+lugar ejecuta V3 en un SAVEPOINT (`_ticket_v3`): si falla —p. ej. la 004 sin aplicar— se registra un aviso y no hay ticket
+(los picks simples siguen; nunca se cae a independencia). La decisión queda en `auditoria_decisiones` con su día y se sirve en
+`/parlays/{fecha}` (ticket V3 primero, luego los parlays legados de V2) y en `/tickets/{fecha}` (ticket o ABSTENCIÓN con motivo).
+`entrada_modulo2` e `_insertar_parlay` se eliminaron (código muerto tras el reemplazo).
+
+**Sigue vivo y declarado:** `/panel/{fecha}` (`servicios/sugerencias.py`: parlays por perfil, "más seguros" y tickets de 5
+equipos) **aún usa `math.prod`**; lleva la advertencia de independencia en payload, texto copiable y UI. Los parlays legados de V2
+ya guardados en `parlays_sugeridos` también la llevan. No se tocó `sugerencias.py` (fuera de lo pedido).
+
+**Lo que V3 produce hoy NO es un resultado validado:** `calibrado_con='no_calibrado'`, `modo_experimental=true`, techo
+`CON_RESERVAS`, ticket **no promovible** a paper/real (por eso el parlay del día de V2 ya no se registra como apuesta de
+práctica: efecto buscado y a revisar por el responsable). La versión del calibrador de tickets es
+`calibracion_tickets.version_provisional` de la config (`c_global: 1.0` es un **placeholder**, no un valor ajustado).
+
+**Decisiones del responsable que quedan abiertas (valores que puse y NO le corresponden a código):**
+`calibracion_mercado.rangos_cuota` (bordes de cuota del segmento), `calibracion_tickets.version_provisional.c_global`,
+`calibracion_tickets.cestas_historicas.{paso_dias, n_cestas_por_dia}` y la lista `cerebro2.consenso_mercado.casas_elegibles`.
+
+**Hallazgo (no corregido; `dependencia.py` está cerrado):** `probabilidad_conjunta` (la que usa `calibracion_tickets.ajustar`) y la
+ruta de `tickets.py` (`factores_compartidos` + `p_pierna_sorteos` + caché) usan flujos aleatorios distintos. Es el mismo
+estimador con otra realización de Monte Carlo: coinciden dentro del error de MC, no bit a bit. Conviene saberlo al comparar el
+`c_seg` calibrado con el runtime.
+
+**Qué falta para el paso 3 (backtest OOS real) — no es un módulo de modelo:** hay adaptador de cestas, `ajustar` y
+`gate_cobertura_tickets`, pero **no existe un orquestador** que los encadene sobre la BD real ni un almacén de
+`VersionCalibradorTickets` / calibradores de mercado persistidos. Mientras no exista, `benchmark.py` usa la versión
+provisional. Esqueleto de la corrida (sobre una copia de la BD, tras `pg_dump`):
+
+```python
+from golmodel.integracion.cestas_historicas import construir_cestas_historicas
+from golmodel.backtest import calibracion_tickets as ct
+r = construir_cestas_historicas(conn, desde, hasta, cfg_v2, cfg_v3, casa="pinnacle", semilla=0)   # leer r.excluidas y r.omisiones
+aj = ct.ajustar(list(r.cestas), cfg_v3, semilla=0)                                                # c_global y segmentos calibrados
+gate = ct.gate_cobertura_tickets(list(r.cestas), aj.c_global, cfg_v3, semilla=0)                  # cobertura BILATERAL
+```

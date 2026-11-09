@@ -32,6 +32,7 @@ from golmodel.ingesta.tipos import (
     BajaExterna, CalendarioExterno, Capacidad, CuotaExterna, PartidoExterno, XgJugador,
 )
 from golmodel.jobs.cierre import procesar_pendientes
+from golmodel.migraciones import aplicar
 from golmodel.modelos.matriz import matriz_marcadores
 from golmodel.modelos.mercados import probabilidad
 
@@ -52,6 +53,8 @@ def dsn():
         c.execute((RAIZ / "db/schema.sql").read_text())
         c.execute("SET search_path TO golmodel, public")
         c.execute((RAIZ / "db/seed.sql").read_text())
+    with db.conectar(dsn) as c:
+        aplicar(c)                                       # migraciones (incluye la 004: V3 corre en la ruta en vivo)
     yield dsn
     admin.execute(f"DROP DATABASE {nombre} WITH (FORCE)")
     admin.close()
@@ -263,7 +266,16 @@ def test_2_actualizar_todo(dsn, cfg, mundo, cargado):
     assert len({p["partido_id"] for p in picks}) == len(picks)               # 1 simple con stake por partido
     expo = sum(float(p["stake_u"]) for p in picks)
     par = conn.execute("SELECT * FROM parlays_sugeridos WHERE ranking = 1").fetchone()
+    assert par is None                                   # V2 ya NO arma parlays por independencia (math.prod) en la ruta en vivo
     expo += float(par["stake_u"]) if par else 0
+    # V3 corre de verdad en la ruta en vivo: una decisión por día, guardada con su día, con estado válido y motivo si se abstiene
+    v3 = et["recalculo_modulos"]["resumen"]["tickets_v3"]
+    assert len(v3) == 4 and all(x["estado"] in ("ABSTENCION", "CON_RESERVAS", "EN_OBSERVACION", "RECHAZADO") for x in v3)
+    assert not any("independencia" in str(a).lower() for a in et["recalculo_modulos"]["resumen"]["avisos"])
+    filas = conn.execute("SELECT payload ->> 'dia' AS dia, estado, modo_experimental, motivo FROM auditoria_decisiones "
+                         "WHERE componente = 'tickets' ORDER BY id").fetchall()
+    assert [f["dia"] for f in filas] == [x["dia"] for x in v3] and all(f["modo_experimental"] for f in filas)
+    assert all(f["motivo"] for f in filas if f["estado"] == "ABSTENCION")
     assert expo <= cfg["bankroll"]["exposicion_diaria_max_u"] + 1e-9
     assert conn.execute("SELECT count(*) AS n FROM cierres_programados").fetchone()["n"] >= len({p["partido_id"] for p in picks})
     conn.close()
@@ -343,7 +355,9 @@ def test_8_api(dsn, cfg, mundo):
     assert len(partidos) == len(HOY) and all(p["prediccion"]["crs"]["alerta"] for p in partidos)
     fila = next(m for m in partidos[0]["mercados"] if m["seleccion"] == "1X2:1")
     assert fila["cuota_justa"] == pytest.approx(1 / fila["p_adj"])
-    assert cli.get(f"/parlays/{dia}").json()[0]["bloques"]
+    assert cli.get(f"/parlays/{dia}").json() == []        # V3 se abstuvo (mundo sin edge): no hay ticket y NO se inventa uno
+    dec = cli.get(f"/tickets/{dia}").json()
+    assert dec["estado"] == "ABSTENCION" and dec["motivo"] and dec["ticket"] is None and dec["modo_experimental"] is True
     c = cli.get("/clv").json()["criterio"]
     assert c["partidos_independientes"] > 0 and c["listo_para_dinero_real"] is False   # muy pocos picks aún
     pid = partidos[0]["partido_id"]

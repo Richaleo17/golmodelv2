@@ -117,7 +117,7 @@ def persistir(conn, d: DecisionV3) -> dict:
     """Guarda en auditoria_decisiones / evaluaciones_riesgo (migración 004). Falla en voz alta si no está aplicada."""
     ids = {}
     if d.salida is not None:
-        ids["tickets"] = persistencia.guardar_decision_tickets(conn, d.salida)
+        ids["tickets"] = persistencia.guardar_decision_tickets(conn, d.salida, payload_extra={"dia": d.dia.isoformat()})
         if d.veredicto is not None:
             ids["cerebro2"] = persistencia.guardar_veredicto(conn, d.veredicto)
     return ids

@@ -176,8 +176,16 @@ def get_panel(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion
 def get_parlays(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     filas = vistas.parlays(conn, _dia(fecha, s))
     for f in filas:          # la respuesta sigue siendo una LISTA (la UI la itera): el aviso va dentro de cada parlay
-        f["advertencia"] = ADVERTENCIA_INDEPENDENCIA
+        if f.get("fuente") != "v3":          # el ticket V3 usa dependencia real y trae su propio aviso (calibración provisional)
+            f["advertencia"] = ADVERTENCIA_INDEPENDENCIA
     return filas
+
+
+@app.get("/tickets/{fecha}")
+def get_tickets(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Decisión V3 del día (tickets.py + dependencia.py + Cerebro 2): ticket propuesto o ABSTENCIÓN con su motivo.
+    `null` si todavía no se generó (o si la migración 004 no está aplicada)."""
+    return vistas.decision_v3(conn, _dia(fecha, s))
 
 
 @app.get("/clv")
