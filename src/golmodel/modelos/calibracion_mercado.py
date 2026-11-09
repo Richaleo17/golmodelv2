@@ -282,6 +282,50 @@ class VersionCalibrador:
 
 # --------------------------------------------------------------------- gate
 
+# --------------------------------------------------------------------- contrato de salida
+
+SENTINEL_SIN_CALIBRADOR = "identidad:sin_calibrador"
+
+
+@dataclass(frozen=True)
+class SeleccionCalibrada:
+    """Salida de calibracion_mercado, consumida por incertidumbre (contrato §2.5).
+
+    Fallback explícito: si no hay calibrador para el segmento, p_calibrada = p_cruda con
+    calibrado=False y la versión sentinel; NUNCA None ni exclusión. Versión ausente = fail-closed.
+    """
+    p_calibrada: float          # = p_cruda si calibrado=False (fallback identidad); nunca None
+    calibrador_version: str     # SIEMPRE presente; SENTINEL_SIN_CALIBRADOR en fallback
+    calibrado: bool
+    segmento: tuple
+
+    def __post_init__(self):
+        if not self.calibrador_version:
+            raise ValueError(
+                "calibrador_version ausente: fail-closed. El caso legítimo 'sin calibrador' usa "
+                f"el sentinel {SENTINEL_SIN_CALIBRADOR!r}, no ausencia (ausencia = bug de pipeline).")
+
+
+def aplicar_por_segmento(p_modelo: np.ndarray, segmentos, registro: dict) -> list[SeleccionCalibrada]:
+    """Aplica el calibrador de cada segmento. `incertidumbre` consume ESTO, nunca reimplementa.
+
+    p_modelo: (n,); segmentos: secuencia de tuplas (len n);
+    registro: dict segmento -> (Calibrador, calibrador_version). Segmento sin calibrador →
+    identidad con marca explícita.
+    """
+    p_modelo = np.asarray(p_modelo, float)
+    salida: list[SeleccionCalibrada] = []
+    for p, seg in zip(p_modelo, segmentos):
+        seg = tuple(seg)
+        entry = registro.get(seg)
+        if entry is None:
+            salida.append(SeleccionCalibrada(float(p), SENTINEL_SIN_CALIBRADOR, False, seg))
+        else:
+            cal, ver = entry
+            salida.append(SeleccionCalibrada(float(cal.aplicar(np.array([p]))[0]), ver, True, seg))
+    return salida
+
+
 def _wilson(k: int, n: int, z: float) -> tuple[float, float]:
     """Intervalo de Wilson para una proporción (robusto cerca de 0/1)."""
     if n == 0:
