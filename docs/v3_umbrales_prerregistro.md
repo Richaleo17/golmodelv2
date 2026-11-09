@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.4
+- Versión: v0.5
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -163,6 +163,28 @@ explícito (`fuente="global"`, `calibrado_incertidumbre=False`); el Cerebro 2 lo
 - **Contrato de entrada:** consume un `FactorSampler` inyectado (de `incertidumbre`), los `τ_i` y, por
   pierna, `(λ_local, λ_visit, ρ, liga, selecciones)`; nunca reimplementa el muestreo de factores.
 
+### 2.7 Gate, contrato de consumo y presupuesto de `backtest/calibracion_tickets.py` — fijado ANTES de implementar (v0.5, 2026-11-09)
+
+**Gate (reusa la cobertura BILATERAL de `incertidumbre` a nivel de TICKET; valores provisionales):**
+`objetivo = 1−q` (q=0.25), banda `δ=0.10` (Wilson bilateral z=1.96 para significancia por bucket);
+≥ **8 buckets** por `p_conservadora`; ≥ **100 cestas por bucket** para que cuente. "estrecho" si cobertura
+< 1−q−δ; "ancho" si > 1−q+δ.
+
+**c_seg: pooling y fallback (a priori):** c_seg propio solo si ≥ **200 cestas** contienen ese segmento; si
+no, **fallback global con nulo explícito** (`calibrado=False`). Pooling seg→global con n0.
+
+**Contrato de consumo para `tickets.py`:** antes de operar, `tickets.py` (i) verifica la
+`VersionCalibradorTickets` vigente → **fail-closed** si ausente; (ii) verifica `modo_experimental`: si
+`True`, **techo CON_RESERVAS** (no puede APROBAR); (iii) registra en `auditoria_decisiones` qué versión usó.
+
+**Presupuesto de rendimiento:** una corrida completa de calibración ≤ **30 min por (temporada × liga)**. Con
+el bucle Python actual de `dependencia.py` se EXCEDE → **vectorización requerida antes de `tickets.py`**
+(deuda técnica fechada en `README_implementacion.md`).
+
+**VersionCalibradorTickets (reproducible):** `datos_hasta, config_hash, n_draws, semilla, metodo,
+segmentos_calibrados, segmentos_fallback, c_seg/σ/σ_g, calibrado_con`. `calibrado_con="sinteticos"` **NO**
+desactiva `modo_experimental`; solo el backtest OOS real puede.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -197,3 +219,4 @@ explícito (`fuente="global"`, `calibrado_incertidumbre=False`); el Cerebro 2 lo
 | v0.2 | 2026-11-09 | Enmienda del gate de despliegue del calibrador de nivel (§2.4): ECE absoluto → Wilson por bin primario + ECE relativo al suelo de ruido (k=1.5). Motivo: el ECE absoluto rechazaba calibradores válidos por varianza a n pequeño. Más estricto en ambos regímenes, no más laxo. |
 | v0.3 | 2026-11-09 | §2.5 (fijado antes de implementar): gate de τ/σ con cobertura BILATERAL (sub/sobre-cobertura, ambas en incertidumbre) separada de la falta de valor económico (tickets); contrato de interfaz `SeleccionCalibrada` (dataclass, p_cruda+flag en fallback, versión ausente = error fail-closed); desambiguación ABSTENCIÓN (p_conservadora no computable → ticket no se genera) vs CON_RESERVAS (τ/σ no validado pero computable → experimental, no promovido); fallback global con nulo explícito; VersionIncertidumbre. |
 | v0.4 | 2026-11-09 | §2.6: gate de `motor/dependencia.py` fijado antes de implementar — invariante de reducción a independencia (σ=τ=0 → p_media=p_independencia, lift=1), gate estadístico diferido a cobertura de ticket (U1) + lift_max (U4), negativo obligatorio (piernas correlacionadas → lift≠1), reproducibilidad por semilla, contrato de entrada (FactorSampler inyectado). |
+| v0.5 | 2026-11-09 | §2.7: gate bilateral a nivel de ticket de `calibracion_tickets.py` (objetivo 1−q, δ=0.10, ≥8 buckets, ≥100 cestas/bucket), c_seg propio ≥200 cestas o fallback global con nulo, contrato de consumo para tickets.py (fail-closed sin versión, techo CON_RESERVAS en modo_experimental, registro en auditoria), presupuesto ≤30 min/(temporada×liga) con vectorización requerida antes de tickets.py, y VersionCalibradorTickets con `calibrado_con` (sinteticos NO desactiva modo_experimental). |

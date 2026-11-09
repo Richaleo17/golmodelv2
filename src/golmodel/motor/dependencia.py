@@ -20,6 +20,10 @@ from golmodel.modelos.incertidumbre import FactorSampler
 from golmodel.modelos.matriz import matriz_marcadores
 from golmodel.modelos.mercados import probabilidad
 
+# Guarda numérica: λ perturbada extrema (τ grande durante el ajuste) hace que la matriz
+# Dixon-Coles produzca NaN al renormalizar. Se acota a un rango futbolístico sano.
+LAMBDA_MIN, LAMBDA_MAX = 0.02, 12.0
+
 
 @dataclass(frozen=True)
 class Pierna:
@@ -74,8 +78,8 @@ def probabilidad_conjunta(piernas: list[Pierna], sampler: FactorSampler, cfg: di
         p_indep *= _p_pierna(p.lambda_local, p.lambda_visitante, p.rho, p.selecciones)
         d_loc = np.exp(rng.normal(0.0, p.tau_local, S)) if p.tau_local > 0 else np.ones(S)
         d_vis = np.exp(rng.normal(0.0, p.tau_visit, S)) if p.tau_visit > 0 else np.ones(S)
-        lam_loc = p.lambda_local * g * u[p.liga] * d_loc
-        lam_vis = p.lambda_visitante * g * u[p.liga] * d_vis
+        lam_loc = np.clip(p.lambda_local * g * u[p.liga] * d_loc, LAMBDA_MIN, LAMBDA_MAX)
+        lam_vis = np.clip(p.lambda_visitante * g * u[p.liga] * d_vis, LAMBDA_MIN, LAMBDA_MAX)
         pi = np.fromiter(
             (_p_pierna(float(lam_loc[s]), float(lam_vis[s]), p.rho, p.selecciones) for s in range(S)),
             dtype=float, count=S,

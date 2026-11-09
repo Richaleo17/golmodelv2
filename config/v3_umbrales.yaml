@@ -52,6 +52,18 @@ dependencia:
   percentil_conservador: 0.25        # = q (coherente con incertidumbre)
   ic: [0.025, 0.975]
 
+# --- Calibración de τ/σ sobre cestas (backtest/calibracion_tickets.py) ---
+calibracion_tickets:
+  q: 0.25
+  delta_cobertura: 0.10
+  gate_bins: 8
+  gate_n_min_bin: 100                # cestas mínimas por bucket para que cuente
+  n_min_cestas_segmento: 200         # para fijar c_seg propio; si no, fallback global
+  n0: 150                            # pooling seg->global
+  n_draws: 20000
+  presupuesto_min_por_temporada_liga: 30
+  calibrado_con: "no_calibrado"      # -> "sinteticos" | "oos_real"; solo oos_real desactiva modo_experimental
+
 # --- Muestras de validación (ver pre-registro §2.2) ---
 validacion:
   cobertura_min_buckets: 8
