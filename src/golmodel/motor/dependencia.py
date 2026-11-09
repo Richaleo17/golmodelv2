@@ -107,31 +107,24 @@ def _p_pierna_vec(lam_loc: np.ndarray, lam_vis: np.ndarray, rho: float, maskM: n
 
 def probabilidad_conjunta(piernas: list[Pierna], sampler: FactorSampler, cfg: dict,
                           semilla: int) -> ResultadoConjunta:
-    """Conjunta de ganar TODAS las piernas, integrando la incertidumbre de parámetros
-    (VECTORIZADA sobre sorteos). La correlación emerge de los factores compartidos; no se
-    asume independencia entre partidos."""
-    dcfg = cfg.get("dependencia", {})
-    S = int(dcfg.get("n_draws", 20000))
-    q = float(dcfg.get("percentil_conservador", cfg.get("incertidumbre", {}).get("q", 0.25)))
-    ic_lo, ic_hi = dcfg.get("ic", [0.025, 0.975])
-    rng = np.random.default_rng(semilla)
+    """Conjunta de ganar TODAS las piernas, integrando la incertidumbre de parámetros. La correlación emerge de los
+    factores compartidos; no se asume independencia entre partidos.
 
-    ligas = sorted({p.liga for p in piernas})
-    g, u = sampler.muestrear(ligas, S, rng)                # g: (S,), u[liga]: (S,)
-
-    acum = np.ones(S)
-    p_indep = 1.0
-    for p in piernas:
-        maskM = _mascara_pierna(p.selecciones)
-        p_indep *= float(_p_pierna_vec(
-            np.array([p.lambda_local]), np.array([p.lambda_visitante]), p.rho, maskM)[0])
-        d_loc = np.exp(rng.normal(0.0, p.tau_local, S)) if p.tau_local > 0 else np.ones(S)
-        d_vis = np.exp(rng.normal(0.0, p.tau_visit, S)) if p.tau_visit > 0 else np.ones(S)
-        lam_loc = np.clip(p.lambda_local * g * u[p.liga] * d_loc, LAMBDA_MIN, LAMBDA_MAX)
-        lam_vis = np.clip(p.lambda_visitante * g * u[p.liga] * d_vis, LAMBDA_MIN, LAMBDA_MAX)
-        acum *= _p_pierna_vec(lam_loc, lam_vis, p.rho, maskM)
-
-    return _resumir(acum, float(p_indep), q, (ic_lo, ic_hi), semilla)
+    UNA SOLA fuente de aleatoriedad (deuda 2026-11-09): esta función NO genera números aleatorios; compone las mismas
+    primitivas que usa `tickets.py` (con caché): `factores_compartidos` + `p_pierna_sorteos` + `resumir_conjunta`. Así
+    `calibracion_tickets` ajusta/valida sobre exactamente la distribución que `tickets.py` usa en predicción (mismos inputs
+    y semilla ⇒ resultado idéntico bit a bit). Exige `partido_id` DISTINTO por pierna: es la clave del ruido idiosincrático,
+    y dos piernas con el mismo id compartirían ruido (correlación espuria)."""
+    if not piernas:
+        raise ValueError("probabilidad_conjunta: se requiere al menos una pierna")
+    ids = [p.partido_id for p in piernas]
+    if len(set(ids)) != len(ids):
+        raise ValueError(f"probabilidad_conjunta: partido_id repetido {sorted(i for i in set(ids) if ids.count(i) > 1)}; "
+                         "cada pierna es de un partido distinto (el id fija su flujo de ruido)")
+    S = int(cfg.get("dependencia", {}).get("n_draws", 20000))
+    f = factores_compartidos(sampler, [p.liga for p in piernas], S, semilla)
+    pares = [p_pierna_sorteos(p, f, semilla) for p in piernas]
+    return resumir_conjunta([a for a, _ in pares], [pi for _, pi in pares], cfg, semilla)
 
 
 def _resumir(acum: np.ndarray, p_indep: float, q: float, ic: tuple[float, float], semilla: int) -> ResultadoConjunta:
@@ -173,13 +166,19 @@ def factores_compartidos(sampler: FactorSampler, ligas, n_draws: int, semilla: i
     return Factores(g, u, int(n_draws), int(semilla))
 
 
+def ruido_idiosincratico(p: Pierna, n_draws: int, semilla: int) -> tuple[np.ndarray, np.ndarray]:
+    """(d_local, d_visitante) multiplicativos de UNA pierna: flujo `SeedSequence([semilla, 2, partido_id])`. Única fuente del
+    ruido idiosincrático (la usan `p_pierna_sorteos` y la referencia de test)."""
+    rng = _rng(semilla, 2, p.partido_id)
+    d_loc = np.exp(rng.normal(0.0, p.tau_local, n_draws)) if p.tau_local > 0 else np.ones(n_draws)
+    d_vis = np.exp(rng.normal(0.0, p.tau_visit, n_draws)) if p.tau_visit > 0 else np.ones(n_draws)
+    return d_loc, d_vis
+
+
 def p_pierna_sorteos(p: Pierna, f: Factores, semilla: int) -> tuple[np.ndarray, float]:
     """(p_i⁽ˢ⁾ de los S sorteos, p_i(θ̂)) de UNA pierna. Determinista en (pierna, factores, semilla):
     no depende de las demás piernas de la cesta ⇒ cacheable entre cestas."""
-    S = f.n_draws
-    rng = _rng(semilla, 2, p.partido_id)
-    d_loc = np.exp(rng.normal(0.0, p.tau_local, S)) if p.tau_local > 0 else np.ones(S)
-    d_vis = np.exp(rng.normal(0.0, p.tau_visit, S)) if p.tau_visit > 0 else np.ones(S)
+    d_loc, d_vis = ruido_idiosincratico(p, f.n_draws, semilla)
     lam_loc = np.clip(p.lambda_local * f.g * f.u[p.liga] * d_loc, LAMBDA_MIN, LAMBDA_MAX)
     lam_vis = np.clip(p.lambda_visitante * f.g * f.u[p.liga] * d_vis, LAMBDA_MIN, LAMBDA_MAX)
     maskM = _mascara_pierna(p.selecciones)
@@ -207,24 +206,21 @@ def _p_pierna(lh: float, la: float, rho: float, selecciones) -> float:
 
 def _probabilidad_conjunta_referencia(piernas: list[Pierna], sampler: FactorSampler, cfg: dict,
                                       semilla: int) -> ResultadoConjunta:
-    """Implementación de REFERENCIA con bucle Python (lenta). Solo para el test de
-    equivalencia (@pytest.mark.slow); NO se usa en producción. Mismo orden de consumo de
-    aleatorios que la vectorizada, para que coincidan dentro del error MC."""
+    """Implementación de REFERENCIA con bucle Python (lenta). Solo para el test de equivalencia (@pytest.mark.slow); NO se
+    usa en producción. Usa la MISMA secuencia aleatoria (`factores_compartidos` + `ruido_idiosincratico`): solo cambia el cálculo
+    de p_i por sorteo (matriz Dixon-Coles en bucle vs vectorizado), de modo que coinciden dentro del error numérico."""
     dcfg = cfg.get("dependencia", {})
     S = int(dcfg.get("n_draws", 20000))
     q = float(dcfg.get("percentil_conservador", cfg.get("incertidumbre", {}).get("q", 0.25)))
     ic_lo, ic_hi = dcfg.get("ic", [0.025, 0.975])
-    rng = np.random.default_rng(semilla)
-    ligas = sorted({p.liga for p in piernas})
-    g, u = sampler.muestrear(ligas, S, rng)
+    f = factores_compartidos(sampler, [p.liga for p in piernas], S, semilla)
     acum = np.ones(S)
     p_indep = 1.0
     for p in piernas:
         p_indep *= _p_pierna(p.lambda_local, p.lambda_visitante, p.rho, p.selecciones)
-        d_loc = np.exp(rng.normal(0.0, p.tau_local, S)) if p.tau_local > 0 else np.ones(S)
-        d_vis = np.exp(rng.normal(0.0, p.tau_visit, S)) if p.tau_visit > 0 else np.ones(S)
-        lam_loc = np.clip(p.lambda_local * g * u[p.liga] * d_loc, LAMBDA_MIN, LAMBDA_MAX)
-        lam_vis = np.clip(p.lambda_visitante * g * u[p.liga] * d_vis, LAMBDA_MIN, LAMBDA_MAX)
+        d_loc, d_vis = ruido_idiosincratico(p, S, semilla)
+        lam_loc = np.clip(p.lambda_local * f.g * f.u[p.liga] * d_loc, LAMBDA_MIN, LAMBDA_MAX)
+        lam_vis = np.clip(p.lambda_visitante * f.g * f.u[p.liga] * d_vis, LAMBDA_MIN, LAMBDA_MAX)
         pi = np.fromiter((_p_pierna(float(lam_loc[s]), float(lam_vis[s]), p.rho, p.selecciones)
                           for s in range(S)), dtype=float, count=S)
         acum *= pi

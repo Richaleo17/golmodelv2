@@ -461,3 +461,14 @@ def test_un_partido_finalizado_sin_goles_no_se_resuelve_como_cero_a_cero(mundo, 
     r = _run(mundo, cfgs, pool=p2)
     assert not any(pm.partido_id == mal for m in r.meta for pm in m.piernas)                   # nunca entra como resuelta
     assert any(pm.partido_id == mal for m in r.excluidas for pm in m.piernas)                  # queda contada como excluida
+
+
+def test_las_piernas_traen_el_partido_id_real_y_la_calibracion_corre_sobre_las_cestas_del_adaptador(base, cfgs):
+    """El id real fija el flujo de ruido (misma distribución que tickets.py); sin ids distintos la calibración fallaría."""
+    from golmodel.backtest import calibracion_tickets as ct
+    for cesta, meta in zip(base.cestas, base.meta):
+        assert [ph.partido_id for ph in cesta.piernas] == [pm.partido_id for pm in meta.piernas]
+        assert len({ph.partido_id for ph in cesta.piernas}) == len(cesta.piernas)
+    cfg_ct = {"calibracion_tickets": {"n_draws": 500, "q": 0.25, "sigma_g": 0.0, "sigma_liga": 0.1}}
+    res = ct._resultados(list(base.cestas[:10]), 1.0, cfg_ct, 0)
+    assert len(res) == 10 and all(0.0 < r.p_conservadora <= r.p_media <= 1.0 for r in res)

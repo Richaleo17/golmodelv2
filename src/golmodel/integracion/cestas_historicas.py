@@ -174,7 +174,7 @@ def construir_cestas(df_modelo: pd.DataFrame, pool: pd.DataFrame, cuotas: pd.Dat
                         liga=r.liga, segmento=segmento_de(r.liga, sels, float(s.cuota), cfg_v3),
                         lambda_local=float(m.lambda_local), lambda_visitante=float(m.lambda_visitante), rho=float(m.rho),
                         selecciones=sels, peso_efectivo_local=float(modelo.peso_efectivo[r.local]),
-                        peso_efectivo_visitante=float(modelo.peso_efectivo[r.visitante])),
+                        peso_efectivo_visitante=float(modelo.peso_efectivo[r.visitante]), partido_id=pid),
                         PiernaMeta(pid, sels, float(s.cuota), s.capturada_en.to_pydatetime(),
                                    float(probabilidad(m, *sels)))))
                 info[pid] = legs

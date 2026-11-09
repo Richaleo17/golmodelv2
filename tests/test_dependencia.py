@@ -13,8 +13,11 @@ from golmodel.motor import dependencia as dep
 CFG = {"dependencia": {"n_draws": 4000, "percentil_conservador": 0.25, "ic": [0.025, 0.975]}}
 
 
+_IDS = iter(range(1, 10**9))        # partido_id DISTINTO por pierna (es la clave del ruido idiosincrático)
+
+
 def _pierna(liga, sels, tau=0.0, lh=1.4, la=1.1):
-    return dep.Pierna(partido_id=id(sels) % 10000, liga=liga, lambda_local=lh,
+    return dep.Pierna(partido_id=next(_IDS), liga=liga, lambda_local=lh,
                       lambda_visitante=la, rho=0.0, selecciones=tuple(sels),
                       tau_local=tau, tau_visit=tau)
 
@@ -115,7 +118,10 @@ def test_equivalencia_vectorizado_vs_bucle_referencia():
     cfg = {"dependencia": {"n_draws": 4000, "percentil_conservador": 0.25, "ic": [0.025, 0.975]}}
     rv = dep.probabilidad_conjunta(piernas, s, cfg, 7)
     rr = dep._probabilidad_conjunta_referencia(piernas, s, cfg, 7)
-    assert abs(rv.p_media - rr.p_media) <= 2.0 * rv.error_mc + 1e-12
+    # Misma secuencia aleatoria (factores_compartidos + ruido_idiosincratico): solo cambia el cálculo de p_i (bucle vs vectorizado).
+    assert rv.p_media == pytest.approx(rr.p_media, rel=1e-9)
+    assert rv.p_conservadora == pytest.approx(rr.p_conservadora, rel=1e-9)
+    assert rv.p_independencia == pytest.approx(rr.p_independencia, rel=1e-12)
 
 
 def _ms(fn):

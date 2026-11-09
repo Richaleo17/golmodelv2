@@ -37,6 +37,10 @@ class PiernaHistorica:
     selecciones: tuple
     peso_efectivo_local: float
     peso_efectivo_visitante: float
+    # Clave del flujo de ruido idiosincrático (`dependencia.ruido_idiosincratico`). Con el MISMO id que usa `tickets.py` la
+    # calibración reproduce bit a bit la distribución de predicción. Si es None se asigna uno posicional distinto por cesta
+    # (siempre se exige id distinto por pierna: dos piernas con el mismo id compartirían ruido).
+    partido_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -47,10 +51,10 @@ class CestaHistorica:
 
 # --------------------------------------------------------------------- construcción
 
-def _a_pierna(ph: PiernaHistorica, c: float) -> dep.Pierna:
+def _a_pierna(ph: PiernaHistorica, c: float, idx: int) -> dep.Pierna:
     """PiernaHistorica → dep.Pierna, con τ = c·(1/√peso_efectivo) (proxy por defecto)."""
     return dep.Pierna(
-        partido_id=0, liga=ph.liga,
+        partido_id=idx + 1 if ph.partido_id is None else ph.partido_id, liga=ph.liga,
         lambda_local=ph.lambda_local, lambda_visitante=ph.lambda_visitante, rho=ph.rho,
         selecciones=ph.selecciones,
         tau_local=inc.tau_idiosincratico(c, ph.peso_efectivo_local),
@@ -76,7 +80,7 @@ def _resultados(cestas: list[CestaHistorica], c: float, cfg: dict, semilla: int)
     cfgd = _cfg_dep(cfg)
     out = []
     for i, cesta in enumerate(cestas):
-        piernas = [_a_pierna(ph, c) for ph in cesta.piernas]
+        piernas = [_a_pierna(ph, c, k) for k, ph in enumerate(cesta.piernas)]
         out.append(dep.probabilidad_conjunta(piernas, sampler, cfgd, semilla + i))
     return out
 

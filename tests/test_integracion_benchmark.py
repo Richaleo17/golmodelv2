@@ -49,36 +49,16 @@ def _piernas_del_ticket(t, pool, ver):
     return out
 
 
-def test_la_conjunta_del_ticket_coincide_con_dependencia_py_recalculada_aparte_dentro_del_error_montecarlo():
-    """HALLAZGO: `probabilidad_conjunta` (la que usa calibracion_tickets) y la ruta de tickets (factores_compartidos +
-    p_pierna_sorteos, con caché) usan flujos aleatorios DISTINTOS: mismo estimador, otra realización de Monte Carlo. No
-    son idénticos bit a bit; deben coincidir dentro del error de MC. Aquí se acota esa diferencia (un sesgo real, p. ej.
-    otra τ o otra λ, la rompería)."""
+def test_la_conjunta_del_ticket_es_identica_bit_a_bit_a_dependencia_py_recalculada_aparte():
+    """Deuda de las dos rutas de Monte Carlo RESUELTA (2026-11-09): probabilidad_conjunta (la de calibracion_tickets) y la ruta de
+    tickets.py comparten fuente de aleatoriedad; mismos inputs y semilla => resultado idéntico (==), no 'dentro de 4 sigma'."""
     cfg_v3, pool, ver = _cfg(), _pool(), _version()
     salida, _, _ = bm.decidir(pool, {}, ver, cfg_v3, semilla=11, ahora=AHORA)
     t = salida.ticket
     sampler = inc.FactorSamplerJerarquico(sigma_g=ver.sigma_g, sigma_liga=ver.sigma_liga)
     r = dep.probabilidad_conjunta(_piernas_del_ticket(t, pool, ver), sampler, cfg_v3, 11)
-    assert abs(r.p_media - t.p_media) <= 4 * np.hypot(r.error_mc, t.error_mc)            # media: dentro de 4 σ de MC
-    assert r.p_conservadora == pytest.approx(t.p_conservadora, rel=0.05)
-    assert r.p_independencia == pytest.approx(t.p_independencia, rel=1e-12)              # la determinista SÍ es idéntica
-
-
-def test_sin_sesgo_sistematico_entre_la_ruta_de_calibracion_y_la_de_tickets():
-    """Promedio sobre semillas de la p_conservadora por ambas rutas: la diferencia media es ruido, no sesgo."""
-    cfg_v3, pool, ver = _cfg(), _pool(), _version()
-    salida, _, _ = bm.decidir(pool, {}, ver, cfg_v3, semilla=11, ahora=AHORA)
-    piernas = _piernas_del_ticket(salida.ticket, pool, ver)
-    sampler = inc.FactorSamplerJerarquico(sigma_g=ver.sigma_g, sigma_liga=ver.sigma_liga)
-    ligas = sorted({p.liga for p in piernas})
-    A, B = [], []
-    for s in range(1, 25):
-        A.append(dep.probabilidad_conjunta(piernas, sampler, cfg_v3, s).p_conservadora)
-        f = dep.factores_compartidos(sampler, ligas, int(cfg_v3["dependencia"]["n_draws"]), s)
-        pares = [dep.p_pierna_sorteos(p, f, s) for p in piernas]
-        B.append(dep.resumir_conjunta([a for a, _ in pares], [pi for _, pi in pares], cfg_v3, s).p_conservadora)
-    d = np.array(A) - np.array(B)
-    assert abs(d.mean()) <= 3 * d.std(ddof=1) / np.sqrt(len(d))                         # media de diferencias ≈ 0 (z < 3)
+    assert (r.p_media, r.p_conservadora, r.p_independencia, r.ic, r.lift, r.error_mc) == \
+        (t.p_media, t.p_conservadora, t.p_independencia, t.ic, t.lift, t.error_mc)
 
 
 def test_la_p_conservadora_difiere_del_producto_de_independencia():
