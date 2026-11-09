@@ -1,7 +1,7 @@
 # Función objetivo del ticket 5-8 (`motor/tickets.py`) · Diseño V3
 
-- Estado: borrador
-- Versión: v0.5
+- Estado: aprobado · decisión cerrada
+- Versión: v0.6
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`
@@ -118,6 +118,18 @@ cuota combinada ni el número de selecciones.
     **validado pero operativamente inviable** → se dispara **revisión de política versionada y auditada**
     que distingue ausencia genuina de valor (abstención correcta) de umbrales/σ mal calibrados, y decide
     por versión (ajustar alcance, ligas/mercados, o aceptar menor frecuencia). Nunca relajación en runtime.
+12. **Política de caché de `p_i⁽ˢ⁾` por partido (se implementa en `tickets.py`; definida a priori).** La
+    vectorización de `dependencia.py` ya cumple el budget sin caché; el reuso de `p_i⁽ˢ⁾` entre cestas que
+    comparten partido se hará en `tickets.py` con esta política (clave, TTL y cota fijadas para no devolver
+    resultados obsoletos ni crecer sin límite):
+    - **Clave:** `(partido_id, λ_local, λ_visit, ρ, selecciones, calibrador_incertidumbre_version,
+      sampler_version(σ_g, σ_ℓ), semilla, n_draws)`. Incluye τ (vía calibrador) y σ (vía sampler): si cambian,
+      la clave cambia → **invalidación automática**. Alineaciones confirmadas que muevan λ → clave nueva.
+    - **TTL/refresco:** vive DENTRO de una corrida (un día/jornada); NO persiste entre corridas. Nada queda
+      obsoleto porque la clave codifica todas las dependencias. Las cuotas NO entran en la clave (no afectan
+      `p_i`; afectan EV, que no se cachea).
+    - **Cota de memoria:** cada entrada = `(n_draws,)` float ≈ 160 KB a n_draws=20000. **LRU** con tope
+      configurable `cache_max_entradas` (defecto 1000 ≈ 160 MB); al excederlo, expulsión por LRU.
 
 ## 3. Alternativas descartadas
 
@@ -157,3 +169,4 @@ cuota combinada ni el número de selecciones.
 | v0.3 | 2026-11-09 | Pre-registro de umbrales de restricciones duras: K=2/liga, lift_max=1.15, IC_max (ancho rel. ≤1.0), umbral EV_cons=0.05, con justificación a priori y criterios de aceptación empíricos. |
 | v0.4 | 2026-11-09 | Operacionalización de los criterios: (i) tolerancia Wilson unilateral 95% sobre n_eff; (ii) CLV vs Pinnacle/consenso devig, yield a stake plano, tratamiento de push/void, horizonte 12 meses; (iii) discriminación por bootstrap IC 99%; orden de validación EV→IC→lift→K con re-chequeo conjunto (decisión 10); criterio de viabilidad ≥1 ticket/15 días (decisión 11). |
 | v0.5 | 2026-11-09 | Separación de muestras: validación con CLV de backtest (proxy) sobre cestas ex-post walk-forward OOS (ii-a) vs re-validación con CLV real en paper trading (ii-b); disciplina walk-forward del backtest explícita (iv); viabilidad = dos condiciones obligatorias, validación en backtest Y viabilidad/re-validación en vivo (decisión 11). |
+| v0.6 | 2026-11-09 | Decisión 12: política de caché de p_i por partido para tickets.py (clave con τ/σ/semilla/n_draws → invalidación automática; TTL por corrida, no persiste; LRU con tope configurable). Fijada a priori (condición 4 de la vectorización). |
