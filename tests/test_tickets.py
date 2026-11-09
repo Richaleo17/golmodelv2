@@ -233,11 +233,14 @@ def test_contrato_tickets_cerebro2():
         assert getattr(t, campo) is not None                         # ticket completo
     assert t.p_conservadora <= t.p_media and t.lift == pytest.approx(t.p_media / t.p_independencia)
     for pt in t.piernas:                                             # p_conservadora POR PIERNA
-        assert 0.0 < pt.p_conservadora <= 1.0 and pt.ev_cons > 0
+        # el cuantil 25 queda por debajo de la mediana p(θ̂) (legs OU: p crece con λ); con q mal puesto falla
+        assert 0.0 < pt.p_conservadora < pt.p_independencia and pt.ev_cons > 0
         assert pt.calibrador_version == "cm-v1" and pt.calibrado is True
-    for ce in s.auditoria.cestas:                                    # rechazos POR constraint con valor y umbral
-        for r in ce.rechazos:
-            assert r.constraint in tk.ORDEN_CONSTRAINTS and r.umbral is not None
+    mixto = _run(cfg=_cfg(umbrales_provisionales={"ic_max_rel": 0.6})).auditoria   # con rechazos REALES
+    rechazos = [r for ce in mixto.cestas for r in ce.rechazos]
+    assert rechazos                                                  # el bucle no puede ser vacío
+    for r in rechazos:                                               # rechazos POR constraint con valor y umbral
+        assert r.constraint in tk.ORDEN_CONSTRAINTS and r.umbral is not None and r.valor is not None
     assert set(s.por_tamano) == {2, 3, 4, 5, 6}                      # mejor factible por tamaño
 
 
@@ -245,7 +248,7 @@ def test_objetivo_es_argmax_de_crecimiento_sin_pesos():
     s = _run()
     alta = [c for c in s.auditoria.cestas if c.factible and c.tipo == "alta_confianza"]
     assert s.ticket.tipo == "alta_confianza"
-    assert s.ticket.log_crecimiento == pytest.approx(max(c.log_crecimiento for c in alta))
+    assert s.ticket.log_crecimiento_sin_tope == pytest.approx(max(c.log_crecimiento_sin_tope for c in alta))
 
 
 def test_ranking_es_log_crecimiento_no_ev_bruto():
@@ -264,19 +267,44 @@ def test_ranking_es_log_crecimiento_no_ev_bruto():
     assert s.auditoria.criterio_ranking == "log_crecimiento_kelly_fraccional_SIN_tope_de_stake"
 
 
+def test_auditoria_registra_por_cesta_ev_y_crecimiento_con_y_sin_tope():
+    # Sin estos tres valores por cesta, Cerebro 2 no puede auditar por qué se eligió una cesta sobre otra.
+    cap = _cfg()["bankroll"]["stake_max_parlay_u"]
+    a = _run(cfg=_cfg(umbrales_provisionales={"ic_max_rel": 0.6})).auditoria       # escenario mixto
+    assert a.n_cestas_evaluadas > 0 and 0 < a.n_cestas_factibles < a.n_cestas_evaluadas
+    for ce in a.cestas:                       # ninguna cesta de este pool cae por estructura: siempre hay cifras
+        assert ce.ev_cons is not None and ce.stake_u is not None
+        assert ce.log_crecimiento_sin_tope is not None and ce.log_crecimiento_con_tope is not None
+        assert 0 <= ce.stake_u <= cap
+        assert ce.log_crecimiento_con_tope <= ce.log_crecimiento_sin_tope + 1e-12   # con tope nunca supera al fraccional
+    # con las cifras de la auditoría se reconstruye la elección con la MISMA regla que el código: máximo sin tope
+    # entre las factibles de 5-8 y, si no hay ninguna, entre todas las factibles (reducidas)
+    s = _run(cfg=_cfg(umbrales_provisionales={"ic_max_rel": 0.6}))
+    alta = [c for c in s.auditoria.cestas if c.factible and c.tipo == "alta_confianza"]
+    candidatas = alta or [c for c in s.auditoria.cestas if c.factible]
+    assert candidatas
+    assert max(candidatas, key=lambda c: c.log_crecimiento_sin_tope).partidos == s.ticket.partidos
+
+
+def test_cestas_rechazadas_por_estructura_no_llevan_metricas():
+    pool = [_cand(i, "EPL", 1.8 + 0.05 * i, 1.3) for i in range(1, 7)]              # las 6 de la misma liga
+    por_k = [c for c in _run(pool=pool).auditoria.cestas if c.rechazos and c.rechazos[0].constraint == "k_piernas_por_liga"]
+    assert por_k                                                                    # el caso existe (no vacío)
+    assert all(c.ev_cons is None and c.log_crecimiento_sin_tope is None and c.log_crecimiento_con_tope is None
+               and c.stake_u is None and len(c.rechazos) == 1 for c in por_k)       # no se calculó MC: None, no 0
+
+
 def test_el_tope_acota_el_stake_pero_no_el_ranking():
     s = _run()
     cap = _cfg()["bankroll"]["stake_max_parlay_u"]
     assert 0 < s.ticket.stake_u <= cap                                # el stake propuesto sí lleva tope
-    assert s.ticket.log_crecimiento_con_tope <= s.ticket.log_crecimiento + 1e-12
+    assert s.ticket.log_crecimiento_con_tope <= s.ticket.log_crecimiento_sin_tope + 1e-12
 
 
-def test_una_pierna_por_partido_y_k_por_liga():
+def test_una_pierna_por_partido():
     pool = _pool() + [_cand(1, "EPL", 1.9, 1.4, edge=1.25)]          # 2ª pierna (más cuota) del partido 1
     s = _run(pool=pool)
     assert len(set(s.ticket.partidos)) == len(s.ticket.partidos)     # nunca 2 piernas del mismo partido
-    ligas = [p.liga for p in s.ticket.piernas]
-    assert all(ligas.count(l) <= 2 for l in set(ligas))
     assert any(r.constraint == "otra_pierna_mejor_del_partido"
                for pr in s.auditoria.rechazos_piernas for r in pr.rechazos)
 

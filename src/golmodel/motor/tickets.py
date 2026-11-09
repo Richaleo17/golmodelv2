@@ -112,7 +112,11 @@ class CestaEvaluada:
     ev_cons: float | None = None
     lift: float | None = None
     ic_rel: float | None = None
-    log_crecimiento: float | None = None
+    # Auditoría de por qué se eligió una cesta sobre otra (Cerebro 2). None = cesta rechazada por ESTRUCTURA
+    # (K por liga) antes de calcular el Monte Carlo: no hay métricas que registrar.
+    log_crecimiento_sin_tope: float | None = None   # criterio de RANKING (Kelly fraccional sin tope)
+    log_crecimiento_con_tope: float | None = None   # con el stake propuesto (tope aplicado)
+    stake_u: float | None = None
 
 
 @dataclass(frozen=True)
@@ -133,7 +137,7 @@ class Ticket:
     cuota_combinada: float             # producto de cuotas por pierna (teórica; ver dec. 13)
     cuota_combinada_tipo: str          # = CUOTA_COMBINADA_TIPO
     stake_u: float
-    log_crecimiento: float             # criterio de RANKING: Kelly fraccional SIN tope de stake
+    log_crecimiento_sin_tope: float    # criterio de RANKING: Kelly fraccional SIN tope de stake
     log_crecimiento_con_tope: float    # informativo: con el stake realmente propuesto (tope aplicado)
     techo_estado: str                  # 'CON_RESERVAS' | 'SIN_TOPE' — nunca APROBADO
     promovible: bool
@@ -259,18 +263,20 @@ def _sampler_version(v: VersionCalibradorTickets) -> str:
     return f"jer|g={v.sigma_g}|l={sl}"
 
 
-def _log_crec(p: float, cuota: float, cfg: dict) -> tuple[float, float]:
-    """(G_ranking, stake_u). G = crecimiento log con Kelly fraccional SIN tope de stake; el stake propuesto sí
-    lleva tope (bankroll.py). Razón: con el tope activo G ≈ f_tope·EV_cons, es decir, el ranking degeneraría
-    en EV bruto y el tamaño del ticket dejaría de ser un resultado para ser un sesgo (medido: dec. 14)."""
+def _crecimiento(p: float, cuota: float, cfg: dict) -> tuple[float, float, float]:
+    """(G_sin_tope, G_con_tope, stake_u). El RANKING usa G_sin_tope: crecimiento log con Kelly fraccional SIN tope
+    de stake. G_con_tope usa el stake realmente propuesto (con el tope de bankroll.py) y es informativo. Razón: con
+    el tope dentro del ranking, G ≈ f_tope·EV_cons: degeneraría en EV bruto y el tamaño del ticket dejaría de ser
+    un resultado para ser un sesgo (medido: diseño dec. 14)."""
     b = cfg["bankroll"]
     f_full = kelly(p, cuota)
     if f_full <= 0:
-        return 0.0, 0.0
-    g = log_crecimiento(p, cuota, b["kelly_fraccion_parlay"] * f_full)           # ranking: sin tope
+        return 0.0, 0.0, 0.0
+    g_sin = log_crecimiento(p, cuota, b["kelly_fraccion_parlay"] * f_full)              # ranking: sin tope
     st = stake_u(f_full, fraccion=b["kelly_fraccion_parlay"], max_u=b["stake_max_parlay_u"],
-                 unidad_pct=b["unidad_pct_banca"])                                # sizing: con tope
-    return float(g), float(st)
+                 unidad_pct=b["unidad_pct_banca"])                                       # sizing: con tope
+    g_con = log_crecimiento(p, cuota, st * b["unidad_pct_banca"])
+    return float(g_sin), float(g_con), float(st)
 
 
 # --------------------------------------------------------------------- evaluación de piernas
@@ -318,7 +324,7 @@ def _evaluar_pierna(c: Candidata, cons: dict, ctx: dict) -> tuple[_PiernaEval | 
     ev = p_cons * c.cuota - 1.0
     if not ev > cons["ev_cons_pierna_min"]:
         return None, [Rechazo("ev_cons_pierna", float(ev), float(cons["ev_cons_pierna_min"]))]
-    g, _ = _log_crec(p_cons, c.cuota, ctx["cfg"])
+    g, _, _ = _crecimiento(p_cons, c.cuota, ctx["cfg"])
     pt = PiernaTicket(c.partido_id, c.liga, tuple(c.selecciones), float(c.cuota), float(c.calibrada.p_calibrada),
                       p_cons, float(p_ind), float(ev), c.crs_total, c.calibrada.calibrador_version,
                       bool(c.calibrada.calibrado), tuple(c.calibrada.segmento))
@@ -412,19 +418,21 @@ def generar_tickets(candidatas: list[Candidata], version_cal: VersionCalibradorT
                 rech.append(Rechazo("ic_ancho", float(ic_rel), float(cons["ic_max_rel"])))
             if res.lift > cons["lift_max"]:
                 rech.append(Rechazo("lift", float(res.lift), float(cons["lift_max"])))
-            g, st = _log_crec(res.p_conservadora, C, cfg) if C > 1.0 else (0.0, 0.0)
-            cestas.append(CestaEvaluada(pids, n, tipo, not rech, tuple(rech), float(res.p_conservadora),
-                                        float(ev), float(res.lift), float(ic_rel), float(g)))
+            g, g_tope, st = _crecimiento(res.p_conservadora, C, cfg) if C > 1.0 else (0.0, 0.0, 0.0)
+            cestas.append(CestaEvaluada(
+                partidos=pids, n=n, tipo=tipo, factible=not rech, rechazos=tuple(rech),
+                p_conservadora=float(res.p_conservadora), ev_cons=float(ev), lift=float(res.lift),
+                ic_rel=float(ic_rel), log_crecimiento_sin_tope=float(g), log_crecimiento_con_tope=float(g_tope),
+                stake_u=float(st)))
             if not rech:
-                factibles.append((g, pids, n, tipo, res, legs, C, st))
+                factibles.append((g, pids, n, tipo, res, legs, C, st, g_tope))
 
     # --- 4) selección: máx G dentro de 5-8; si no hay, reducidas 2-4; si no, ABSTENCIÓN
     def _mejor(lista):
         return min(lista, key=lambda f: (-f[0], f[1])) if lista else None
 
     def _a_ticket(f) -> Ticket:
-        g, pids, n, tipo, res, legs, C, st = f
-        ub = cfg["bankroll"]["unidad_pct_banca"]
+        g, pids, n, tipo, res, legs, C, st, g_tope = f
         return Ticket(
             tipo=tipo, n=n, partidos=pids, piernas=tuple(pe.pt for pe in legs),
             p_media=res.p_media, p_conservadora=res.p_conservadora, p_independencia=res.p_independencia,
@@ -432,8 +440,7 @@ def generar_tickets(candidatas: list[Candidata], version_cal: VersionCalibradorT
             ic_rel=float((res.ic[1] - res.ic[0]) / res.p_media) if res.p_media > 0 else math.inf,
             error_mc=res.error_mc, metodo=res.metodo, ev_cons=float(res.p_conservadora * C - 1.0),
             cuota_combinada=C, cuota_combinada_tipo=CUOTA_COMBINADA_TIPO, stake_u=st,
-            log_crecimiento=float(g),
-            log_crecimiento_con_tope=float(log_crecimiento(res.p_conservadora, C, st * ub)),
+            log_crecimiento_sin_tope=float(g), log_crecimiento_con_tope=float(g_tope),
             techo_estado=techo, promovible=not modo_experimental, modo_experimental=modo_experimental,
             semilla=int(semilla), n_draws=S)
 

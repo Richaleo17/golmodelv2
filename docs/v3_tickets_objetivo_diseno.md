@@ -1,7 +1,7 @@
 # Función objetivo del ticket 5-8 (`motor/tickets.py`) · Diseño V3
 
 - Estado: aprobado · decisión cerrada
-- Versión: v0.8
+- Versión: v0.9
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`
@@ -156,6 +156,11 @@ cuota combinada ni el número de selecciones.
       de forma material (p. ej. en un SGP o con recargos de parlay) y no se observa por separado en v1. Esta
       semántica se REGISTRA en `RegistroAuditoria.cuota_combinada_tipo` y en cada `Ticket` (Cerebro 2 no
       debe tratarla como precio disponible); el EV de ticket hereda esa limitación.
+    - **Auditoría POR CESTA (para que Cerebro 2 pueda explicar por qué se eligió una cesta sobre otra):** cada
+      `CestaEvaluada` registra `ev_cons`, `log_crecimiento_sin_tope` (criterio de ranking),
+      `log_crecimiento_con_tope` (con el stake propuesto) y `stake_u`, además de `p_conservadora`, `lift` e
+      `ic_rel`. Un valor `None` significa "cesta rechazada por ESTRUCTURA (K por liga) antes de calcular el
+      Monte Carlo": no es un cero, no hay métricas. El `Ticket` usa los mismos nombres de campo.
     - **Persistencia (BLOQUEANTE para producción):** `RegistroAuditoria.a_json()` es el payload exacto de
       `auditoria_decisiones`. La migración 004, que crea esa tabla, es el PRIMER paso de `cerebro2/` y
       `tickets.py` NO debe usarse en producción hasta que la tabla exista en la BD y se persista el registro.
@@ -172,7 +177,7 @@ cuota combinada ni el número de selecciones.
     estaba activo en el 100 % de las cestas factibles (ventaja +12 %/pierna) y en el 55 % (+4 %), y en los
     tres escenarios probados `argmax G con tope == argmax EV_cons`. Corrección: `G_ranking` usa
     `kelly_fraccion_parlay · f*` sin tope; `stake_u` (con tope) es solo el stake propuesto y
-    `log_crecimiento_con_tope` se reporta como informativo. Test discriminante: con 5 piernas fuertes y 3
+    `log_crecimiento_con_tope` se reporta como informativo, y ambos valores se registran por cesta. Test discriminante: con 5 piernas fuertes y 3
     débiles el EV bruto elegiría 8 piernas y el crecimiento log elige 5; el auditor registra
     `criterio_ranking`. Sigue sin haber pesos λ.
 
@@ -217,3 +222,4 @@ cuota combinada ni el número de selecciones.
 | v0.6 | 2026-11-09 | Decisión 12: política de caché de p_i por partido para tickets.py (clave con τ/σ/semilla/n_draws → invalidación automática; TTL por corrida, no persiste; LRU con tope configurable). Fijada a priori (condición 4 de la vectorización). |
 | v0.7 | 2026-11-09 | Decisión 13: contrato de salida tickets→cerebro2 fijado antes de implementar (motivo POR constraint con valor/umbral, p_conservadora por pierna y del ticket, lift conjunto, techo/promovible, versiones y c/σ registradas; tickets nunca emite APROBADO). Precisión a la dec. 12: semillas deterministas por liga/partido (caché válida entre cestas). Piernas con push fuera en v1; pre-ranking a nivel de pierna. |
 | v0.8 | 2026-11-09 | Dec. 14: el ranking usa crecimiento log SIN tope de stake (con tope degeneraba en EV bruto: medido, argmax G == argmax EV en 3/3 escenarios y tope activo en 55-100 % de las cestas); `log_crecimiento_con_tope` informativo. Dec. 13: `cuota_combinada` registrada como teórica bajo independencia de precios (no ejecutable); migración 004 = primer paso de cerebro2 y bloqueante para producción. |
+| v0.9 | 2026-11-09 | Auditoría por cesta: `ev_cons`, `log_crecimiento_sin_tope`, `log_crecimiento_con_tope` y `stake_u` en cada `CestaEvaluada` (None = rechazada por estructura, sin MC); renombrado `Ticket.log_crecimiento` → `log_crecimiento_sin_tope`. Sin cambio de criterio. |
