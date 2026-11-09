@@ -87,6 +87,22 @@ la BD y el registro se persista. Hasta entonces el sistema permanece en `modo_ex
     EXACTA con el bucle de referencia (conservado solo en `@pytest.mark.slow`). Clip de λ `[0.02, 12]`
     preservado con test del caso τ grande. Lever para margen en producción: `n_draws` con control de `error_mc`.
 
+- **2026-11-09 · Dos rutas de Monte Carlo en `dependencia.py`/`tickets.py` (BLOQUEA el backtest OOS real).** El mismo estimador
+  existe con dos flujos aleatorios distintos: `dependencia.probabilidad_conjunta` (la que usa `calibracion_tickets.ajustar` para
+  fijar `c_seg`/σ y medir la cobertura) y la ruta de `tickets.py` (`factores_compartidos` + `p_pierna_sorteos` + caché, la que se
+  usa en predicción). Coinciden dentro del error de Monte Carlo (medido a 4σ; sin sesgo medio sobre 24 semillas) pero **no bit a
+  bit**. Riesgo: ajustar parámetros con una realización de la distribución y usarlos con otra ⇒ la cobertura medida no es
+  exactamente la de producción. No bloquea el push; **sí bloquea el backtest OOS**: debe resolverse antes (p. ej. que
+  `calibracion_tickets` calibre llamando a la misma ruta factores+pierna+resumen que `tickets.py`, o un único camino compartido), con un
+  test de igualdad exacta entre ambas rutas. Aprobado por el responsable el 2026-11-09 como deuda previa al backtest.
+- **2026-11-09 · `/panel/{fecha}` sigue con `math.prod` (BLOQUEA el backtest OOS real).** `servicios/sugerencias.py`
+  (`armar_perfil`, `armar_tickets`, "más seguros") calcula la probabilidad de parlays y tickets por producto (independencia). El panel
+  es público: lleva la advertencia de independencia en payload, texto copiable y UI (`024f525`), aceptable solo de forma temporal.
+  Debe integrarse en V3 antes del backtest OOS. Tarea pendiente, no iniciada.
+- **2026-11-09 · Orquestador del backtest OOS y almacén de `VersionCalibradorTickets` / calibradores de mercado (integración, no
+  modelo).** No existen aún; deben esperar a que el push esté cerrado. Mientras tanto `benchmark.py` usa la versión provisional de la
+  config (`no_calibrado`).
+
 ## 4. Limitaciones explícitas de v1 (no son deuda oculta)
 
 - **Sin selecciones con push.** `tickets.py` solo admite selecciones de `APTAS_PARLAY` (como v2): quedan fuera
@@ -196,13 +212,23 @@ lugar ejecuta V3 en un SAVEPOINT (`_ticket_v3`): si falla —p. ej. la 004 sin a
 `/parlays/{fecha}` (ticket V3 primero, luego los parlays legados de V2) y en `/tickets/{fecha}` (ticket o ABSTENCIÓN con motivo).
 `entrada_modulo2` e `_insertar_parlay` se eliminaron (código muerto tras el reemplazo).
 
+**Verificación de la UI:** `tests/test_ui_smoke.py` ejecuta la UI Streamlit real con `streamlit.testing.v1.AppTest`, hablando con la API real
+(FastAPI `TestClient`) sobre PostgreSQL real: comprueba que el ticket V3 (título, métricas, aviso de calibración provisional) y la
+abstención con su motivo —`/tickets/{fecha}`— son accesibles desde «Cuotas → Parlay con cuotas». Limitación: `AppTest` no es un
+navegador (no mide estilo, layout ni CSS).
+
 **Sigue vivo y declarado:** `/panel/{fecha}` (`servicios/sugerencias.py`: parlays por perfil, "más seguros" y tickets de 5
 equipos) **aún usa `math.prod`**; lleva la advertencia de independencia en payload, texto copiable y UI. Los parlays legados de V2
 ya guardados en `parlays_sugeridos` también la llevan. No se tocó `sugerencias.py` (fuera de lo pedido).
 
+**Regresión temporal del paper trading de parlays (aceptada por el responsable el 2026-11-09).** El paper trading **V2 de parlays no
+registra nada** (ni `parlays_sugeridos` nuevos ni apuesta del día de parlay) hasta que V3 tenga su propio paper trading, que llegará
+**después** de la validación con datos reales. **No se añade paper trading V3 ahora:** sería un módulo nuevo y metería código no validado
+en un flujo sensible. Los picks simples siguen registrándose igual. Los parlays legados ya guardados se siguen mostrando y liquidando.
+
 **Lo que V3 produce hoy NO es un resultado validado:** `calibrado_con='no_calibrado'`, `modo_experimental=true`, techo
 `CON_RESERVAS`, ticket **no promovible** a paper/real (por eso el parlay del día de V2 ya no se registra como apuesta de
-práctica: efecto buscado y a revisar por el responsable). La versión del calibrador de tickets es
+práctica: regresión aceptada, ver arriba). La versión del calibrador de tickets es
 `calibracion_tickets.version_provisional` de la config (`c_global: 1.0` es un **placeholder**, no un valor ajustado).
 
 **Decisiones del responsable que quedan abiertas (valores que puse y NO le corresponden a código):**
@@ -226,3 +252,7 @@ r = construir_cestas_historicas(conn, desde, hasta, cfg_v2, cfg_v3, casa="pinnac
 aj = ct.ajustar(list(r.cestas), cfg_v3, semilla=0)                                                # c_global y segmentos calibrados
 gate = ct.gate_cobertura_tickets(list(r.cestas), aj.c_global, cfg_v3, semilla=0)                  # cobertura BILATERAL
 ```
+
+**Estado de cierre (2026-11-09): pausa total de código.** Tras el push, el siguiente paso es la validación con datos reales, no más
+código. Antes del backtest OOS real quedan, en este orden y todas como integración (no modelo): (1) unificar las dos rutas de Monte
+Carlo, (2) integrar `/panel` en V3, (3) el orquestador del backtest y el almacén de versiones.

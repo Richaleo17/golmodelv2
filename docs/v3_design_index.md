@@ -28,7 +28,7 @@ Dos categorías de "aprobado", explícitamente distintas:
 
 | Documento | Módulo / tema | Estado | Depende de | Últ. act. |
 |---|---|---|---|---|
-| `v3_umbrales_prerregistro.md` | Pre-registro consolidado de umbrales + árbol de ajuste | aprobado · PROVISIONAL (pend. validación OOS) | todos los de 1.1 | 2026-11-09 |
+| `v3_umbrales_prerregistro.md` | Pre-registro consolidado de umbrales + árbol de ajuste (v0.9) | aprobado · PROVISIONAL (pend. validación OOS) | todos los de 1.1 | 2026-11-09 |
 
 ### 1.3 Tratado como implementación (sin documento de diseño gateado)
 

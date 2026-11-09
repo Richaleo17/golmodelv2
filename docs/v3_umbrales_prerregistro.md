@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.8
+- Versión: v0.9
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -146,6 +146,35 @@ explícito (`fuente="global"`, `calibrado_incertidumbre=False`); el Cerebro 2 lo
 **VersionIncertidumbre (contrato 4):** `datos_hasta`, `segmento`, `metodo`, `config_hash` (+ params:
 `c_seg`, `σ_ℓ`, `σ_g`, `n0`). Inmutable, reconstruible punto-en-el-tiempo.
 
+#### Definición única del segmento: `segmento_de` (añadido en v0.9, 2026-11-09; fijado DESPUÉS de implementar — se declara)
+
+- **Qué es.** `modelos/calibracion_mercado.py::segmento_de(liga, selecciones, cuota, cfg) → (liga, mercado, rango_cuota)` (y
+  `rango_cuota`). `mercado` = grupo(s) de mercado de las selecciones (`GRUPO_DE`); varios grupos ⇒ pierna SGP, independiente del
+  orden. `rango_cuota` = intervalo `[b_k, b_k+1)` según `calibracion_mercado.rangos_cuota` (inferior incluido, superior excluido;
+  `<b_0` y `>=b_n` abiertos). Falla cerrado (`ValueError`/`KeyError`) con bordes no crecientes, cuota ≤ 0, pierna sin selecciones o
+  selección fuera de catálogo.
+- **Por qué se añadió.** El contrato `SeleccionCalibrada.segmento = (liga, mercado, rango)` de este mismo §2.5 exigía un segmento
+  que el repo no definía en ningún sitio. Se detectó al escribir los adaptadores de integración, no antes: es una omisión del
+  pre-registro v0.3, corregida aquí.
+- **Cómo se comparte entre vivo e histórico.** Es la ÚNICA fuente: `integracion/candidatas.py` (vivo) e
+  `integracion/cestas_historicas.py` (histórico) la importan y ninguno reimplementa la lógica. Si difirieran, un calibrador ajustado
+  con los segmentos del histórico nunca casaría con los del vivo y `calibracion_mercado`/`calibracion_tickets` caerían siempre al
+  fallback. Un test comprueba que cada pierna de ambos adaptadores lleva exactamente `segmento_de(...)` de su propia cuota.
+- **Qué NO está fijado.** Los bordes (`rangos_cuota`) son un valor provisional: ver la tabla de §2.9 (v0.9).
+
+#### Revisión de la decisión 5 (cestas anuladas) — revisión explícita, aprobada por el responsable del proyecto el 2026-11-09
+
+La decisión 5 de `v3_incertidumbre_diseno.md` pedía cestas ex-post "incluidas perdedoras **y anuladas**". **Revisión:** las cestas
+con alguna pierna anulada (cancelada, pospuesta, abandonada), pendiente o finalizada sin marcador **se excluyen del ajuste y se
+cuentan**, porque no tienen resultado conocido y `calibracion_tickets` ajusta contra el indicador "ganan todas" (`gano: bool`);
+sin `gano` conocido no se pueden calibrar. Salvaguardas que mantienen el espíritu anti-sesgo de la decisión 5:
+1. Se excluyen del ajuste pero **no se descartan en silencio**: `ResultadoCestas.excluidas` las conserva con su meta y motivo
+   (`anulada` / `pendiente`), y `omisiones` cuenta los partidos o días no usados.
+2. Las anuladas **entran al muestreo** (los partidos anulados forman parte del pool): la exclusión ocurre al resolver, no al
+   elegir, de modo que la muestra de cestas resueltas no queda sesgada por el muestreo.
+3. El backtest OOS real debe **reportar la fracción excluida**; si fuera material (umbral a fijar por el responsable antes de
+   correrlo), se trata como sesgo de supervivencia potencial y no como detalle.
+
 ### 2.6 Gate de `motor/dependencia.py` — fijado ANTES de implementar (v0.4, 2026-11-09)
 
 - **Invariante de módulo (unit test duro):** con `σ_g=σ_ℓ=0` y todos los `τ=0`, la conjunta se reduce
@@ -268,6 +297,22 @@ bootstrap 99 % (semilla fija) en el yield, muestra mínima 200. `alarma_falsos_r
 inferior > 0: señal de alarma que dispara revisión versionada, nunca relajación en runtime. Un ticket con alguna pierna
 anulada se excluye (simplificación v1: no se reduce la cuota).
 
+#### Valores provisionales de integración (v0.9, 2026-11-09) — origen, justificación y procedimiento de validación
+
+Valores que la integración necesitó para poder ejecutarse y que **no estaban pre-registrados**. Los fijó el desarrollador (Claude)
+como valores operativos; ninguno se derivó de datos reales. Cada uno vive en `config/v3_umbrales.yaml` (versionado, con
+`config_hash`): cambiarlo = nueva versión de config y recalibración, **nunca** ajuste en runtime ni para "pasar" un gate.
+Regla común de validación: se evalúan en el backtest OOS real, **antes** de mirar el resultado de los gates de cobertura, y un
+cambio posterior se registra como enmienda con fecha.
+
+| Valor (clave de config) | (a) Origen | (b) Justificación | (c) Procedimiento de validación |
+|---|---|---|---|
+| `calibracion_mercado.rangos_cuota = [1.30, 1.60, 2.00, 3.00, 5.00]` | Elegido por el desarrollador el 2026-11-09. Solo `1.30` tiene referencia: coincide con `parlays.cuota_min_bloque` de V2; el resto es arbitrario. | Separa favoritos cortos, medios y largos con pocos tramos para no fragmentar `n_eff` por segmento (pooling seg→liga→global). | Contar `n_eff` por segmento `(liga, mercado, rango)` sobre las cestas del backtest: tramo con `< n_min_cestas_segmento` (200) ⇒ cae a fallback. Comprobar que el gate de cobertura no depende de la partición (sensibilidad con bordes desplazados). Revisar si hay tramos vacíos. |
+| `calibracion_tickets.version_provisional.c_global = 1.0` (σ_liga = σ_g = 0) | **Placeholder** del desarrollador, 2026-11-09. No es un valor ajustado. | Escala neutra de `τ = c/√peso_efectivo` (con peso ≈ 30, τ ≈ 0.18 sobre λ). Está dentro del intervalo `(0.1, 5)` que recorre `calibracion_tickets.ajustar`. Solo se usa mientras no exista una `VersionCalibradorTickets` real (`calibrado_con='no_calibrado'` ⇒ techo `CON_RESERVAS` + `modo_experimental`). | Lo reemplaza `c_global` de `ajustar` sobre cestas ex-post reales, validado con `gate_cobertura_tickets` (§2.7, bilateral). Hasta entonces ningún ticket V3 es promovible. |
+| `calibracion_tickets.cestas_historicas.paso_dias = 7` | Igual a `modelo.calibracion_semanal_dias` de V2 (única referencia). | Reproduce la cadencia de reajuste del modelo en producción: el histórico usa modelos tan viejos como los que usaría el vivo. | Sensibilidad: repetir `ajustar` con 3 y 14 días; si `c_global` cambia más que su error de Monte Carlo, documentarlo y fijar el paso con ese criterio. |
+| `calibracion_tickets.cestas_historicas.n_cestas_por_dia = 40` | Esfuerzo de muestreo elegido por el desarrollador (presupuesto de cómputo), no un umbral de calidad. | Con ≈8 partidos/día y tamaños 2–8 da cientos de cestas por pocos días; apunta a ≥ 200 cestas por segmento y ≥ 2000 cestas entre ligas (protocolo de σ_g, decisión 13) sin salirse del presupuesto de §2.7 (≤ 30 min por temporada×liga). | Estabilidad de `c_global` y del gate con 20/40/80 cestas por día (misma semilla y semillas distintas); subir el valor si el resultado se mueve más que el error de Monte Carlo. |
+| `cerebro2.consenso_mercado.casas_elegibles = [pinnacle, bet365, williamhill, marathon]` | Lista de **diseño con TODO** ya presente en la config ("placeholder a confirmar"); no se contrastó con el catálogo real hasta v0.9. | Requisito de `n_min = 3` casas para un consenso independiente de Pinnacle+Shin. | **Hallazgo:** `db/seed.sql` solo tiene `pinnacle` y `bet365` (marcada `agregado`) como casas reales; `williamhill` y `marathon` no existen en el catálogo ni se ingieren. Con ≤ 2 casas útiles el gate de mercado queda siempre en `AVISO` (`consenso_insuficiente`). Validar: confirmar el rol de `bet365` y qué casas entregan las fuentes de cuotas; hasta que haya ≥ 3 el auditor no puede discriminar por mercado y eso debe leerse en la metacalibración. |
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -306,3 +351,4 @@ anulada se excluye (simplificación v1: no se reduce la cuota).
 | v0.6 | 2026-11-09 | §2.8 (fijado antes de implementar tickets.py): filtros de pierna provisionales (p≥0.75, CRS<40 sin veto, EV_cons_pierna>0, dato ≤24 h y no posterior a `ahora`, APTAS_PARLAY), top_n_piernas=12 como acotador de cómputo, no-relajación fail-closed (relajar = otro config_hash), `modo_experimental` obligatorio sin default y tickets nunca emite APROBADO, reproducibilidad por semilla/ahora. |
 | v0.7 | 2026-11-09 | §2.8: criterio de ranking = crecimiento log sin tope (excluye EV bruto); justificación explícita de `max_edad_horas=24` (provisional, no derivado de datos; acota la edad de nuestra información, no la publicación de la casa; laxo cerca del inicio, mitigado por el gate de frescura de Cerebro 2; refinamiento dependiente del inicio documentado). |
 | v0.8 | 2026-11-09 | §2.9 (fijado antes de implementar cerebro2/): resultado `NO_APLICABLE`, escalera por rangos, semántica de las razones del consenso (insuficiente/incompleto/no_auditable), parámetros nuevos provisionales (márgenes de AVISO, frescura 6/24 h, timeout), fail-closed en los tres casos (timeout cooperativo), y definición de las métricas del auditor con `aceptados = APROBADO ∪ CON_RESERVAS`. |
+| v0.9 | 2026-11-09 | **Fijado DESPUÉS de implementar los adaptadores (se declara):** §2.5 documenta `segmento_de` (definición única del segmento compartida por vivo e histórico, omisión corregida del contrato v0.3) y la revisión aprobada de la decisión 5 (cestas anuladas/pendientes se excluyen y se cuentan); §2.9 registra con origen, justificación y procedimiento de validación los valores provisionales de integración (`rangos_cuota`, `c_global=1.0`, `paso_dias=7`, `n_cestas_por_dia=40`, `casas_elegibles`) y el hallazgo de que el catálogo real solo tiene 2 casas. No cambia ningún umbral pre-registrado. |
