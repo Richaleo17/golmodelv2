@@ -271,10 +271,10 @@ def test_consenso_casa_con_grupo_incompleto_se_descarta_con_su_razon():
 
 
 def test_consenso_cuatro_esperadas_y_tres_utiles_es_ok_y_registra_la_faltante():
-    s, m = _ideal(casas=("pinnacle", "bet365", "williamhill"), esperadas=("pinnacle", "bet365", "williamhill", "marathon"))
+    s, m = _ideal(casas=("pinnacle", "bet365", "williamhill"), esperadas=("pinnacle", "bet365", "williamhill", "marathonbet"))
     k = next(iter(m))
     r = bm.consenso_independiente(("OU:1.5:over",), m[k], _cfg())
-    assert r.estado == "ok" and r.casas_faltantes == ("marathon",) and r.p_mercado is not None
+    assert r.estado == "ok" and r.casas_faltantes == ("marathonbet",) and r.p_mercado is not None
 
 
 def test_consenso_sgp_y_seleccion_sin_grupo_no_son_auditables():

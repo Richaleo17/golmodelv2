@@ -25,7 +25,13 @@ ZONA_CSV = ZoneInfo("Europe/London")  # VERIFICAR EN DOCUMENTACIÓN: hora del ca
 
 # (prefijo de casa, casa normalizada). Pre-partido = sin 'C'; cierre = con 'C'.
 # 'Max' (máximo entre casas) no se carga: no es una casa real y su "margen" es negativo.
-CASAS = [("PS", "pinnacle"), ("B365", "bet365"), ("Avg", "promedio")]
+# Casas reales según football-data `notes.txt` (autoridad: el responsable del proyecto, 2026-11-09): B365, BW, IW, LB, PS, WH, VC.
+# Se cargan TODAS para que el consenso independiente de Cerebro 2 (>= 3 casas) sea posible también en el histórico.
+# Cada archivo solo trae las casas/columnas de su temporada y liga (`cuotas_desde_df` ignora las ausentes): el nº de casas
+# por partido es un DATO, no una suposición — donde haya < 3 el gate de mercado queda en AVISO (techo CON_RESERVAS).
+# 'williamhill' es la MISMA clave que entrega The Odds API, para que vivo e histórico hablen de la misma casa.
+CASAS = [("PS", "pinnacle"), ("B365", "bet365"), ("BW", "betway"), ("IW", "interwetten"), ("LB", "ladbrokes"),
+         ("WH", "williamhill"), ("VC", "vcbet"), ("Avg", "promedio")]
 
 
 def _columnas_1x2(pref: str, cierre: bool) -> dict[str, str]:

@@ -240,6 +240,34 @@ ruta de `tickets.py` (`factores_compartidos` + `p_pierna_sorteos` + caché) usan
 estimador con otra realización de Monte Carlo: coinciden dentro del error de MC, no bit a bit. Conviene saberlo al comparar el
 `c_seg` calibrado con el runtime.
 
+**Casas del consenso de Cerebro 2 (2026-11-09, decisión del responsable).** Se comprobó contra la BD real: las casas de The Odds API ya
+están en la BD (`marathonbet`, `williamhill`, `nordicbet`, `tipico_de`, `onexbet`, `unibet_se`, `leovegas_se`; ~70 cuotas cada una) y el
+histórico (football-data) solo cargaba `PS`, `B365`, `Avg`. Cambios: `casas_elegibles` corregida (`marathon` → `marathonbet`, más las cinco nuevas,
+bet365 se mantiene) y `football_data_csv.CASAS` ampliado a B365/BW/IW/LB/PS/WH/VC. **La reingesta con datos reales NO se ejecutó aquí** (la sesión
+no puede bajar football-data ni escribir en la BD real). Hay que correrla: `docker compose run --rm api python scripts/cargar_historico.py
+--temporadas 5 --sin-xg` (idempotente: no duplica partidos ni cuotas; solo añade las casas nuevas). Después, medir la cobertura real:
+
+```sql
+-- partidos históricos con 1X2 pre-partido completo en >= 3 casas ELEGIBLES, por liga
+WITH completo AS (
+  SELECT q.partido_id, c.clave FROM cuotas q JOIN casas_apuestas c ON c.id = q.casa_id
+  WHERE q.tipo = 'prepartido' AND q.seleccion IN ('1X2:1','1X2:X','1X2:2')
+    AND c.clave IN ('pinnacle','bet365','williamhill','marathonbet','nordicbet','tipico_de','onexbet','unibet_se','leovegas_se')
+  GROUP BY 1, 2 HAVING count(DISTINCT q.seleccion) = 3)
+SELECT l.codigo, count(*) AS partidos,
+       count(*) FILTER (WHERE n >= 3) AS con_3_o_mas, round(100.0 * count(*) FILTER (WHERE n >= 3) / count(*), 1) AS pct
+FROM (SELECT partido_id, count(*) AS n FROM completo GROUP BY 1) x
+JOIN partidos p ON p.id = x.partido_id JOIN ligas l ON l.id = p.liga_id GROUP BY 1 ORDER BY 1;
+```
+
+Lo que NO se sabe todavía y la reingesta debe confirmar: (1) qué casas trae realmente cada archivo/liga (las ligas extra MX/USA/BRA probablemente solo
+traen Pinnacle y agregados); (2) que over/under 2.5 solo trae B365 y Pinnacle (si es así, esa familia queda en `AVISO`: opción (b)). Donde no haya ≥ 3 casas
+reales el segmento queda con techo `CON_RESERVAS`; la regla `n_min = 3` no se relaja bajo ninguna circunstancia.
+
+**≥ 3 casas es necesario, no suficiente, para la ruta `APROBADO`.** Además hacen falta: `modo_experimental` apagado (solo con `calibrado_con='oos_real'`),
+la unificación de las dos rutas de Monte Carlo, un backtest que ejecute `tickets.py` + `cerebro2` sobre el histórico (hoy el backtest de cestas solo calibra τ/σ;
+no audita con Cerebro 2), y que las cuotas históricas pre-partido lleven una marca temporal real (hoy es un marcador `inicio − 2 días`).
+
 **Qué falta para el paso 3 (backtest OOS real) — no es un módulo de modelo:** hay adaptador de cestas, `ajustar` y
 `gate_cobertura_tickets`, pero **no existe un orquestador** que los encadene sobre la BD real ni un almacén de
 `VersionCalibradorTickets` / calibradores de mercado persistidos. Mientras no exista, `benchmark.py` usa la versión
