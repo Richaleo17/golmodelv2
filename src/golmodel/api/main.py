@@ -85,8 +85,7 @@ def conexion(s: Servicio = Depends(servicio)) -> Iterator[psycopg.Connection]:
 
 # Los parlays que hoy genera el motor (motor/modulo2.py) multiplican probabilidades asumiendo independencia entre
 # partidos. Hasta integrar V3 (probabilidad conjunta con dependencia) se avisa en cada respuesta. NO cambia la lógica.
-ADVERTENCIA_INDEPENDENCIA = ("parlays generados bajo independencia; probabilidad conjunta sobreestimada. "
-                             "Pendiente integración de V3.")
+ADVERTENCIA_INDEPENDENCIA = sugerencias.ADVERTENCIA_INDEPENDENCIA   # fuente única (también la usa texto_panel)
 
 
 def _dia(fecha: str, s: Servicio) -> date:
@@ -168,6 +167,7 @@ def get_resumen(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexi
 def get_panel(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     """Diario (probabilidades por partido) y Qué meter (jugadas, rompen parlays, parlays por perfil)."""
     pan = sugerencias.panel(conn, s.cfg, _dia(fecha, s), s.reloj())
+    pan["advertencia"] = ADVERTENCIA_INDEPENDENCIA   # aplica a parlays, "más seguros" y tickets de este panel
     pan["texto"] = sugerencias.texto_panel(pan)
     return pan
 

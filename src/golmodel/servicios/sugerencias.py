@@ -519,9 +519,16 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
                                             "motivo": p["motivo"]} for p in partidos if not p["prediccion"]]}}
 
 
+# Los parlays, "más seguros" y tickets de este panel multiplican probabilidades por pierna (math.prod en armar_perfil y armar_tickets):
+# asumen independencia entre partidos. Hasta integrar V3 se avisa en el payload, en el texto copiable y en la UI.
+# NO cambia ningún cálculo. Fuente única: la API (parlays y panel) y la UI la reutilizan.
+ADVERTENCIA_INDEPENDENCIA = ("parlays generados bajo independencia; probabilidad conjunta sobreestimada. "
+                             "Pendiente integración de V3.")
+
+
 def texto_panel(pan: dict) -> str:
     """Resumen en texto plano del panel (para copiar)."""
-    L = [f"# Qué meter · {pan['fecha']}", ""]
+    L = [f"# Qué meter · {pan['fecha']}", "", f"> ⚠️ {ADVERTENCIA_INDEPENDENCIA}", ""]
     L.append("## Mejores jugadas (probabilidad de acertar · cuota justa · mete si paga ≥ cuota mínima)")
     for x in pan["mejores"]:
         extra = f" · tu casa {x['casa']} {x['cuota_casa']:.2f} (EV {x['ev']:+.1%})" if x.get("cuota_casa") else ""

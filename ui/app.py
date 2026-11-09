@@ -761,6 +761,8 @@ if VISTA == 1:
                         f'{esc(nl(r["liga"]))} · {esc(r["partido"])}</div>'
                         f'<div class="jug-num">{esc("; ".join(r["razones"]))}</div>{alt_html}</div>', unsafe_allow_html=True)
         st.markdown("### 🧩 Parlays sugeridos")
+        if pan.get("advertencia"):   # cubre también «Más parlays seguros» y los tickets de abajo
+            st.warning("⚠️ " + pan["advertencia"])
         st.caption("Para cada pago objetivo, la combinación MÁS probable de partidos distintos. Entre más paga, menos "
                    "probable es: el porcentaje de cada tarjeta es la verdad sin adornos.")
         pc1, pc2, pc3 = st.columns(3)

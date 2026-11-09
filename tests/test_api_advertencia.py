@@ -44,3 +44,25 @@ def test_cada_parlay_lleva_la_advertencia_y_conserva_todo_lo_demas(cliente):
 def test_sin_parlays_la_respuesta_sigue_siendo_una_lista_vacia(cliente, monkeypatch):
     monkeypatch.setattr(main.vistas, "parlays", lambda conn, d: [])
     assert cliente.get("/parlays/2026-11-09").json() == []               # no se envuelve: la UI itera la lista
+
+
+# ------------------------------------------------------------------ /panel/{fecha}: mismo defecto (math.prod en sugerencias.py)
+
+PANEL = {"fecha": "2026-11-09", "mejores": [], "rompe": [], "parlays": {}, "mas_seguros": {}, "tickets": []}
+
+
+def test_el_panel_lleva_la_advertencia_en_payload_y_en_el_texto_copiable(cliente, monkeypatch):
+    monkeypatch.setattr(main.sugerencias, "panel", lambda conn, cfg, d, ahora: copy.deepcopy(PANEL))
+    r = cliente.get("/panel/2026-11-09")
+    assert r.status_code == 200
+    j = r.json()
+    assert j["advertencia"] == TEXTO
+    assert TEXTO in j["texto"]                                  # también en el texto que el usuario copia y pega
+    assert {k: j[k] for k in PANEL} == PANEL                    # el resto del panel no cambia
+
+
+def test_texto_panel_incluye_la_advertencia_aunque_el_dict_no_la_traiga():
+    from golmodel.servicios import sugerencias
+    assert sugerencias.ADVERTENCIA_INDEPENDENCIA == TEXTO
+    assert f"> ⚠️ {TEXTO}" in sugerencias.texto_panel(copy.deepcopy(PANEL))
+
