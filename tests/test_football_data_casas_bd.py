@@ -66,9 +66,22 @@ def test_el_consenso_1x2_del_historico_usa_las_casas_elegibles_con_datos(conn):
     pid = conn.execute("SELECT id FROM partidos ORDER BY id LIMIT 1").fetchone()["id"]
     r = consenso_independiente(("1X2:1",), _mercado(conn, pid, "1X2:1"), _cfg())
     assert r.estado == "ok" and r.p_mercado is not None and 0.0 < r.p_mercado < 1.0
-    assert r.casas_usadas == ("bet365", "pinnacle", "williamhill")                    # las elegibles que tienen 1X2
-    assert not {"betway", "interwetten", "ladbrokes", "vcbet", "promedio"} & set(r.casas_usadas)   # ingeridas, NO elegibles
+    assert r.casas_usadas == tuple(sorted(CASAS_REALES))                              # las 7 casas reales con 1X2
+    assert "promedio" not in r.casas_usadas                                            # el agregado nunca cuenta
     assert "marathonbet" in r.casas_faltantes and "nordicbet" in r.casas_faltantes     # esperadas sin cuota: registradas, no imputadas
+
+
+def test_el_consenso_1x2_sobrevive_a_la_ausencia_de_una_o_dos_casas(conn):
+    """Razón de la decisión de ampliar casas_elegibles: con 7 elegibles, faltar 1-2 casas en un partido NO tumba el gate."""
+    pid = conn.execute("SELECT id FROM partidos ORDER BY id LIMIT 1").fetchone()["id"]
+    mk = _mercado(conn, pid, "1X2:1")
+    for ausentes in (("williamhill",), ("williamhill", "bet365"), ("betway", "interwetten")):
+        cu = {c: v for c, v in mk.cuotas_por_casa.items() if c not in ausentes}
+        r = consenso_independiente(("1X2:1",), MercadoPierna(cuotas_por_casa=cu, casas_esperadas=mk.casas_esperadas), _cfg())
+        assert r.estado == "ok" and len(r.casas_usadas) == 7 - len(ausentes) >= 3 and r.p_mercado is not None
+    cu = {c: v for c, v in mk.cuotas_por_casa.items() if c in ("pinnacle", "bet365")}      # solo 2 reales: n_min = 3 NO se relaja
+    r = consenso_independiente(("1X2:1",), MercadoPierna(cuotas_por_casa=cu, casas_esperadas=mk.casas_esperadas), _cfg())
+    assert r.estado == "consenso_incompleto" and r.p_mercado is None
 
 
 def test_donde_no_hay_tres_casas_el_gate_queda_en_aviso_no_se_imputa(conn):
@@ -96,6 +109,15 @@ def test_el_sql_de_cobertura_del_readme_se_ejecuta_y_da_el_resultado_esperado(co
     filas = conn.execute(sql).fetchall()
     assert [(f["codigo"], f["partidos"], f["con_3_o_mas"]) for f in filas] == [("EPL", 2, 2)]
     assert float(filas[0]["pct"]) == 100.0
-    # sensibilidad: si solo quedan 'pinnacle' y las sin datos como elegibles (menos de 3 casas), el mismo SQL debe dar 0 %
-    solo2 = sql.replace("'williamhill',", "")
-    assert [f["con_3_o_mas"] for f in conn.execute(solo2.replace("'bet365',", "")).fetchall()] == [0]
+    # sensibilidad: con solo 'pinnacle' y una casa sin datos como elegibles (< 3 casas con datos), el mismo SQL debe dar 0 %
+    solo2 = re.sub(r"c\.clave IN \(.*?\)", "c.clave IN ('pinnacle','nordicbet')", sql, count=1, flags=re.S)
+    assert [f["con_3_o_mas"] for f in conn.execute(solo2).fetchall()] == [0]
+
+
+def test_el_sql_de_cobertura_usa_exactamente_las_casas_elegibles_de_la_config():
+    import re
+    from pathlib import Path
+    readme = (Path(__file__).resolve().parents[1] / "docs" / "README_implementacion.md").read_text(encoding="utf-8")
+    sql = re.search(r"```sql\n(-- partidos históricos.*?)```", readme, re.S).group(1)
+    en_sql = set(re.findall(r"'([a-z0-9_]+)'", re.search(r"c\.clave IN \((.*?)\)", sql, re.S).group(1)))
+    assert en_sql == set(_cfg()["cerebro2"]["consenso_mercado"]["casas_elegibles"])

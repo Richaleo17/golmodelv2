@@ -87,7 +87,7 @@ la BD y el registro se persista. Hasta entonces el sistema permanece en `modo_ex
     EXACTA con el bucle de referencia (conservado solo en `@pytest.mark.slow`). Clip de λ `[0.02, 12]`
     preservado con test del caso τ grande. Lever para margen en producción: `n_draws` con control de `error_mc`.
 
-- **2026-11-09 · Dos rutas de Monte Carlo en `dependencia.py`/`tickets.py` (BLOQUEA el backtest OOS real).** El mismo estimador
+- **2026-11-09 · Dos rutas de Monte Carlo en `dependencia.py`/`tickets.py` (BLOQUEABA el backtest OOS real). RESUELTO 2026-11-09 — ver al final de esta entrada.** El mismo estimador
   existe con dos flujos aleatorios distintos: `dependencia.probabilidad_conjunta` (la que usa `calibracion_tickets.ajustar` para
   fijar `c_seg`/σ y medir la cobertura) y la ruta de `tickets.py` (`factores_compartidos` + `p_pierna_sorteos` + caché, la que se
   usa en predicción). Coinciden dentro del error de Monte Carlo (medido a 4σ; sin sesgo medio sobre 24 semillas) pero **no bit a
@@ -95,6 +95,15 @@ la BD y el registro se persista. Hasta entonces el sistema permanece en `modo_ex
   exactamente la de producción. No bloquea el push; **sí bloquea el backtest OOS**: debe resolverse antes (p. ej. que
   `calibracion_tickets` calibre llamando a la misma ruta factores+pierna+resumen que `tickets.py`, o un único camino compartido), con un
   test de igualdad exacta entre ambas rutas. Aprobado por el responsable el 2026-11-09 como deuda previa al backtest.
+  - **RESUELTO 2026-11-09:** `dependencia.probabilidad_conjunta` ya no genera aleatorios propios: compone `factores_compartidos` +
+    `p_pierna_sorteos` (que usa `ruido_idiosincratico`) + `resumir_conjunta`, las mismas primitivas de `tickets.py` (única fuente de la
+    secuencia aleatoria). `tests/test_mc_unificado.py` exige igualdad **bit a bit** (`==`) entre `calibracion_tickets` y `tickets.py` con
+    los mismos inputs y semilla (3 configuraciones de σ × 2 semillas × todos los tamaños de ticket), y que la ruta de `tickets.py` no
+    cambió ni un bit respecto del código anterior (valores dorados + comparación de primitivas contra HEAD). Consecuencias:
+    (1) la igualdad exacta vale para el MISMO orden de piernas (el producto de floats no es asociativo; otro orden difiere solo en el último bit);
+    (2) `partido_id` es ahora la clave del flujo de ruido y se exige DISTINTO por pierna (`ValueError` si se repite): `PiernaHistorica`
+    gana `partido_id` (el adaptador histórico pasa el real; si falta se asignan ids posicionales distintos); (3) el test lento contra el bucle de
+    referencia se endureció de "2·error_mc" a `rel=1e-9`. Ningún valor esperado de los tests existentes cambió.
 - **2026-11-09 · `/panel/{fecha}` sigue con `math.prod` (BLOQUEA el backtest OOS real).** `servicios/sugerencias.py`
   (`armar_perfil`, `armar_tickets`, "más seguros") calcula la probabilidad de parlays y tickets por producto (independencia). El panel
   es público: lleva la advertencia de independencia en payload, texto copiable y UI (`024f525`), aceptable solo de forma temporal.
@@ -243,7 +252,8 @@ estimador con otra realización de Monte Carlo: coinciden dentro del error de MC
 **Casas del consenso de Cerebro 2 (2026-11-09, decisión del responsable).** Se comprobó contra la BD real: las casas de The Odds API ya
 están en la BD (`marathonbet`, `williamhill`, `nordicbet`, `tipico_de`, `onexbet`, `unibet_se`, `leovegas_se`; ~70 cuotas cada una) y el
 histórico (football-data) solo cargaba `PS`, `B365`, `Avg`. Cambios: `casas_elegibles` corregida (`marathon` → `marathonbet`, más las cinco nuevas,
-bet365 se mantiene) y `football_data_csv.CASAS` ampliado a B365/BW/IW/LB/PS/WH/VC. **La reingesta con datos reales NO se ejecutó aquí** (la sesión
+bet365 se mantiene) y `football_data_csv.CASAS` ampliado a B365/BW/IW/LB/PS/WH/VC. Ese mismo día el responsable amplió `casas_elegibles` con
+`betway`, `interwetten`, `ladbrokes` y `vcbet` (robustez: con 7 casas elegibles en el histórico, faltar una o dos no tumba el consenso; `n_min = 3` no se relaja). **La reingesta con datos reales NO se ejecutó aquí** (la sesión
 no puede bajar football-data ni escribir en la BD real). Hay que correrla: `docker compose run --rm api python scripts/cargar_historico.py
 --temporadas 5 --sin-xg` (idempotente: no duplica partidos ni cuotas; solo añade las casas nuevas). Después, medir la cobertura real:
 
@@ -252,7 +262,8 @@ no puede bajar football-data ni escribir en la BD real). Hay que correrla: `dock
 WITH completo AS (
   SELECT q.partido_id, c.clave FROM cuotas q JOIN casas_apuestas c ON c.id = q.casa_id
   WHERE q.tipo = 'prepartido' AND q.seleccion IN ('1X2:1','1X2:X','1X2:2')
-    AND c.clave IN ('pinnacle','bet365','williamhill','marathonbet','nordicbet','tipico_de','onexbet','unibet_se','leovegas_se')
+    AND c.clave IN ('pinnacle','bet365','williamhill','marathonbet','nordicbet','tipico_de','onexbet','unibet_se','leovegas_se',
+                    'betway','interwetten','ladbrokes','vcbet')
   GROUP BY 1, 2 HAVING count(DISTINCT q.seleccion) = 3)
 SELECT l.codigo, count(*) AS partidos,
        count(*) FILTER (WHERE n >= 3) AS con_3_o_mas, round(100.0 * count(*) FILTER (WHERE n >= 3) / count(*), 1) AS pct
@@ -281,6 +292,6 @@ aj = ct.ajustar(list(r.cestas), cfg_v3, semilla=0)                              
 gate = ct.gate_cobertura_tickets(list(r.cestas), aj.c_global, cfg_v3, semilla=0)                  # cobertura BILATERAL
 ```
 
-**Estado de cierre (2026-11-09): pausa total de código.** Tras el push, el siguiente paso es la validación con datos reales, no más
-código. Antes del backtest OOS real quedan, en este orden y todas como integración (no modelo): (1) unificar las dos rutas de Monte
-Carlo, (2) integrar `/panel` en V3, (3) el orquestador del backtest y el almacén de versiones.
+**Estado (2026-11-09):** el responsable aclaró que la pausa era solo para módulos de modelo; los bloqueadores del backtest OOS son integración y se
+resuelven antes. Hechos: casas del consenso y unificación de Monte Carlo. Quedan, en este orden: (1) integrar `/panel` en V3, (2) el orquestador del
+backtest y el almacén de versiones, (3) correr el backtest OOS con datos reales (tuyo).

@@ -17,8 +17,10 @@ cerebro2:
     # consultar la BD real: la columna `rol` de `casas_apuestas` NO interviene en el gate (solo esta lista), así que la
     # etiqueta 'agregado' de bet365 es irrelevante. Las claves son las de The Odds API (vivo) y las de football_data_csv
     # (histórico): `williamhill` es la misma en ambas. Antes decía `marathon` (clave inexistente: la real es `marathonbet`).
-    # Casas ya ingeridas del histórico pero NO elegibles (decisión pendiente del responsable): betway, interwetten, ladbrokes, vcbet.
-    casas_elegibles: [pinnacle, bet365, williamhill, marathonbet, nordicbet, tipico_de, onexbet, unibet_se, leovegas_se]
+    # Ampliada el 2026-11-09 por decisión del responsable: betway, interwetten, ladbrokes y vcbet (históricas) pasan a ser elegibles,
+    # por robustez: con 7+ casas, si faltan una o dos en un partido el consenso sigue teniendo >= 3 (n_min no se relaja).
+    casas_elegibles: [pinnacle, bet365, williamhill, marathonbet, nordicbet, tipico_de, onexbet, unibet_se, leovegas_se,
+                      betway, interwetten, ladbrokes, vcbet]
     metodo_devig: power
     agregacion: mediana          # robusta a una casa atípica; sin ponderación por liquidez
     renormalizar_grupo: true

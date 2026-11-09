@@ -104,7 +104,7 @@ def _elegibles():
 
 def test_casas_elegibles_es_la_lista_acordada():
     assert _elegibles() == ["pinnacle", "bet365", "williamhill", "marathonbet", "nordicbet", "tipico_de", "onexbet",
-                            "unibet_se", "leovegas_se"]
+                            "unibet_se", "leovegas_se", "betway", "interwetten", "ladbrokes", "vcbet"]
 
 
 def test_casas_elegibles_sin_la_clave_inexistente_ni_agregados_y_con_bet365():
@@ -115,8 +115,9 @@ def test_casas_elegibles_sin_la_clave_inexistente_ni_agregados_y_con_bet365():
     assert len(e) == len(set(e)) >= 3
 
 
-def test_las_casas_historicas_que_alimentan_el_gate_estan_en_la_lista():
-    """Del histórico, estas son elegibles; el resto (betway, interwetten, ladbrokes, vcbet) se ingiere pero no cuenta."""
+def test_todas_las_casas_reales_del_historico_son_elegibles_y_ningun_agregado():
+    """Decisión 2026-11-09: las 7 casas reales de football-data son elegibles (robustez: ausencias de 1-2 casas no tumban el consenso)."""
     elegibles = set(_elegibles())
-    assert {"pinnacle", "bet365", "williamhill"} <= elegibles & CASAS_REALES
-    assert not {"betway", "interwetten", "ladbrokes", "vcbet"} & elegibles
+    assert CASAS_REALES <= elegibles
+    assert not {"promedio", "maximo", "manual"} & elegibles
+    assert len(elegibles & CASAS_REALES) == 7 >= 3 + 2                              # sobran >= 2 casas sobre el mínimo n_min = 3
