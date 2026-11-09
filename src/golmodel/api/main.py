@@ -83,6 +83,12 @@ def conexion(s: Servicio = Depends(servicio)) -> Iterator[psycopg.Connection]:
         conn.close()
 
 
+# Los parlays que hoy genera el motor (motor/modulo2.py) multiplican probabilidades asumiendo independencia entre
+# partidos. Hasta integrar V3 (probabilidad conjunta con dependencia) se avisa en cada respuesta. NO cambia la lógica.
+ADVERTENCIA_INDEPENDENCIA = ("parlays generados bajo independencia; probabilidad conjunta sobreestimada. "
+                             "Pendiente integración de V3.")
+
+
 def _dia(fecha: str, s: Servicio) -> date:
     if fecha == "hoy":
         return s.reloj().astimezone(ZoneInfo(s.cfg["zona_horaria"])).date()
@@ -168,7 +174,10 @@ def get_panel(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion
 
 @app.get("/parlays/{fecha}")
 def get_parlays(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
-    return vistas.parlays(conn, _dia(fecha, s))
+    filas = vistas.parlays(conn, _dia(fecha, s))
+    for f in filas:          # la respuesta sigue siendo una LISTA (la UI la itera): el aviso va dentro de cada parlay
+        f["advertencia"] = ADVERTENCIA_INDEPENDENCIA
+    return filas
 
 
 @app.get("/clv")

@@ -955,6 +955,8 @@ if VISTA == 2:
 if VISTA == 3:
     titulo('04', 'CUOTAS', 'Arma parlays con las cuotas reales de tu casa.')
     pls, _ = api("GET", f"/parlays/{dia.isoformat()}")
+    for aviso in sorted({p["advertencia"] for p in pls or [] if p.get("advertencia")}):
+        st.warning("⚠️ " + aviso)
     if not pls:
         st.info("No hay parlay para este día. Se genera solo si hay al menos 3 partidos con un bloque que cumpla: "
                 "probabilidad ≥ 60%, cuota entre 1.30 y 2.50, EV ≥ umbral y probabilidad total ≥ 15%.")
