@@ -103,3 +103,50 @@ def test_calibracion_estimador_vs_analitico():
 
     assert abs(r.p_media - verdad) <= 4.0 * r.error_mc          # cuantifica bien (dentro del IC MC)
     assert abs(r.p_media - r.p_independencia) > 2.0 * r.error_mc  # y la dependencia es real, no ruido
+
+
+# --- vectorización: equivalencia, presupuesto, memoria, clip -------------------
+
+@pytest.mark.slow
+def test_equivalencia_vectorizado_vs_bucle_referencia():
+    # Misma semilla/parámetros: p_media vectorizado dentro de ~2·error_mc del bucle de referencia.
+    piernas = [_pierna("EPL", ("OU:2.5:over",), tau=0.15), _pierna("MX1", ("1X2:1",), tau=0.15)]
+    s = FactorSamplerJerarquico(sigma_g=0.05, sigma_liga={"EPL": 0.2, "MX1": 0.1})
+    cfg = {"dependencia": {"n_draws": 4000, "percentil_conservador": 0.25, "ic": [0.025, 0.975]}}
+    rv = dep.probabilidad_conjunta(piernas, s, cfg, 7)
+    rr = dep._probabilidad_conjunta_referencia(piernas, s, cfg, 7)
+    assert abs(rv.p_media - rr.p_media) <= 2.0 * rv.error_mc + 1e-12
+
+
+def _ms(fn):
+    import time
+    t = time.perf_counter(); fn(); return (time.perf_counter() - t) * 1000.0
+
+
+def test_presupuesto_tiempo():
+    # Budget pre-registrado (§2.7): 121 celdas × 20k draws × 6 piernas ≤ 50 ms/cesta.
+    piernas = [_pierna("EPL", ("OU:2.5:over",), tau=0.15) for _ in range(6)]
+    s = FactorSamplerJerarquico(sigma_g=0.05, sigma_liga={"EPL": 0.2})
+    cfg = {"dependencia": {"n_draws": 20000, "percentil_conservador": 0.25, "ic": [0.025, 0.975]}}
+    dep.probabilidad_conjunta(piernas, s, cfg, 0)  # warmup
+    mejor = min(_ms(lambda: dep.probabilidad_conjunta(piernas, s, cfg, k)) for k in range(5))
+    assert mejor <= 50.0
+
+
+def test_presupuesto_memoria():
+    import tracemalloc
+    piernas = [_pierna("EPL", ("OU:2.5:over",), tau=0.15) for _ in range(6)]
+    s = FactorSamplerJerarquico(sigma_g=0.05, sigma_liga={"EPL": 0.2})
+    cfg = {"dependencia": {"n_draws": 20000, "percentil_conservador": 0.25, "ic": [0.025, 0.975]}}
+    tracemalloc.start()
+    dep.probabilidad_conjunta(piernas, s, cfg, 1)
+    _, peak = tracemalloc.get_traced_memory(); tracemalloc.stop()
+    assert peak <= 50e6                                         # ≤ 50 MB (§2.7)
+
+
+def test_clip_lambda_tau_grande_sin_nan():
+    # τ enorme empuja λ a valores extremos; el clip [0.02,12] evita el NaN de la matriz.
+    piernas = [_pierna("EPL", ("OU:2.5:over",), tau=3.0)]
+    s = FactorSamplerJerarquico(sigma_g=0.0, sigma_liga={"EPL": 1.0})
+    r = dep.probabilidad_conjunta(piernas, s, CFG, 1)
+    assert np.isfinite(r.p_media) and 0.0 <= r.p_media <= 1.0

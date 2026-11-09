@@ -73,3 +73,9 @@ umbrales pre-registrados pasen su validación OOS.
   comparten ese partido (ya previsto en `v3_tickets_objetivo_diseno.md`); (c) reducir `n_draws` con control de
   error (elegir `S` por `error_mc` objetivo); (d) muestreo analítico donde el evento lo permita. Responsable de
   cerrar esta deuda: el diseño de rendimiento previo a `tickets.py`.
+  - **RESUELTO 2026-11-09 (opción a + micro-opt):** `dependencia.py` vectorizado sobre los `S` sorteos sin
+    construir la matriz `(S,11,11)` — `p_i = (ph @ maskM)·pa` + corrección de las 4 celdas Dixon-Coles; las
+    potencias de λ por producto acumulado (sin `np.power`). **Medido:** ~**38 ms min / ~49 ms mediana** por
+    cesta (20k draws × 6 piernas), pico **7.8 MB**; **budget §2.7 (≤50 ms, ≤50 MB) cumplido**. Equivalencia
+    EXACTA con el bucle de referencia (conservado solo en `@pytest.mark.slow`). Clip de λ `[0.02, 12]`
+    preservado con test del caso τ grande. Lever para margen en producción: `n_draws` con control de `error_mc`.
