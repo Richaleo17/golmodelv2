@@ -46,23 +46,30 @@ def test_sin_parlays_la_respuesta_sigue_siendo_una_lista_vacia(cliente, monkeypa
     assert cliente.get("/parlays/2026-11-09").json() == []               # no se envuelve: la UI itera la lista
 
 
-# ------------------------------------------------------------------ /panel/{fecha}: mismo defecto (math.prod en sugerencias.py)
+# ------------------------------------------------------------------ /panel/{fecha}: SIN cálculo bajo independencia (retirado 2026-11-09)
 
-PANEL = {"fecha": "2026-11-09", "mejores": [], "rompe": [], "parlays": {}, "mas_seguros": {}, "tickets": []}
+PANEL = {"fecha": "2026-11-09", "mejores": [], "rompe": [], "valor": [], "v3": None}
 
 
-def test_el_panel_lleva_la_advertencia_en_payload_y_en_el_texto_copiable(cliente, monkeypatch):
+def test_el_panel_ya_no_lleva_advertencia_de_independencia_porque_no_calcula_bajo_independencia(cliente, monkeypatch):
     monkeypatch.setattr(main.sugerencias, "panel", lambda conn, cfg, d, ahora: copy.deepcopy(PANEL))
-    r = cliente.get("/panel/2026-11-09")
-    assert r.status_code == 200
-    j = r.json()
-    assert j["advertencia"] == TEXTO
-    assert TEXTO in j["texto"]                                  # también en el texto que el usuario copia y pega
-    assert {k: j[k] for k in PANEL} == PANEL                    # el resto del panel no cambia
+    j = cliente.get("/panel/2026-11-09").json()
+    assert "advertencia" not in j                                       # no hay cálculo bajo independencia que avisar
+    assert "independencia" not in j["texto"].lower()
+    assert {k: j[k] for k in PANEL} == PANEL                            # el resto del panel no cambia
+    assert not {"parlays", "tickets", "mas_seguros"} & set(j)           # los bloques de V2 ya no existen
 
 
-def test_texto_panel_incluye_la_advertencia_aunque_el_dict_no_la_traiga():
+def test_texto_panel_no_menciona_independencia_ni_los_bloques_retirados():
     from golmodel.servicios import sugerencias
-    assert sugerencias.ADVERTENCIA_INDEPENDENCIA == TEXTO
-    assert f"> ⚠️ {TEXTO}" in sugerencias.texto_panel(copy.deepcopy(PANEL))
+    txt = sugerencias.texto_panel(copy.deepcopy(PANEL))
+    for retirado in ("independencia", "Parlays por perfil", "Más parlays seguros", "Tickets de pago alto"):
+        assert retirado.lower() not in txt.lower(), retirado
+    assert not hasattr(sugerencias, "ADVERTENCIA_INDEPENDENCIA")
 
+
+def test_los_parlays_legados_de_v2_conservan_su_advertencia_y_el_ticket_v3_trae_la_suya(cliente, monkeypatch):
+    mezcla = [{"fuente": "v3", "ranking": 1, "advertencia": "aviso v3"}, {"fuente": "v2", "ranking": 1}]
+    monkeypatch.setattr(main.vistas, "parlays", lambda conn, d: copy.deepcopy(mezcla))
+    r = cliente.get("/parlays/2026-11-09").json()
+    assert r[0]["advertencia"] == "aviso v3" and r[1]["advertencia"] == TEXTO

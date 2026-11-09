@@ -92,3 +92,68 @@ def test_la_ui_muestra_el_ticket_v3_con_su_aviso_y_sus_metricas(entorno, bd):  #
     assert "Prob. conservadora" in [m.label for m in at.metric]
     assert "Cuota casa" in [m.label for m in at.metric] and "Stake" in [m.label for m in at.metric]
     assert "NO promovido" in t                                                  # la nota de que no es apuesta real
+
+
+# ------------------------------------------------------------------ pantalla «Qué meter» (panel): solo ticket V3 o abstención
+
+ENCABEZADOS_RETIRADOS = ("Parlays sugeridos", "Más parlays seguros", "Tickets de pago alto")
+TARJETAS_RETIRADAS = ("🛡️ Seguro", "⚖️ Equilibrado", "🎲 Ambicioso", "Muy seguro")
+
+
+def _sin_bloques_de_v2(at: AppTest):
+    """Ni encabezados, ni tarjetas, ni avisos de independencia, ni el texto copiable de los bloques retirados.
+    (La nota que EXPLICA el retiro puede nombrarlos: por eso se mira estructura, no palabras sueltas.)"""
+    encabezados = [m.value for m in at.markdown if m.value.lstrip().startswith("###")]
+    for r in ENCABEZADOS_RETIRADOS:
+        assert not any(r in h for h in encabezados), (r, encabezados)
+    tarjetas = [m.value for m in at.markdown if m.value.startswith('<div class="parlay">')]
+    for r in TARJETAS_RETIRADAS:
+        assert not any(r in x for x in tarjetas), r
+    assert not any("independencia" in w.value.lower() for w in at.warning)          # ningún aviso de independencia
+    copiable = "\n".join(str(c.value) for c in at.code)
+    for r in ("Parlays por perfil", "Más parlays seguros", "Tickets de pago alto", "independencia"):
+        assert r.lower() not in copiable.lower().replace("si fueran independientes", ""), r
+
+
+def _ir_a_panel(at: AppTest) -> AppTest:
+    at.run(timeout=60)
+    assert not at.exception, [e.value for e in at.exception]
+    nav = next(r for r in at.radio if r.key == "nav")
+    return nav.set_value(nav.options[1]).run(timeout=60)             # sección «Qué meter»
+
+
+def _todo(at: AppTest) -> str:
+    return _textos(at) + "\n" + "\n".join(str(c.value) for c in at.code)         # (el resumen copiable va en un st.code)
+
+
+def test_el_panel_muestra_el_ticket_v3_y_ningun_bloque_de_v2(entorno, bd):  # noqa: F811
+    with db.conectar(bd) as c:
+        bm.persistir(c, _ticket_con_partidos_reales(c, _dia(c)))
+    at = _ir_a_panel(AppTest.from_file(APP, default_timeout=60))
+    assert not at.exception, [e.value for e in at.exception]
+    t = _todo(at)
+    assert "### 🎫 Ticket V3 (5-8 partidos)" in t
+    assert any(m.value.startswith('<div class="parlay"><h4>🎫 Ticket V3') for m in at.markdown)       # la tarjeta
+    assert any("PROVISIONAL" in w.value for w in at.warning)
+    _sin_bloques_de_v2(at)
+    assert "NO promovido" in t
+
+
+def test_el_panel_muestra_la_abstencion_con_su_motivo(entorno, bd):  # noqa: F811
+    from tests.test_tickets import AHORA, _cfg, _version
+    with db.conectar(bd) as c:
+        salida, veredicto, error = bm.decidir([], {}, _version(), _cfg(), semilla=1, ahora=AHORA)
+        bm.persistir(c, bm.DecisionV3(_dia(c), AHORA, None, salida, veredicto, error))
+    at = _ir_a_panel(AppTest.from_file(APP, default_timeout=60))
+    assert not at.exception, [e.value for e in at.exception]
+    t = _todo(at)
+    assert "V3: abstención" in t and "sin_piernas_elegibles" in t
+    assert not any(m.value.startswith('<div class="parlay"><h4>🎫 Ticket V3') for m in at.markdown)
+    _sin_bloques_de_v2(at)
+
+
+def test_el_panel_sin_decision_v3_lo_dice_y_no_inventa(entorno, bd, monkeypatch):  # noqa: F811
+    monkeypatch.setenv("GOLMODEL_FECHA", "2030-01-01")
+    at = _ir_a_panel(AppTest.from_file(APP, default_timeout=60))
+    assert not at.exception, [e.value for e in at.exception]
+    assert "Todavía no hay decisión V3" in _todo(at)

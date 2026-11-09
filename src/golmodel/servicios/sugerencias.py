@@ -7,12 +7,12 @@ Principios de precisión:
   paga menos, no conviene aunque la jugada sea probable.
 * La «confianza» (0-10) mide cuánto respaldo tienen los datos del partido; NO es la probabilidad de
   acertar. La probabilidad de acertar es la que se muestra en %.
-* Los parlays se arman buscando, para el pago objetivo de cada perfil, la combinación MÁS probable.
-  Se asume independencia solo entre partidos distintos.
+* Las combinadas ya NO se arman aquí: el ticket (5-8 piernas) lo propone V3 con probabilidad conjunta real (`panel_v3`).
+  Los parlays por perfil, «más seguros» y tickets de 5 equipos de V2 usaban el producto de probabilidades (independencia) y se
+  retiraron hasta rediseñarlos sobre `tickets.py` con datos validados.
 """
 from __future__ import annotations
 
-import itertools
 import math
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -380,60 +380,27 @@ def riesgo_del_favorito(info: dict, cfg: dict) -> dict | None:
             "alternativa": None if alt is None else {"jugada": alt.jugada, "p": alt.p, "cuota_min": alt.cuota_min}}
 
 
-def _combinaciones(piernas: list[Pierna], perfil: dict, cfg_s: dict, top: int = 1) -> list[tuple[float, tuple[Pierna, ...]]]:
-    """Las `top` combinaciones MÁS probables (partidos distintos) cuya cuota justa cae en el rango del perfil.
-    Entre combinaciones se ordena por P × credibilidad CRS; la P que se muestra es la real (sin factor)."""
-    banda = [x for x in piernas if perfil["p_min_pierna"] <= x.p <= perfil["p_max_pierna"]]
-    por_partido: dict[int, list[Pierna]] = {}
-    for x in sorted(banda, key=lambda y: -(y.puntaje * y.crs_factor)):
-        if len(por_partido.setdefault(x.partido_id, [])) < 2:
-            por_partido[x.partido_id].append(x)
-    pool = sorted((x for xs in por_partido.values() for x in xs),
-                  key=lambda y: -(y.puntaje * y.crs_factor))[: perfil.get("top_piernas", cfg_s["top_piernas"])]
-    hallados: list[tuple[float, float, tuple[Pierna, ...]]] = []
-    for k in range(perfil["piernas_min"], perfil["piernas_max"] + 1):
-        for combo in itertools.combinations(pool, k):
-            if len({x.partido_id for x in combo}) < k:
-                continue
-            P = math.prod(x.p for x in combo)
-            if not perfil["cuota_min"] <= 1 / P <= perfil["cuota_max"]:
-                continue
-            hallados.append((P * math.prod(x.crs_factor for x in combo), P, combo))
-    hallados.sort(key=lambda t: -t[0])
-    salida: list[tuple[float, tuple[Pierna, ...]]] = []
-    usados: list[frozenset[int]] = []
-    for _, P, combo in hallados:
-        ids = frozenset(x.partido_id for x in combo)
-        if any(len(ids & u) >= len(ids) - 1 and len(ids) > 2 for u in usados):   # evitar casi-copias
-            continue
-        usados.append(ids)
-        salida.append((P, combo))
-        if len(salida) >= top:
-            break
-    return salida
-
-
-def _ficha(P: float, combo: tuple[Pierna, ...]) -> dict:
-    umbral = max(x.umbral for x in combo)
-    con = all(x.cuota_casa for x in combo)
-    return {"piernas": [asdict(x) for x in sorted(combo, key=lambda y: y.hora)], "p": P, "cuota_justa": 1 / P,
-            "cuota_min": (1 + umbral) / P, "uno_de_cada": 1 / P, "n": len(combo), "con_cuotas": con,
-            "cuota_casa": math.prod(x.cuota_casa for x in combo) if con else None,
-            "crs_en_juego": [x.partido for x in combo if x.crs_alerta in ("MEDIA", "ALTA") and x.crs_factor < 1]}
-
-
-def armar_perfil(piernas: list[Pierna], perfil: dict, cfg_s: dict) -> dict | None:
-    """La combinación MÁS probable, de partidos distintos, cuya cuota justa cae en el rango del perfil."""
-    r = _combinaciones(piernas, perfil, cfg_s, 1)
-    return _ficha(*r[0]) if r else None
-
-
-def armar_tickets(piernas: list[Pierna], cfg_s: dict) -> list[dict]:
-    """Tickets de pago alto (estilo 5 equipos ≈ 15-25x): las mejores combinaciones, con razones por pierna."""
-    t = cfg_s.get("ticket")
-    if not t:
-        return []
-    return [_ficha(P, c) for P, c in _combinaciones(piernas, t, cfg_s, t.get("cuantos", 3))]
+def panel_v3(conn, d: date, zona: ZoneInfo) -> dict | None:
+    """Decisión V3 del día para el panel: el ticket (5-8 piernas, probabilidad conjunta con dependencia) o la ABSTENCIÓN con su
+    motivo; `None` si todavía no hay decisión (o la migración 004 no está aplicada). Es lo ÚNICO de combinadas que muestra el panel:
+    los parlays por perfil, «más seguros» y los tickets de 5 equipos de V2 se armaban con el producto de probabilidades
+    (independencia) y se retiraron (decisión 2026-11-09) hasta que V3 los genere con datos validados."""
+    from golmodel.servicios import vistas
+    dec = vistas.decision_v3(conn, d)
+    if dec is None:
+        return None
+    ticket = None
+    if dec["ticket"]:
+        ticket = vistas._ticket_v3_como_parlay(conn, dec)
+        for b in ticket["bloques"]:
+            ini = conn.execute("SELECT inicio FROM partidos WHERE id = %s", (b["partido_id"],)).fetchone()
+            b["hora"] = ini["inicio"].astimezone(zona).strftime("%H:%M") if ini else "—"
+            b["jugada"] = " + ".join(texto_jugada(sel, b["local"], b["visitante"])[0]
+                                     for sel in (b["seleccion_a"], b["seleccion_b"]) if sel)
+    return {"dia": dec["dia"], "estado": dec["estado"], "estado_tickets": dec["estado_tickets"], "motivo": dec["motivo"],
+            "categoria": dec["categoria"], "veredicto": dec["veredicto"], "modo_experimental": dec["modo_experimental"],
+            "techo_estado": dec["techo_estado"], "calibrado_con": dec["calibrado_con"], "n_candidatas": dec["n_candidatas"],
+            "advertencia": dec["advertencia"], "ticket": ticket}
 
 
 def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
@@ -504,14 +471,11 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
     # Con valor: probabilidad mínima, y se prefieren los EV creíbles a los gigantes (casi siempre error del modelo).
     valor = sorted((x for x in piernas_todas if x.valor),
                    key=lambda y: (y.ev_sospechoso, -(y.p * (y.ev or 0))))[:cs["max_mejores"]]
-    parlays = {nombre: armar_perfil(piernas_todas, perfil, cs) for nombre, perfil in cs["perfiles"].items()}
-    tickets = armar_tickets(piernas_todas, cs)
-    extra = {nombre: [_ficha(P, c) for P, c in _combinaciones(piernas_todas, perfil, cs, perfil["cuantos"])]
-             for nombre, perfil in cs.get("mas_seguros", {}).items()}
+    v3 = panel_v3(conn, d, zona)
     for p in partidos:
         p.pop("_piernas", None)
     return {"fecha": d.isoformat(), "partidos": partidos, "mejores": [asdict(x) for x in mejores],
-            "valor": [asdict(x) for x in valor], "rompe": rompe, "parlays": parlays, "tickets": tickets, "mas_seguros": extra,
+            "valor": [asdict(x) for x in valor], "rompe": rompe, "v3": v3,
             "resumen": {"partidos": len(partidos), "con_prediccion": sum(1 for p in partidos if p["prediccion"]),
                         "ligas": sorted({p["liga"] for p in partidos}),
                         "nombres_liga": {p["liga"]: p.get("liga_nombre") for p in partidos},
@@ -519,16 +483,9 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
                                             "motivo": p["motivo"]} for p in partidos if not p["prediccion"]]}}
 
 
-# Los parlays, "más seguros" y tickets de este panel multiplican probabilidades por pierna (math.prod en armar_perfil y armar_tickets):
-# asumen independencia entre partidos. Hasta integrar V3 se avisa en el payload, en el texto copiable y en la UI.
-# NO cambia ningún cálculo. Fuente única: la API (parlays y panel) y la UI la reutilizan.
-ADVERTENCIA_INDEPENDENCIA = ("parlays generados bajo independencia; probabilidad conjunta sobreestimada. "
-                             "Pendiente integración de V3.")
-
-
 def texto_panel(pan: dict) -> str:
     """Resumen en texto plano del panel (para copiar)."""
-    L = [f"# Qué meter · {pan['fecha']}", "", f"> ⚠️ {ADVERTENCIA_INDEPENDENCIA}", ""]
+    L = [f"# Qué meter · {pan['fecha']}", ""]
     L.append("## Mejores jugadas (probabilidad de acertar · cuota justa · mete si paga ≥ cuota mínima)")
     for x in pan["mejores"]:
         extra = f" · tu casa {x['casa']} {x['cuota_casa']:.2f} (EV {x['ev']:+.1%})" if x.get("cuota_casa") else ""
@@ -542,27 +499,18 @@ def texto_panel(pan: dict) -> str:
         L.append(f"- {r['hora']} {r['partido']}: {'; '.join(r['razones'])}{alt}")
     if not pan["rompe"]:
         L.append("- (ninguno)")
-    L += ["", "## Parlays por perfil (el más probable que paga lo objetivo)"]
-    for nombre, p in pan["parlays"].items():
-        if p is None:
-            L.append(f"- {nombre}: no hay jugadas suficientes hoy")
-            continue
-        piernas = " + ".join(f"{x['jugada']} ({x['partido']})" for x in p["piernas"])
-        L.append(f"- {nombre}: {piernas} · acierta {p['p']:.1%} (1 de cada {p['uno_de_cada']:.0f}) · "
-                 f"justa {p['cuota_justa']:.2f} · mete si paga ≥ {p['cuota_min']:.2f}")
-    L += ["", "## Más parlays seguros (probabilidad real de acertar)"]
-    for nombre, lst in (pan.get("mas_seguros") or {}).items():
-        for i, p in enumerate(lst, 1):
-            piernas = " + ".join(f"{x['jugada']} ({x['partido']}, {x['p']:.0%})" for x in p["piernas"])
-            L.append(f"- {nombre} {i}: {piernas} · acierta {p['p']:.0%} (1 de cada {p['uno_de_cada']:.1f}) · "
-                     f"justa {p['cuota_justa']:.2f} · mete si paga ≥ {p['cuota_min']:.2f}")
-    L += ["", "## Tickets de pago alto (5 equipos) — la probabilidad real es baja, léela"]
-    for i, t in enumerate(pan.get("tickets") or [], 1):
-        L.append(f"### Ticket {i}: justa {t['cuota_justa']:.1f}x · acierta {t['p']:.1%} (1 de cada {t['uno_de_cada']:.0f}) · "
-                 f"mete si paga ≥ {t['cuota_min']:.1f}x")
-        for x in t["piernas"]:
-            L.append(f"- {x['hora']} {x['partido']} → {x['jugada']} · {x['p']:.0%} (justa {x['cuota_justa']:.2f})")
-            L += [f"    · {r}" for r in x["porque"]]
-    if not pan.get("tickets"):
-        L.append("- (hoy no hay 5 partidos con jugadas que armen ese pago)")
+    L += ["", "## Ticket V3 (5-8 piernas · probabilidad conjunta con dependencia)"]
+    v3 = pan.get("v3")
+    if v3 is None:
+        L.append("- (todavía no hay decisión V3 para este día)")
+    elif v3["ticket"] is None:
+        L.append(f"- ABSTENCIÓN: {v3['motivo'] or 'sin ticket'}. No se propone ticket antes que inventar una probabilidad.")
+    else:
+        t = v3["ticket"]
+        L.append(f"- Estado {v3['estado']} · {t['n_bloques']} partidos · prob. conservadora {t['p_parlay']:.1%} "
+                 f"(media {t['p_media']:.1%}; si fueran independientes {t['p_independencia']:.1%}) · cuota combinada {t['cuota_combinada']:.2f}")
+        for b in t["bloques"]:
+            L.append(f"  - {b['hora']} {b['local']} vs {b['visitante']} → {b['jugada']} · {b['p_calibrada']:.0%} · cuota {b['cuota']:.2f}")
+    if v3:
+        L.append(f"> ⚠️ {v3['advertencia']}")
     return "\n".join(L)

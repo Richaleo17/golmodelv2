@@ -104,10 +104,18 @@ la BD y el registro se persista. Hasta entonces el sistema permanece en `modo_ex
     (2) `partido_id` es ahora la clave del flujo de ruido y se exige DISTINTO por pierna (`ValueError` si se repite): `PiernaHistorica`
     gana `partido_id` (el adaptador histórico pasa el real; si falta se asignan ids posicionales distintos); (3) el test lento contra el bucle de
     referencia se endureció de "2·error_mc" a `rel=1e-9`. Ningún valor esperado de los tests existentes cambió.
-- **2026-11-09 · `/panel/{fecha}` sigue con `math.prod` (BLOQUEA el backtest OOS real).** `servicios/sugerencias.py`
-  (`armar_perfil`, `armar_tickets`, "más seguros") calcula la probabilidad de parlays y tickets por producto (independencia). El panel
-  es público: lleva la advertencia de independencia en payload, texto copiable y UI (`024f525`), aceptable solo de forma temporal.
-  Debe integrarse en V3 antes del backtest OOS. Tarea pendiente, no iniciada.
+- **2026-11-09 · `/panel/{fecha}` con `math.prod` (BLOQUEABA el backtest OOS real). RESUELTO 2026-11-09 por retirada (opción 2, decisión del
+  responsable).** El panel mostraba parlays por perfil, "más seguros" (2-4 piernas) y tickets de 5 equipos con la probabilidad por producto
+  (independencia). Se **retiraron** de `servicios/sugerencias.py`, de la API, del texto copiable y de la UI (`armar_perfil`, `armar_tickets`,
+  `_combinaciones`, `_ficha` y la advertencia de independencia ya no existen; `math.prod` e `itertools` ya no se importan allí). El panel
+  muestra solo **el ticket V3 (5-8 piernas, probabilidad conjunta con dependencia) o la ABSTENCIÓN con su motivo** (`sugerencias.panel_v3`, que lee
+  `vistas.decision_v3`). Razón de no sustituir el cálculo (opción 1): si la selección de combinaciones seguía usando producto y solo el número
+  final usaba `dependencia.py`, el panel habría mostrado combinaciones elegidas con el criterio equivocado y una probabilidad correcta (sesgo de selección
+  con apariencia de rigor); parametrizar `tickets.py` para perfiles es rediseño, no integración. **PENDIENTE de rediseño tras la validación con datos
+  reales:** parlays por perfil, "más seguros" y tickets de pago alto, que deberán usar `tickets.py` como motor. Las claves `perfiles`, `mas_seguros`,
+  `ticket` y `top_piernas` de `config.sugerencias` se eliminaron (siguen en el historial de git). Lo que SIGUE en el panel y no usa producto de
+  probabilidades: mejores jugadas, "con valor" y "rompe parlays" (señales por partido). `motor/modulo2.py` quedó sin ningún llamador en la ruta
+  en vivo (solo sus tests); candidato a eliminar después de la validación.
 - **2026-11-09 · Orquestador del backtest OOS y almacén de `VersionCalibradorTickets` / calibradores de mercado (integración, no
   modelo).** No existen aún; deben esperar a que el push esté cerrado. Mientras tanto `benchmark.py` usa la versión provisional de la
   config (`no_calibrado`).
@@ -226,9 +234,9 @@ lugar ejecuta V3 en un SAVEPOINT (`_ticket_v3`): si falla —p. ej. la 004 sin a
 abstención con su motivo —`/tickets/{fecha}`— son accesibles desde «Cuotas → Parlay con cuotas». Limitación: `AppTest` no es un
 navegador (no mide estilo, layout ni CSS).
 
-**Sigue vivo y declarado:** `/panel/{fecha}` (`servicios/sugerencias.py`: parlays por perfil, "más seguros" y tickets de 5
-equipos) **aún usa `math.prod`**; lleva la advertencia de independencia en payload, texto copiable y UI. Los parlays legados de V2
-ya guardados en `parlays_sugeridos` también la llevan. No se tocó `sugerencias.py` (fuera de lo pedido).
+**Ya no queda cálculo por independencia en la ruta en vivo.** `/panel/{fecha}` dejó de calcular combinadas por producto de probabilidades (ver
+deuda técnica del 2026-11-09): muestra solo el ticket V3 o la abstención. Los parlays legados de V2 ya guardados en `parlays_sugeridos` siguen
+llevando la advertencia de independencia en `/parlays/{fecha}`.
 
 **Regresión temporal del paper trading de parlays (aceptada por el responsable el 2026-11-09).** El paper trading **V2 de parlays no
 registra nada** (ni `parlays_sugeridos` nuevos ni apuesta del día de parlay) hasta que V3 tenga su propio paper trading, que llegará
@@ -293,5 +301,5 @@ gate = ct.gate_cobertura_tickets(list(r.cestas), aj.c_global, cfg_v3, semilla=0)
 ```
 
 **Estado (2026-11-09):** el responsable aclaró que la pausa era solo para módulos de modelo; los bloqueadores del backtest OOS son integración y se
-resuelven antes. Hechos: casas del consenso y unificación de Monte Carlo. Quedan, en este orden: (1) integrar `/panel` en V3, (2) el orquestador del
-backtest y el almacén de versiones, (3) correr el backtest OOS con datos reales (tuyo).
+resuelven antes. Hechos: casas del consenso, unificación de Monte Carlo y `/panel` (retirada de los bloques por independencia). Queda, en este orden: (1) el orquestador del
+backtest y el almacén de versiones, (2) correr el backtest OOS con datos reales (tuyo).

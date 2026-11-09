@@ -636,44 +636,20 @@ def _sin_acentos(t: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", t.lower()) if unicodedata.category(c) != "Mn")
 
 
-def tarjeta_ticket(n: int, t: dict) -> str:
+def tarjeta_ticket_v3(v3: dict) -> str:
+    """Ticket V3 del panel: probabilidad conjunta CON dependencia (cota conservadora), calibración provisional, no promovible."""
+    t = v3["ticket"]
     piernas = ""
-    for x in t["piernas"]:
+    for x in t["bloques"]:
         crs = ""
         if x.get("crs_alerta") in ("MEDIA", "ALTA"):
             crs = f' <span class="chip {"rojo" if x["crs_alerta"] == "ALTA" else "viejo"}">CRS {x["crs_total"]}</span>'
-        razones = "".join(f"<li>{esc(r)}</li>" for r in x.get("porque", []))
-        piernas += (f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{x["hora"]} · {esc(x["partido"])} · '
-                    f'{x["p"]:.0%} · justa {x["cuota_justa"]:.2f}</span>{crs}<ul class="porque">{razones}</ul></div>')
-    casa = ""
-    if t.get("cuota_casa"):
-        ok = t["cuota_casa"] >= t["cuota_min"]
-        casa = f'<div class="{"ok" if ok else "no"}">{"✅" if ok else "❌"} Con tus cuotas pagaría {t["cuota_casa"]:.2f}x</div>'
-    crs_nota = (f'<div class="no">⚠ CRS medio/alto en: {esc(", ".join(t["crs_en_juego"]))}. Cuenta como riesgo extra.</div>'
-                if t.get("crs_en_juego") else "")
-    return (f'<div class="parlay"><h4>🎫 Ticket {n} · paga ≈ {t["cuota_justa"]:.1f}x</h4>'
-            f'<div class="meta">Acierta <b>{t["p"]:.1%}</b> → 1 de cada <b>{t["uno_de_cada"]:.0f}</b> · '
-            f'mete solo si tu casa paga ≥ <b>{t["cuota_min"]:.1f}x</b></div>{piernas}{crs_nota}{casa}</div>')
-
-
-def uno_de(x: float) -> str:
-    return f"{x:.1f}" if x < 10 else f"{x:.0f}"
-
-
-def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
-    if par is None:
-        return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>'
-                '<div class="meta">Hoy no hay jugadas suficientes para este perfil.</div></div>')
-    piernas = "".join(f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{esc(x["partido"])} · {x["p"]:.0%}</span></div>'
-                      for x in par["piernas"])
-    casa = ""
-    if par.get("cuota_casa"):
-        ok = par["cuota_casa"] >= par["cuota_min"]
-        casa = (f'<div class="{"ok" if ok else "no"}">{"✅" if ok else "❌"} Con tus cuotas pagaría {par["cuota_casa"]:.2f}</div>')
-    return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>{piernas}'
-            f'<div class="jug-num" style="margin-top:8px"><b style="color:{color_p(min(1.0, par["p"] * 2))}">{par["p"]:.1%}</b> de acertar '
-            f'(1 de cada {uno_de(par["uno_de_cada"])})<br>Cuota justa <b>{par["cuota_justa"]:.2f}</b> · '
-            f'mete si paga ≥ <b>{par["cuota_min"]:.2f}</b></div>{casa}</div>')
+        piernas += (f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{x["hora"]} · '
+                    f'{esc(x["local"])} vs {esc(x["visitante"])} · {x["p_calibrada"]:.0%} · cuota {x["cuota"]:.2f}</span>{crs}</div>')
+    return (f'<div class="parlay"><h4>🎫 Ticket V3 · {v3["estado"]} · {t["n_bloques"]} partidos · paga ≈ {t["cuota_combinada"]:.1f}x</h4>'
+            f'<div class="meta">Prob. conservadora <b>{t["p_parlay"]:.1%}</b> (media {t["p_media"]:.1%}; si los partidos fueran '
+            f'independientes: {t["p_independencia"]:.1%}) · factor de dependencia {t["lift"]:.2f}</div>{piernas}'
+            f'<div class="meta">Stake propuesto {float(t["stake_u"]):.2f} u — NO promovido a paper/real mientras la calibración sea provisional.</div></div>')
 
 
 pan, err_pan = api("GET", f"/panel/{dia.isoformat()}")
@@ -760,35 +736,18 @@ if VISTA == 1:
             st.markdown(f'<div class="jug-fila arriesgada"><div class="meta">{r["hora"]} · '
                         f'{esc(nl(r["liga"]))} · {esc(r["partido"])}</div>'
                         f'<div class="jug-num">{esc("; ".join(r["razones"]))}</div>{alt_html}</div>', unsafe_allow_html=True)
-        st.markdown("### 🧩 Parlays sugeridos")
-        if pan.get("advertencia"):   # cubre también «Más parlays seguros» y los tickets de abajo
-            st.warning("⚠️ " + pan["advertencia"])
-        st.caption("Para cada pago objetivo, la combinación MÁS probable de partidos distintos. Entre más paga, menos "
-                   "probable es: el porcentaje de cada tarjeta es la verdad sin adornos.")
-        pc1, pc2, pc3 = st.columns(3)
-        pc1.markdown(tarjeta_parlay("🛡️ Seguro", "pago bajo, acierta seguido", pan["parlays"].get("seguro")), unsafe_allow_html=True)
-        pc2.markdown(tarjeta_parlay("⚖️ Equilibrado", "pago medio", pan["parlays"].get("equilibrado")), unsafe_allow_html=True)
-        pc3.markdown(tarjeta_parlay("🎲 Ambicioso", "pago alto, acierta pocas veces", pan["parlays"].get("ambicioso")), unsafe_allow_html=True)
-        st.markdown("### 🛡️ Más parlays seguros, con su tasa de acierto")
-        st.caption("«Acierta» es la probabilidad real de que se cumplan TODAS las piernas (el producto de cada una). "
-                   "No existe un parlay seguro: uno que acierta 60% falla 4 de cada 10.")
-        mas = pan.get("mas_seguros") or {}
-        hay = False
-        for nombre, titulo, sub in (("muy_seguro", "🛡️🛡️ Muy seguro", "2-3 piernas muy probables, paga poco"),
-                                    ("seguro", "🛡️ Seguro", "3-4 piernas probables")):
-            for i, par in enumerate(mas.get(nombre) or [], 1):
-                hay = True
-                st.markdown(tarjeta_parlay(f"{titulo} #{i}", sub, par), unsafe_allow_html=True)
-        if not hay:
-            st.info("Hoy no hay suficientes jugadas probables de partidos distintos para armar parlays seguros.")
-        st.markdown("### 🎫 Tickets de pago alto (5 equipos, estilo 15-25x)")
-        st.caption("Las combinaciones MÁS probables de cinco partidos que pagan ≈15-30x. Cada pierna trae sus razones reales: "
-                   "lo que dice el modelo, lo que dice el mercado y el riesgo CRS. Un ticket así acierta ~3-6 de cada 100: "
-                   "ganar uno es varianza, no un sistema. Usa solo unidades chicas.")
-        if not pan.get("tickets"):
-            st.info("Hoy no hay cinco partidos con jugadas que armen ese pago. Prueba tras «Actualizar datos» o captura cuotas.")
-        for i, t in enumerate(pan.get("tickets") or [], 1):
-            st.markdown(tarjeta_ticket(i, t), unsafe_allow_html=True)
+        st.markdown("### 🎫 Ticket V3 (5-8 partidos)")
+        v3 = pan.get("v3")
+        if v3 is None:
+            st.info("Todavía no hay decisión V3 para este día (se genera al actualizar/recalcular; requiere la migración 004).")
+        elif v3["ticket"] is None:
+            st.info(f"**V3: abstención** — {v3.get('motivo') or 'sin ticket'}. El sistema prefiere no proponer ticket antes que "
+                    "inventar una probabilidad (no se usa independencia como respaldo).")
+        else:
+            st.warning("⚠️ " + v3["advertencia"])
+            st.markdown(tarjeta_ticket_v3(v3), unsafe_allow_html=True)
+        st.caption("Los parlays por perfil, «más seguros» y los tickets de 5 equipos se retiraron: se armaban multiplicando "
+                   "probabilidades (independencia). Volverán rediseñados sobre V3 cuando esté validado con datos reales.")
         with st.expander("📋 Copiar este resumen"):
             st.code(pan["texto"], language="markdown")
 
@@ -1142,7 +1101,7 @@ if VISTA == 6:
         "Cuota mínima": "La cuota más baja a la que una jugada deja ganancia a la larga: (1 + umbral) ÷ probabilidad. Si tu casa paga menos, no conviene aunque sea probable.",
         "Confianza (0–10)": "Cuánto respaldo tienen los datos del partido: historial de los equipos, cuotas de referencia, acuerdo entre modelo y mercado, riesgo CRS. NO es la probabilidad de acertar.",
         "Rompe parlays": "Partido donde el favorito se ve más seguro de lo que realmente es (el modelo discrepa del mercado, empate probable, riesgo CRS o pocos datos). Evítalo en combinadas.",
-        "Perfiles de parlay": "Seguro, equilibrado y ambicioso: para cada pago objetivo, la combinación más probable de partidos distintos. Más pago = menos probabilidad, sin excepciones.",
+        "Ticket V3": "Combinada de 5-8 partidos con la probabilidad conjunta REAL (con dependencia entre partidos) y su cota conservadora. Mientras la calibración sea provisional no es promovible a apuesta de práctica ni real; si no hay un ticket defendible, el sistema se abstiene y dice por qué.",
         "Probabilidad del mercado": "Lo que piensa la casa de apuestas, después de quitarle su comisión (margen) con el método de Shin.",
         "Probabilidad del modelo": "Lo que calcula golmodelv2 con Dixon-Coles a partir de la historia de goles (y xG cuando hay).",
         "Probabilidad de decisión (p_adj)": "Mezcla de las dos: α·modelo + (1−α)·mercado. α se calibra con datos: si el mercado acierta más, pesa más el mercado. Todas las decisiones usan esta.",
