@@ -99,6 +99,7 @@ class PiernaTicket:
     calibrador_version: str
     calibrado: bool
     segmento: tuple
+    info_hasta: str                    # ISO: instante de la información de la pierna (frescura en Cerebro 2)
 
 
 @dataclass(frozen=True)
@@ -327,7 +328,7 @@ def _evaluar_pierna(c: Candidata, cons: dict, ctx: dict) -> tuple[_PiernaEval | 
     g, _, _ = _crecimiento(p_cons, c.cuota, ctx["cfg"])
     pt = PiernaTicket(c.partido_id, c.liga, tuple(c.selecciones), float(c.cuota), float(c.calibrada.p_calibrada),
                       p_cons, float(p_ind), float(ev), c.crs_total, c.calibrada.calibrador_version,
-                      bool(c.calibrada.calibrado), tuple(c.calibrada.segmento))
+                      bool(c.calibrada.calibrado), tuple(c.calibrada.segmento), c.info_hasta.isoformat())
     return _PiernaEval(c, pt, arr, float(p_ind), g), []
 
 

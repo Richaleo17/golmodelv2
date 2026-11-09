@@ -38,7 +38,7 @@
 
 ### 1.4 Migraciones aditivas (nuevas, heredan triggers de inmutabilidad)
 - `db/migraciones/004_cerebro2.sql` — `evaluaciones_riesgo`, `auditoria_decisiones` (con categoría
-  `rechazo_por_falta_de_auditoria`). **ESCRITA, NO APLICADA en ninguna BD real** (ver §5). Su reversión vive en
+  `rechazo_por_falta_de_auditoria`). **ESCRITA (enmendada antes de aplicarse), NO APLICADA en ninguna BD real** (ver §5). Su reversión vive en
   `db/migraciones_down/004_down.sql`, fuera del directorio que aplica el runner.
 - `db/migraciones/005_calibrador.sql` — `versiones_calibrador_incertidumbre` (y calibrador de mercado).
 - `db/migraciones/006_tickets_5_8.sql` — ampliar `parlays_sugeridos.n_bloques` a `BETWEEN 2 AND 8`;
@@ -119,6 +119,12 @@ Restricciones a nivel de BD (defensa en profundidad, además de las de `tickets.
 `modo_experimental` ni con techo `CON_RESERVAS`, la bandera no puede estar apagada sin calibración `oos_real`, y
 `tickets` solo puede registrar `PROPUESTO`/`ABSTENCION`. **Hasta aplicarla, `tickets.py` no debe usarse en producción.**
 
+### Enmienda previa a la aplicación (leer si alguien ya aplicó la versión anterior)
+La 004 se enmendó después de su primer commit (`35d5365`) para añadir `NO_APLICABLE` a `severidad` y la columna
+`ticket_id` (necesarios para Cerebro 2). Como nunca se aplicó en ninguna BD, se enmendó en vez de crear una 005. **Pero es
+idempotente con `CREATE TABLE IF NOT EXISTS`: sobre una BD que ya tenga la versión anterior NO añadiría esas columnas ni
+ampliaría el CHECK.** Si ese fuera el caso, revierte con `004_down.sql` (forzado, ver abajo) y vuelve a aplicar.
+
 ### Qué se verificó y qué NO
 | Verificado (PostgreSQL 16.15 efímero de la sesión de desarrollo; misma versión mayor que `docker-compose`) | NO verificado |
 |---|---|
@@ -157,3 +163,36 @@ runner aplica TODO `*.sql` de ese directorio y ejecutaría el down justo despué
 (historial inmutable de auditoría); forzarlo exige `SET golmodel.permitir_down_004_con_datos = 'on'` en la misma sesión.
 Revertir de verdad exige además retirar `004_cerebro2.sql` (git revert) antes del siguiente arranque: si el fichero sigue
 ahí, el runner la reaplica.
+
+## 6. Cierre del desarrollo y ejecución con datos reales
+
+El desarrollo de módulos de V3 está completo en el orden acordado (`calibracion_mercado` → `incertidumbre` → `dependencia`
+→ `calibracion_tickets` → `tickets` → `cerebro2`). Lo que queda es **ejecución, no más módulos de modelo**:
+
+1. `pg_dump` de la BD real (respaldo).
+2. Desplegar y reiniciar la API: el runner aplica la 004 (§5). Verificación post-ejecución y pruebas SQL del §5.
+3. Backtest OOS real (walk-forward, ex-post, sin filtrar por aprobación) sobre el histórico.
+4. Validar con los protocolos pre-registrados: `q` (cobertura, U1), `σ_g` (U2), `c_seg`, y los umbrales U3-U11 y de §2.9.
+5. Desactivar `modo_experimental` **solo** si esos gates pasan, y con `calibrado_con="oos_real"` (el candado lo exige en
+   `tickets.py`, en `cerebro2/` y en la propia BD). Cualquier cambio de umbral va como nueva versión de config, nunca en runtime.
+6. Job de metacalibración (`python -m golmodel.cerebro2.metacalibracion`) sobre el histórico resuelto; revisar la alarma de
+   falsos rechazos y el yield de los rechazados.
+
+### Brecha conocida entre "módulos terminados" y "ejecutable con datos reales" (decisión del responsable)
+
+Comprobado en el código, no supuesto. **Nada de V3 está conectado a la aplicación**, y faltan los adaptadores de datos:
+
+- **`math.prod` sigue vivo y en uso.** `motor/modulo2.py:229` (`p = math.prod(...)`) lo sigue llamando
+  `servicios/prediccion.py` (`modulo2.generar`) y lo sirve la API (`/parlays/{fecha}`). V3 *sustituye* ese cálculo, pero la
+  sustitución **no está integrada**: hoy la app sigue generando parlays bajo independencia. El defecto central que motivó V3 no
+  está corregido en la ruta que se ejecuta.
+- **`tickets.py`, `cerebro2/`, `dependencia`, `incertidumbre`, `calibracion_*` no tienen ningún consumidor** fuera de sus
+  tests (ni `api/`, ni `servicios/`, ni `ui/`, ni `jobs/`).
+- **No existe código que construya sus entradas desde la BD:** `Candidata` (desde `predicciones`/`predicciones_seleccion`,
+  CRS, cuotas), `MercadoPierna` (desde `cuotas` de varias casas del mismo lote) y las cestas históricas ex-post
+  (`CestaHistorica`/`PiernaHistorica`) para `calibracion_tickets`. Hoy solo los tests construyen esos objetos.
+- Por tanto el paso 3 (backtest OOS real) **no es ejecutable todavía**: no hay camino de la BD a `calibracion_tickets`.
+  `servicios/prediccion.py::entrada_modulo2` es el precedente de cómo se arma una entrada desde la BD.
+
+Cerrar esta brecha es código de integración (cargar datos y conectar), no un módulo de modelo, pero **no está escrito ni
+autorizado**; queda como decisión explícita del responsable.

@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.7
+- Versión: v0.8
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -221,6 +221,53 @@ debe leerse como un placeholder auditable:
 - *Validación OOS:* sensibilidad del CLV por tramos de antigüedad del dato; si discrimina, se endurece (y se
   puede hacer dependiente del tiempo al inicio); nunca se relaja.
 
+### 2.9 Parámetros, semántica y fallos de `cerebro2/` — fijado ANTES de implementar (v0.8, 2026-11-09)
+
+**Resultado `NO_APLICABLE` (añadido al vocabulario de severidades).** Un gate que depende de una entrada que otro gate
+ya declaró no auditable (p. ej. `d_mm` y `JS` sin consenso de mercado) NO se marca `NO_EVALUABLE`: eso lo volvería
+`PENDIENTE` y subiría el estado por encima de `CON_RESERVAS`, contradiciendo la regla aprobada "un AVISO de mercado
+nunca produce rechazo". `NO_APLICABLE` es neutro para el estado, pero SIEMPRE lleva razón (trazabilidad). La causa vive
+en el gate de mercado, que sí está en `AVISO`.
+
+**Escalera:** rango `OK`=`NO_APLICABLE`=0 < `AVISO`=1 < `PENDIENTE`=2 < `FALLA`=3 < `NO_EVALUABLE` requerido=4; un
+`NO_EVALUABLE` no requerido vale 2. Estado = el del rango máximo (`APROBADO`/`CON_RESERVAS`/`EN_OBSERVACION`/
+`RECHAZADO`/`ABSTENCION`). Sin gates → `ABSTENCION` (nunca `APROBADO`). `modo_experimental` es UN gate (`AVISO` si activo)
+y es el único mecanismo del tope.
+
+**Consenso de mercado (razones):** `consenso_insuficiente` = hay menos de N=3 casas esperadas; `consenso_incompleto` = se
+esperaban ≥3 pero las que cotizan no llegan a 3 (se listan `casas_faltantes`, NO se inventa ninguna cuota); una casa con
+el grupo incompleto o cuotas inválidas se descarta con su razón; `no_auditable` = SGP, selección sin grupo de devig
+exhaustivo, o sin cuotas. Las tres → gate de mercado `AVISO` (techo `CON_RESERVAS`). Con ≥3 casas útiles el consenso es la
+mediana de las probabilidades sin margen por Power, renormalizada, aunque falte alguna casa esperada (queda registrado).
+Independencia de Cerebro 1: fuente (consenso multicasa) Y método (Power) distintos de Pinnacle+Shin.
+
+**Parámetros nuevos (provisionales, a priori; ninguno validado):**
+| Parámetro | Valor | Justificación a priori |
+|---|---|---|
+| `ev_cons_aviso_margen` | 0.05 | EV_cons en (umbral, umbral+0.05] → `AVISO`: la misma banda que el error Monte Carlo + slippage de la cuota |
+| `crs_aviso_desde` | 30 | 75 % del corte `crs_max_pierna`=40: avisa antes de que el CRS bloquee |
+| `ic_aviso_frac` | 0.8 | IC relativo > 80 % de `ic_max_rel` → `AVISO` (cerca del límite duro) |
+| `frescura_aviso_horas` | 6 | un cuarto del techo de sanidad de tickets (24 h): la capa real es más estricta |
+| `frescura_abstencion_horas` | 24 | más allá no hay información auditable → `ABSTENCION` (igual a la cota de sanidad de tickets) |
+| `timeout_s` | 30 | holgura enorme sobre el coste real (ms); solo atrapa cuelgues |
+Reutiliza U4 (`lift_max`), U5 (`ic_max_rel`), U6 (`umbral_ev_cons_ticket`), U3 (K), U7 (`d_mm`: ≤10 pp OK, (10,20] pp `AVISO`,
+>20 pp `FALLA`; solo el lado favorable), U8 (`JS` > 0.15 bits `AVISO`), `crs_max_pierna` y `ev_cons_pierna_min`.
+Con un solo modelo base, `JS` (Bernoulli modelo vs consenso) se solapa con `d_mm` (límite conocido del diseño).
+
+**Fallos (fail-closed, tres casos):** datos incompletos, error de cálculo y timeout producen `ABSTENCION` con razón
+explícita, nunca `APROBADO` ni `CON_RESERVAS`. Nada se propaga como excepción. El timeout es COOPERATIVO (se comprueba entre
+gates, no interrumpe código bloqueado) y no es reproducible por naturaleza: queda registrado como razón.
+
+**Metacalibración (job ex-post, no runtime):** `tasa_rechazos_correctos` = rechazados que habrían perdido / rechazados
+resueltos; `tasa_rechazos_incorrectos` = los que habrían ganado / rechazados resueltos; `tasa_aprobados_correctos` =
+aceptados que ganaron / aceptados resueltos; `yield_rechazados` = media del retorno a stake plano (`cuota_combinada−1` si
+gana, `−1` si pierde). **Aceptados = `APROBADO` ∪ `CON_RESERVAS`**: bajo `modo_experimental` nada es `APROBADO`, y el auditor
+decide en sombra para calibrarse; excluir `CON_RESERVAS` dejaría la métrica vacía. Excluidos y contados aparte:
+`ABSTENCION`/`rechazo_por_falta_de_auditoria` y los tickets anulados o aún no resueltos. Wilson 95 % en las tasas,
+bootstrap 99 % (semilla fija) en el yield, muestra mínima 200. `alarma_falsos_rechazos` = yield de rechazados > 0 con IC
+inferior > 0: señal de alarma que dispara revisión versionada, nunca relajación en runtime. Un ticket con alguna pierna
+anulada se excluye (simplificación v1: no se reduce la cuota).
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -258,3 +305,4 @@ debe leerse como un placeholder auditable:
 | v0.5 | 2026-11-09 | §2.7: gate bilateral a nivel de ticket de `calibracion_tickets.py` (objetivo 1−q, δ=0.10, ≥8 buckets, ≥100 cestas/bucket), c_seg propio ≥200 cestas o fallback global con nulo, contrato de consumo para tickets.py (fail-closed sin versión, techo CON_RESERVAS en modo_experimental, registro en auditoria), presupuesto ≤30 min/(temporada×liga) con vectorización requerida antes de tickets.py, y VersionCalibradorTickets con `calibrado_con` (sinteticos NO desactiva modo_experimental). |
 | v0.6 | 2026-11-09 | §2.8 (fijado antes de implementar tickets.py): filtros de pierna provisionales (p≥0.75, CRS<40 sin veto, EV_cons_pierna>0, dato ≤24 h y no posterior a `ahora`, APTAS_PARLAY), top_n_piernas=12 como acotador de cómputo, no-relajación fail-closed (relajar = otro config_hash), `modo_experimental` obligatorio sin default y tickets nunca emite APROBADO, reproducibilidad por semilla/ahora. |
 | v0.7 | 2026-11-09 | §2.8: criterio de ranking = crecimiento log sin tope (excluye EV bruto); justificación explícita de `max_edad_horas=24` (provisional, no derivado de datos; acota la edad de nuestra información, no la publicación de la casa; laxo cerca del inicio, mitigado por el gate de frescura de Cerebro 2; refinamiento dependiente del inicio documentado). |
+| v0.8 | 2026-11-09 | §2.9 (fijado antes de implementar cerebro2/): resultado `NO_APLICABLE`, escalera por rangos, semántica de las razones del consenso (insuficiente/incompleto/no_auditable), parámetros nuevos provisionales (márgenes de AVISO, frescura 6/24 h, timeout), fail-closed en los tres casos (timeout cooperativo), y definición de las métricas del auditor con `aceptados = APROBADO ∪ CON_RESERVAS`. |

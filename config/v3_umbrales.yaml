@@ -20,6 +20,22 @@ cerebro2:
     agregacion: mediana          # robusta a una casa atípica; sin ponderación por liquidez
     renormalizar_grupo: true
     n_min: 3                     # <3 casas en el mismo lote → gate de mercado = AVISO (no PASS)
+  # Parámetros nuevos de Cerebro 2 — PROVISIONALES, pre-registro §2.9. Sin defaults en el código:
+  # si falta uno, el gate falla cerrado (ABSTENCION), nunca se inventa.
+  umbrales:
+    ev_cons_aviso_margen: 0.05   # EV_cons en (umbral, umbral+margen] -> AVISO
+    crs_aviso_desde: 30          # CRS >= 30 (y < crs_max_pierna) -> AVISO
+    ic_aviso_frac: 0.8           # IC relativo > 0.8*ic_max_rel -> AVISO
+    frescura_aviso_horas: 6
+    frescura_abstencion_horas: 24
+    timeout_s: 30                # cooperativo: se comprueba entre gates
+  metacalibracion:               # job ex-post (no runtime)
+    n_min: 200
+    estados_aprobados: [APROBADO, CON_RESERVAS]   # bajo modo_experimental nada es APROBADO: el auditor decide en sombra
+    bootstrap_ic: 0.99
+    bootstrap_n: 2000
+    bootstrap_semilla: 20260101
+    wilson_z: 1.96
 
 # --- Cerebro 1: devig de referencia (distinto al del Cerebro 2) ---
 devig_c1:
