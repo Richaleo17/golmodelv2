@@ -46,6 +46,7 @@ CREATE TABLE IF NOT EXISTS auditoria_decisiones (
     version_calibracion_tickets     text NOT NULL,
     version_cerebro2                text,                      -- NULL salvo componente = 'cerebro2'
     config_hash_restricciones       text NOT NULL,
+    ticket_id           text,                                  -- id determinista del ticket auditado (une tickets y cerebro2)
     semilla             bigint CHECK (semilla >= 0),
     n_draws             integer CHECK (n_draws > 0),
     parlay_id           bigint REFERENCES parlays_sugeridos(id) ON DELETE CASCADE,
@@ -62,6 +63,7 @@ CREATE TABLE IF NOT EXISTS auditoria_decisiones (
 );
 CREATE INDEX IF NOT EXISTS ix_auditoria_creado   ON auditoria_decisiones (creado_en DESC);
 CREATE INDEX IF NOT EXISTS ix_auditoria_estado   ON auditoria_decisiones (componente, estado, creado_en DESC);
+CREATE INDEX IF NOT EXISTS ix_auditoria_ticket   ON auditoria_decisiones (ticket_id) WHERE ticket_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_auditoria_parlay   ON auditoria_decisiones (parlay_id) WHERE parlay_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_auditoria_backtest ON auditoria_decisiones (backtest_run_id) WHERE backtest_run_id IS NOT NULL;
 CREATE OR REPLACE TRIGGER trg_auditoria_inmutable BEFORE UPDATE OR DELETE ON auditoria_decisiones
@@ -77,7 +79,8 @@ CREATE TABLE IF NOT EXISTS evaluaciones_riesgo (
     partido_id          bigint REFERENCES partidos(id) ON DELETE RESTRICT,
     seleccion           text REFERENCES selecciones(codigo) ON DELETE RESTRICT,
     gate                text NOT NULL,
-    severidad           text NOT NULL CHECK (severidad IN ('OK','AVISO','PENDIENTE','FALLA','NO_EVALUABLE')),
+    -- NO_APLICABLE: neutro para el estado, siempre con razón (p. ej. d_mm sin consenso de mercado). Ver pre-registro §2.9.
+    severidad           text NOT NULL CHECK (severidad IN ('OK','NO_APLICABLE','AVISO','PENDIENTE','FALLA','NO_EVALUABLE')),
     valor               jsonb,
     umbral              jsonb,
     decisivo            boolean NOT NULL DEFAULT false,

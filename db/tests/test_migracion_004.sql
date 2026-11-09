@@ -28,10 +28,10 @@ LANGUAGE sql AS $$
     INSERT INTO auditoria_decisiones (info_asof, origen, backtest_run_id, componente, estado, modo_experimental,
         techo_estado, calibrado_con, version_tickets, version_calibracion_mercado, version_incertidumbre,
         version_dependencia, version_calibracion_tickets, version_cerebro2, config_hash_restricciones,
-        semilla, n_draws, payload)
+        semilla, n_draws, payload, ticket_id)
     VALUES (now(), p_origen, p_bt, p_comp, p_estado, p_modo, p_techo, p_cal, 'tickets-v1', ARRAY['cm-v1'],
         'incertidumbre-v1', 'dependencia-v1', 'ct:h:2026:7:sinteticos', p_vcer, 'abcd1234abcd1234',
-        p_semilla, 20000, p_payload)
+        p_semilla, 20000, p_payload, 'tk-test')
     RETURNING id
 $$;
 
@@ -88,6 +88,16 @@ FROM auditoria_decisiones WHERE componente = 'cerebro2' AND estado = 'RECHAZADO'
 SELECT pg_temp.debe_fallar($$ INSERT INTO evaluaciones_riesgo (auditoria_id, orden, ambito, gate, severidad)
     SELECT id, 3, 'seleccion', 'g', 'OK' FROM auditoria_decisiones WHERE estado='RECHAZADO' $$,
     'gate de selección sin partido');
+-- NO_APLICABLE es una severidad válida (neutra para el estado; lleva su razón en `detalle`). Orden 9 para no
+-- colisionar con los casos negativos de abajo (que usan orden 3 y deben fallar por SU motivo).
+INSERT INTO evaluaciones_riesgo (auditoria_id, orden, ambito, partido_id, seleccion, gate, severidad, detalle)
+SELECT id, 9, 'seleccion', 9001, '1X2:1', 'discrepancia_modelo_mercado', 'NO_APLICABLE', 'consenso_no_disponible'
+FROM auditoria_decisiones WHERE componente = 'cerebro2' AND estado = 'RECHAZADO';
+DO $$ BEGIN
+  ASSERT (SELECT count(*) FROM auditoria_decisiones WHERE ticket_id = 'tk-test') >= 5, 'ticket_id se guarda';
+  ASSERT (SELECT count(*) FROM evaluaciones_riesgo WHERE severidad = 'NO_APLICABLE' AND detalle IS NOT NULL) = 1, 'NO_APLICABLE con razón';
+END $$;
+
 SELECT pg_temp.debe_fallar($$ INSERT INTO evaluaciones_riesgo (auditoria_id, orden, ambito, partido_id, seleccion, gate, severidad)
     SELECT id, 3, 'seleccion', 9001, 'XX:no', 'g', 'OK' FROM auditoria_decisiones WHERE estado='RECHAZADO' $$,
     'selección fuera del catálogo (FK)');

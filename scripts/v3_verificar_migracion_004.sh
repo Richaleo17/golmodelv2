@@ -26,7 +26,7 @@ paso "2. aplicar 004 (1ª vez) y de nuevo (idempotencia: no debe fallar)"
 "${Q[@]}" -f db/migraciones/004_cerebro2.sql
 "${Q[@]}" -f db/migraciones/004_cerebro2.sql 2>&1 | grep -c "already exists, skipping" | sed 's/^/avisos "ya existe, se omite" en la 2ª aplicación: /'
 
-paso "3. verificación post-ejecución (esperado: +2 tablas, 5 FKs, 2 triggers, 6 índices)"
+paso "3. verificación post-ejecución (esperado: +2 tablas, 5 FKs, 2 triggers, 7 índices)"
 "${Q[@]}" -tA <<SQL
 select 'tablas golmodel: ' || count(*) || ' (antes ' || $ANTES || ')' from information_schema.tables where table_schema='golmodel' and table_type='BASE TABLE';
 select 'FKs de la 004: ' || count(*) from information_schema.table_constraints where table_schema='golmodel' and constraint_type='FOREIGN KEY' and table_name in ('auditoria_decisiones','evaluaciones_riesgo');
