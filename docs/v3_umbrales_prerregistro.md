@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.1
+- Versión: v0.2
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -80,6 +80,31 @@ tapar un bug aguas arriba → prohibido. Por eso `d_mm` es de los ÚLTIMOS en aj
 Toda regla sigue el principio transversal: **aguas arriba antes que aguas abajo; y nunca más laxo** (los
 umbrales solo se endurecen; los inputs se ensanchan/corrigen).
 
+### 2.4 Gate de despliegue del calibrador de NIVEL (`calibracion_mercado.py`) — ENMIENDA v0.2 (2026-11-09)
+
+**(a) Diagnóstico del error estadístico.** El gate v0.1 usaba un umbral de ECE **absoluto** (0.03). El ECE de
+un calibrador *perfecto* tiene un suelo de ruido ≈ `sqrt(p(1−p)/n_bin)`; con n≈2000 y ~8 bins ese suelo
+(~0.03) es indistinguible del umbral → el gate rechazaba calibradores válidos por varianza muestral. Es el
+mismo error que la tolerancia de Wilson corrigió para `q` (U1).
+
+**(b) Nueva especificación del gate (reemplaza el ECE absoluto):**
+- **Primario — cobertura por bin (Wilson bilateral 95%, z=1.96):** en cada bin con `n ≥ n_min`,
+  `p_media ∈ Wilson(frecuencia)`; aprueba si ≥ `fraccion_ok` (=0.8) de los bins con muestra suficiente lo
+  cumplen. Consciente del tamaño de muestra.
+- **Secundario — ECE con umbral RELATIVO al suelo de ruido:** `ECE ≤ k · suelo`, con
+  `suelo = Σ_b sqrt(p_b(1−p_b)·n_b) / Σ_b n_b` (escala esperada de `|p_media − frecuencia|` bajo calibración
+  perfecta) y **k = 1.5** (provisional, documentado).
+- **Terciario — batir al crudo** en log-loss. Aprueba solo si las tres.
+
+**(c) Por qué NO es más laxo (es más estricto en ambos regímenes):** Wilson por bin es **más estricto en
+muestras pequeñas** que un ECE absoluto fijo (que dejaría pasar un bin ruidoso que Wilson marca como
+significativamente desviado); el ECE relativo es **más estricto en muestras grandes** (el suelo → 0 cuando
+n crece, así que el umbral se aprieta por debajo de 0.03). No hay régimen en el que afloje.
+
+**(d) Fecha y razón de la enmienda.** 2026-11-09. Motivada por el humo del módulo: con n=2000 un calibrador
+de temperature correcto daba ECE 0.031 ≈ suelo de ruido y era rechazado por el umbral absoluto. La enmienda
+elimina ese falso rechazo sin relajar el criterio.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -111,3 +136,4 @@ umbrales solo se endurecen; los inputs se ensanchan/corrigen).
 | Versión | Fecha | Cambio |
 |---|---|---|
 | v0.1 | 2026-11-09 | Pre-registro consolidado U1–U11 (provisionales), separación muestra backtest/vivo, y árbol de decisión de ajuste (input antes que umbral; nunca más laxo). |
+| v0.2 | 2026-11-09 | Enmienda del gate de despliegue del calibrador de nivel (§2.4): ECE absoluto → Wilson por bin primario + ECE relativo al suelo de ruido (k=1.5). Motivo: el ECE absoluto rechazaba calibradores válidos por varianza a n pequeño. Más estricto en ambos regímenes, no más laxo. |
