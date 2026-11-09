@@ -99,6 +99,13 @@ calibracion_tickets:
   cestas_historicas:
     paso_dias: 7                     # reajuste walk-forward del modelo (igual que la calibración semanal de V2)
     n_cestas_por_dia: 40             # combinaciones muestreadas por día de decisión
+  # Versión PROVISIONAL del calibrador de tickets: SOLO existe mientras no haya un backtest OOS real que produzca una
+  # VersionCalibradorTickets. NO es un valor calibrado (calibrado_con='no_calibrado' => techo CON_RESERVAS +
+  # modo_experimental). Lo reemplaza la versión que salga de calibracion_tickets.ajustar sobre cestas reales.
+  version_provisional:
+    c_global: 1.0                    # τ_i = c / sqrt(peso_efectivo). Placeholder; su valor lo fija el responsable del proyecto
+    sigma_liga: 0.0
+    sigma_g: 0.0
 
 # --- Muestras de validación (ver pre-registro §2.2) ---
 validacion:
