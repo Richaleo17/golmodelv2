@@ -18,7 +18,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "pglast>=7"]   # pglast: parser real de PostgreSQL (tests de migraciones)
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -38,7 +38,8 @@
 
 ### 1.4 Migraciones aditivas (nuevas, heredan triggers de inmutabilidad)
 - `db/migraciones/004_cerebro2.sql` — `evaluaciones_riesgo`, `auditoria_decisiones` (con categoría
-  `rechazo_por_falta_de_auditoria`).
+  `rechazo_por_falta_de_auditoria`). **ESCRITA, NO APLICADA en ninguna BD real** (ver §5). Su reversión vive en
+  `db/migraciones_down/004_down.sql`, fuera del directorio que aplica el runner.
 - `db/migraciones/005_calibrador.sql` — `versiones_calibrador_incertidumbre` (y calibrador de mercado).
 - `db/migraciones/006_tickets_5_8.sql` — ampliar `parlays_sugeridos.n_bloques` a `BETWEEN 2 AND 8`;
   añadir `p_parlay_conservadora`, `metodo_conjunta`; añadir `p_calibrada` y EV conservador a
@@ -96,8 +97,63 @@ la BD y el registro se persista. Hasta entonces el sistema permanece en `modo_ex
 - **`cuota_combinada` es teórica, no ejecutable.** Es el producto de las cuotas por pierna bajo independencia de
   precios; la cuota combinada real de la casa (en particular un SGP) puede diferir de forma material. Se registra
   como `cuota_combinada_tipo` en la auditoría y en cada ticket; el EV de ticket hereda esa limitación.
+- **Frescura en DOS CAPAS (diseño, no bug).** El gate de frescura REAL vive en Cerebro 2 (AVISO por dato viejo,
+  ABSTENCIÓN por `info_hasta` demasiado antiguo, con el criterio de su diseño). El de `tickets.py`
+  (`max_edad_horas`) es solo una COTA DE SANIDAD que descarta datos manifiestamente obsoletos antes de gastar
+  cómputo. Que ambos apliquen reglas distintas es intencional: la capa de tickets nunca debe ser más permisiva
+  que la de Cerebro 2 para decidir, y no la sustituye. **El README de `cerebro2/` debe declararlo** (checklist
+  de ese paso).
 - **`max_edad_horas = 24` es un placeholder** (pre-registro §2.8): laxo cerca del inicio del partido; el
   refinamiento dependiente del tiempo al inicio requiere añadir la hora de inicio a `Candidata`.
 - **El ranking usa crecimiento log SIN tope de stake** (diseño de tickets, dec. 14); el tope solo acota el stake.
 - **Todo está verificado con datos sintéticos; nada está validado con datos reales.** `modo_experimental`
   permanece activo; solo el backtest OOS real puede desactivarlo.
+
+## 5. Migración 004 — ESTADO: NO APLICADA en ninguna BD real
+
+`db/migraciones/004_cerebro2.sql` crea `auditoria_decisiones` (una fila por decisión de `tickets.py` o de Cerebro 2;
+`payload` = `RegistroAuditoria.a_json()`) y `evaluaciones_riesgo` (una fila por gate evaluado: condición, valor, umbral,
+severidad, si fue decisivo). Es **aditiva** (no toca ninguna tabla existente) e **idempotente** (`IF NOT EXISTS`,
+`CREATE OR REPLACE TRIGGER`), transaccional (`BEGIN … COMMIT`), e inmutable con los mismos triggers del esquema.
+Restricciones a nivel de BD (defensa en profundidad, además de las de `tickets.py`): un `APROBADO` no puede guardarse con
+`modo_experimental` ni con techo `CON_RESERVAS`, la bandera no puede estar apagada sin calibración `oos_real`, y
+`tickets` solo puede registrar `PROPUESTO`/`ABSTENCION`. **Hasta aplicarla, `tickets.py` no debe usarse en producción.**
+
+### Qué se verificó y qué NO
+| Verificado (PostgreSQL 16.15 efímero de la sesión de desarrollo; misma versión mayor que `docker-compose`) | NO verificado |
+|---|---|
+| `schema.sql` + `seed.sql` + 001-003 + 004 aplican sin error; la 004 se aplica dos veces (idempotente) | Aplicación sobre **tu BD real** |
+| `db/tests/test_schema.sql` sigue pasando con la 004 aplicada (sin regresiones) | Datos reales / volumen / rendimiento de la tabla |
+| `db/tests/test_migracion_004.sql`: candados de bandera, inmutabilidad, purga solo de backtest, 5 FKs con su `ON DELETE` leídos del catálogo | Otras versiones de PostgreSQL (el esquema exige ≥15) |
+| El **runner real** de la app (`golmodel.migraciones.aplicar`) la aplica en el primer arranque y no la repite en el segundo | |
+| `004_down.sql`: se niega con filas, forzado funciona, es idempotente | |
+| Mutación: 8/8 roturas del SQL detectadas por `test_migracion_004.sql` | |
+| Parser real (`pglast`): `tests/test_migracion_004.py` valida sintaxis, `IF NOT EXISTS`, `ON DELETE` explícito, tablas/funciones referenciadas contra `schema.sql` (con casos negativos) | |
+
+### Procedimiento de aplicación
+1. **Respaldo** de la BD (`pg_dump`). La 004 es aditiva, pero es una BD real.
+2. **Camino normal:** desplegar y reiniciar la API; el runner (`src/golmodel/migraciones.py`) aplica las pendientes en
+   orden con un candado consultivo y las registra en `migraciones`. **Camino manual:**
+   `psql -v ON_ERROR_STOP=1 -f db/migraciones/004_cerebro2.sql` (idempotente: si luego arranca la API, el runner la
+   volverá a ejecutar una vez sin efecto y la registrará).
+3. **Verificación post-ejecución:**
+   `\d golmodel.auditoria_decisiones`, `\d golmodel.evaluaciones_riesgo`, y
+   `SELECT table_name, constraint_type, count(*) FROM information_schema.table_constraints WHERE table_schema='golmodel' AND table_name IN ('auditoria_decisiones','evaluaciones_riesgo') GROUP BY 1,2 ORDER BY 1,2;`
+   (esperado — contrastado en PostgreSQL 16: `auditoria_decisiones` 2 `FOREIGN KEY` + 1 `PRIMARY KEY`;
+   `evaluaciones_riesgo` 3 `FOREIGN KEY` + 1 `PRIMARY KEY` + 1 `UNIQUE`).
+4. **Pruebas sobre esa BD** (se revierten solas, no dejan datos):
+   `psql -v ON_ERROR_STOP=1 -f db/tests/test_schema.sql` y `psql -v ON_ERROR_STOP=1 -f db/tests/test_migracion_004.sql`.
+   Esperado: `TODAS LAS PRUEBAS DEL ESQUEMA PASARON` y `TODAS LAS PRUEBAS DE LA MIGRACIÓN 004 PASARON`.
+
+### Verificación reproducible sobre un servidor DESECHABLE
+`PGHOST=… PGUSER=… PGPASSWORD=… scripts/v3_verificar_migracion_004.sh` crea una base temporal `golmodel_v3_verif_*`, ejecuta
+todo lo anterior (línea base, 004 dos veces, post-ejecución, pruebas, ciclo down/up) y la borra; se niega a tocar otra
+base. **No apuntarlo a un servidor con datos importantes.** Sin servidor: `python -m pytest tests/test_migracion_004.py`
+(parser, estático; requiere `pglast`, dependencia de desarrollo).
+
+### Reversión
+`db/migraciones_down/004_down.sql` borra las dos tablas (hijas primero). **Vive fuera de `db/migraciones/` a propósito:** el
+runner aplica TODO `*.sql` de ese directorio y ejecutaría el down justo después del up. Se **niega** a borrar si hay filas
+(historial inmutable de auditoría); forzarlo exige `SET golmodel.permitir_down_004_con_datos = 'on'` en la misma sesión.
+Revertir de verdad exige además retirar `004_cerebro2.sql` (git revert) antes del siguiente arranque: si el fichero sigue
+ahí, el runner la reaplica.
