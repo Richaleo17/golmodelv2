@@ -184,3 +184,17 @@ def test_metacalibracion_filtra_por_origen(conn):
     persistencia.guardar_veredicto(conn, _veredicto("RECHAZADO", "rechazo_sustantivo", 1, 4.0), origen="paper")
     assert calcular_desde_bd(conn, _cfg(), origen="paper").n_rechazados == 1
     assert calcular_desde_bd(conn, _cfg(), origen="produccion").n_rechazados == 0
+
+
+def test_payload_extra_se_anade_sin_pisar_las_claves_propias(conn):
+    """`dia` (u otra clave) viaja en el payload de tickets; las claves auditoria/ticket no se pisan; por defecto no cambia nada."""
+    from golmodel.cerebro2 import persistencia as per
+    from golmodel.motor import tickets as tk
+    from tests.test_tickets import _pool, _version
+    salida = tk.generar_tickets(_pool(), _version(), _cfg(), modo_experimental=True, semilla=11, ahora=AHORA)
+    a = per.guardar_decision_tickets(conn, salida)
+    b = per.guardar_decision_tickets(conn, salida, payload_extra={"dia": "2026-11-09", "auditoria": "NO_DEBE_PISAR"})
+    pa = _uno(conn, "SELECT payload FROM auditoria_decisiones WHERE id = %s", (a,))["payload"]
+    pb = _uno(conn, "SELECT payload FROM auditoria_decisiones WHERE id = %s", (b,))["payload"]
+    assert "dia" not in pa and set(pa) == {"auditoria", "ticket"}                   # sin extra: igual que antes
+    assert pb["dia"] == "2026-11-09" and isinstance(pb["auditoria"], dict) and pb["ticket"] == pa["ticket"]   # no se pisa

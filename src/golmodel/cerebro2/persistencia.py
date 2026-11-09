@@ -56,6 +56,8 @@ def guardar_veredicto(conn, v, *, origen: str = "produccion", backtest_run_id: i
     return aid
 
 
-def guardar_decision_tickets(conn, salida, *, origen: str = "produccion", backtest_run_id: int | None = None) -> int:
+def guardar_decision_tickets(conn, salida, *, origen: str = "produccion", backtest_run_id: int | None = None,
+                             payload_extra: dict | None = None) -> int:
     """Guarda la propia decisión de tickets.py (PROPUESTO/ABSTENCION) con su RegistroAuditoria como payload."""
-    return _insertar_decision(conn, auditoria.fila_tickets(salida, origen=origen, backtest_run_id=backtest_run_id))
+    return _insertar_decision(conn, auditoria.fila_tickets(salida, origen=origen, backtest_run_id=backtest_run_id,
+                                                           payload_extra=payload_extra))

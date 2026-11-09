@@ -76,7 +76,8 @@ def filas_gates(v) -> list[dict]:
 _CAT_TICKETS = {"tickets_sin_valor": "tickets_sin_valor", "incertidumbre_dependencia": "incertidumbre_gate_fallo"}
 
 
-def fila_tickets(salida, *, origen: str = "produccion", backtest_run_id: int | None = None) -> dict:
+def fila_tickets(salida, *, origen: str = "produccion", backtest_run_id: int | None = None,
+                 payload_extra: dict | None = None) -> dict:
     """Fila de `auditoria_decisiones` para la propia decisión de tickets.py (payload = RegistroAuditoria + ticket)."""
     from dataclasses import asdict
     aud, t = salida.auditoria, salida.ticket
@@ -90,5 +91,6 @@ def fila_tickets(salida, *, origen: str = "produccion", backtest_run_id: int | N
         "version_calibracion_tickets": aud.version_calibracion_tickets, "version_cerebro2": None,
         "config_hash_restricciones": aud.config_hash_restricciones, "ticket_id": id_ticket(salida),
         "semilla": aud.semilla, "n_draws": aud.n_draws, "parlay_id": None,
-        "payload": {"auditoria": asdict(aud), "ticket": None if t is None else asdict(t)},
+        # payload_extra (p. ej. {"dia": ...}) se AÑADE sin pisar las claves propias; por defecto no cambia nada
+        "payload": {**(payload_extra or {}), "auditoria": asdict(aud), "ticket": None if t is None else asdict(t)},
     }
