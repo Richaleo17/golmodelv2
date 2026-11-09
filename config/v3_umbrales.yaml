@@ -1,0 +1,57 @@
+# =====================================================================
+# GolModel V3 · Configuración versionada (umbrales + estructura)
+# Su hash (config_hash, vía config.py) identifica la versión de política
+# con la que se generó cada predicción/ticket/decisión del Cerebro 2.
+#
+# ⚠️ VALORES PROVISIONALES — pendientes de validación OOS.
+#    Ver docs/v3_umbrales_prerregistro.md. Mientras modo_experimental=true,
+#    el Cerebro 2 NO puede emitir APROBADO (tope CON_RESERVAS).
+# =====================================================================
+
+modo_experimental: true          # q y σ_g sin validar → auditor topa en CON_RESERVAS
+
+# --- Cerebro 2: benchmark de mercado independiente del Cerebro 1 ---
+cerebro2:
+  consenso_mercado:              # fuente + método DISTINTOS a los de C1 (anti-circularidad)
+    # TODO: confirmar contra el catálogo real `casas_apuestas` (rol referencia/ejecucion/ambos;
+    # nunca 'agregado' de football-data). Lista versionada, placeholder a confirmar:
+    casas_elegibles: [pinnacle, bet365, williamhill, marathon]
+    metodo_devig: power
+    agregacion: mediana          # robusta a una casa atípica; sin ponderación por liquidez
+    renormalizar_grupo: true
+    n_min: 3                     # <3 casas en el mismo lote → gate de mercado = AVISO (no PASS)
+
+# --- Cerebro 1: devig de referencia (distinto al del Cerebro 2) ---
+devig_c1:
+  casa_referencia: pinnacle
+  metodo: shin
+
+# --- Umbrales provisionales (pend. validación OOS; ver pre-registro U1–U11) ---
+umbrales_provisionales:
+  q_conservador: 0.25            # U1  cuantil de p_conservadora
+  sigma_g: 0.0                   # U2  factor global desactivado por defecto
+  k_piernas_por_liga: 2          # U3
+  lift_max: 1.15                 # U4
+  ic_max_rel: 1.0                # U5  ancho relativo IC 95% de p
+  umbral_ev_cons_ticket: 0.05    # U6
+  d_mm_edge_max_pp: 0.10         # U7  favorable hasta ~10 pp = edge
+  d_mm_rechazo_pp: 0.20          # U7  > ~20 pp → RECHAZADO
+  js_degradar_bits: 0.15         # U8  divergencia entre modelos (solo con ensemble)
+  tasa_rechazos_correctos_min: 0.60   # U10 (el peor justificado a priori)
+  viabilidad_min_tickets: 1      # U11 generación en vivo
+  viabilidad_por_dias: 15        # U11
+
+# --- Gestión de banca (reusa bankroll.py) ---
+bankroll:
+  kelly_fraccion_simple: 0.25
+  kelly_fraccion_parlay: 0.10
+
+# --- Muestras de validación (ver pre-registro §2.2) ---
+validacion:
+  cobertura_min_buckets: 8
+  cobertura_min_neff_bucket: 200
+  cobertura_min_neff_total: 3000
+  tickets_min_validacion: 500        # desde backtest ex-post walk-forward (CLV proxy)
+  discriminacion_min_por_lado: 200
+  bootstrap_ic: 0.99
+  wilson_ic: 0.95
