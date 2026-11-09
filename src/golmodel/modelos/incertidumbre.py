@@ -22,6 +22,9 @@ from typing import Protocol
 import numpy as np
 
 
+VERSION = "incertidumbre-v1"   # identificador de versión del algoritmo (auditoría de tickets)
+
+
 # --------------------------------------------------------------------- factores compartidos
 
 class FactorSampler(Protocol):

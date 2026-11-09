@@ -150,3 +150,47 @@ def test_clip_lambda_tau_grande_sin_nan():
     s = FactorSamplerJerarquico(sigma_g=0.0, sigma_liga={"EPL": 1.0})
     r = dep.probabilidad_conjunta(piernas, s, CFG, 1)
     assert np.isfinite(r.p_media) and 0.0 <= r.p_media <= 1.0
+
+
+# --- camino cacheable (usado por tickets.py): factores/ruido deterministas por canal --------------
+
+def _pierna_id(pid, liga, sel, lh=1.4, la=1.1, tau=0.1):
+    return dep.Pierna(pid, liga, lh, la, 0.0, tuple(sel), tau, tau)
+
+
+def test_camino_cacheable_reduce_a_independencia():
+    s = FactorSamplerJerarquico(sigma_g=0.0, sigma_liga=0.0)
+    f = dep.factores_compartidos(s, ["EPL", "MX1"], 2000, 1)
+    ps = [dep.Pierna(1, "EPL", 1.4, 1.1, 0.0, ("OU:2.5:over",)), dep.Pierna(2, "MX1", 1.3, 1.2, 0.0, ("1X2:1",))]
+    pares = [dep.p_pierna_sorteos(p, f, 1) for p in ps]
+    r = dep.resumir_conjunta([a for a, _ in pares], [i for _, i in pares], CFG, 1)
+    assert r.p_media == pytest.approx(r.p_independencia, rel=1e-12) and r.metodo == "independencia"
+
+
+def test_factores_no_dependen_de_la_composicion_de_la_cesta():
+    # Condición de validez de la caché: u[liga] y g idénticos sea cual sea el conjunto de ligas pedido.
+    s = FactorSamplerJerarquico(sigma_g=0.05, sigma_liga={"EPL": 0.2, "SA": 0.1, "MX1": 0.15})
+    a = dep.factores_compartidos(s, ["EPL", "SA", "MX1"], 500, 3)
+    b = dep.factores_compartidos(s, ["SA"], 500, 3)
+    assert np.array_equal(a.u["SA"], b.u["SA"]) and np.array_equal(a.g, b.g)
+
+
+def test_p_pierna_sorteos_determinista():
+    s = FactorSamplerJerarquico(sigma_g=0.05, sigma_liga={"EPL": 0.2})
+    f = dep.factores_compartidos(s, ["EPL"], 1000, 4)
+    p = _pierna_id(7, "EPL", ("OU:2.5:over",))
+    (a1, i1), (a2, i2) = dep.p_pierna_sorteos(p, f, 4), dep.p_pierna_sorteos(p, f, 4)
+    assert np.array_equal(a1, a2) and i1 == i2
+
+
+def test_camino_cacheable_coincide_con_probabilidad_conjunta():
+    # Flujos de aleatorios distintos pero MISMA distribución: p_media coincide dentro de ~4·SE combinado.
+    piernas = [_pierna_id(1, "EPL", ("OU:2.5:over",)), _pierna_id(2, "EPL", ("1X2:1",)), _pierna_id(3, "SA", ("OU:2.5:over",))]
+    s = FactorSamplerJerarquico(sigma_g=0.0, sigma_liga={"EPL": 0.2, "SA": 0.15})
+    cfg = {"dependencia": {"n_draws": 30000, "percentil_conservador": 0.25, "ic": [0.025, 0.975]}}
+    r1 = dep.probabilidad_conjunta(piernas, s, cfg, 5)
+    f = dep.factores_compartidos(s, ["EPL", "SA"], 30000, 5)
+    pares = [dep.p_pierna_sorteos(p, f, 5) for p in piernas]
+    r2 = dep.resumir_conjunta([a for a, _ in pares], [i for _, i in pares], cfg, 5)
+    assert abs(r1.p_media - r2.p_media) <= 4.0 * np.hypot(r1.error_mc, r2.error_mc)
+    assert r1.p_independencia == pytest.approx(r2.p_independencia, rel=1e-12)

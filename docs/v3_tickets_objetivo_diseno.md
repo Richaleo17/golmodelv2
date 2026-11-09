@@ -1,7 +1,7 @@
 # Función objetivo del ticket 5-8 (`motor/tickets.py`) · Diseño V3
 
 - Estado: aprobado · decisión cerrada
-- Versión: v0.6
+- Versión: v0.8
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`
@@ -130,6 +130,51 @@ cuota combinada ni el número de selecciones.
       `p_i`; afectan EV, que no se cachea).
     - **Cota de memoria:** cada entrada = `(n_draws,)` float ≈ 160 KB a n_draws=20000. **LRU** con tope
       configurable `cache_max_entradas` (defecto 1000 ≈ 160 MB); al excederlo, expulsión por LRU.
+    - **Precisión de implementación (refuerza la invalidación, no la relaja):** los factores compartidos
+      `g`/`u_ℓ` y el ruido `δ` de cada partido se generan con semillas DETERMINISTAS e independientes del
+      resto de la cesta (`SeedSequence([semilla, canal, liga|partido])`), de modo que `p_i⁽ˢ⁾` de un partido
+      NO depende de qué otras piernas lo acompañan (condición necesaria para que la caché sea válida entre
+      cestas). La clave incluye además `liga`, `selecciones`, `τ_local`, `τ_visit` y `λ`.
+13. **Contrato de salida `tickets.py → cerebro2` (fijado ANTES de implementar).** Cerebro 2 recibe una
+    `SalidaTickets` con: (a) el ticket propuesto (o ABSTENCIÓN) y el mejor factible por tamaño; (b) el
+    `RegistroAuditoria` completo, que incluye TODAS las cestas evaluadas con su motivo de rechazo — no para
+    que Cerebro 2 re-decida con ellas, sino para atribuir el fallo (`tickets_sin_valor` vs
+    `incertidumbre_gate_fallo`) y para los contrafactuales de su metacalibración.
+    - **Motivo de rechazo: POR CONSTRAINT**, nunca solo agregado: cada rechazo es `(constraint, valor,
+      umbral)`; además se entregan los conteos agregados por constraint.
+    - **`p_conservadora` por pierna Y del ticket:** por pierna `(p_calibrada, p_conservadora, EV_cons,
+      CRS, calibrador_version, calibrado, cuota)`; del ticket `(p_media, p_conservadora, p_independencia,
+      lift, ic, error_mc)`. El `lift` conjunto y el `p_independencia` viajan siempre (§10.1-F).
+    - **Techo y promoción:** `techo_estado` ∈ {`CON_RESERVAS` si `modo_experimental`, `SIN_TOPE`}; `promovible
+      = not modo_experimental`. `tickets.py` NUNCA emite APROBADO (decisión 7): comunica el techo y Cerebro 2
+      decide dentro de él.
+    - **Versiones registradas:** `version_calibracion_mercado` (versiones de calibrador de las piernas),
+      `version_incertidumbre`, `version_dependencia`, `version_calibracion_tickets`, `c`/`σ`/`σ_g` vigentes,
+      `modo_experimental`, constraints aplicados (snapshot de umbrales + su hash), cestas evaluadas.
+    - **Cuota:** `cuota_combinada` es el producto de las cuotas por pierna: una cuota TEÓRICA bajo
+      independencia de precios, NO una cuota ejecutable. La cuota combinada real de la casa puede diferir
+      de forma material (p. ej. en un SGP o con recargos de parlay) y no se observa por separado en v1. Esta
+      semántica se REGISTRA en `RegistroAuditoria.cuota_combinada_tipo` y en cada `Ticket` (Cerebro 2 no
+      debe tratarla como precio disponible); el EV de ticket hereda esa limitación.
+    - **Persistencia (BLOQUEANTE para producción):** `RegistroAuditoria.a_json()` es el payload exacto de
+      `auditoria_decisiones`. La migración 004, que crea esa tabla, es el PRIMER paso de `cerebro2/` y
+      `tickets.py` NO debe usarse en producción hasta que la tabla exista en la BD y se persista el registro.
+    - **Piernas con push:** v1 solo admite selecciones de `APTAS_PARLAY` (como v2); la capa 3b de
+      distribución de pago no aplica hasta que se admitan.
+    - **Etapa 1 del cómputo en dos etapas:** el pre-ranking barato se hace A NIVEL DE PIERNA (crecimiento
+      log individual con `p_conservadora` de la pierna, una pierna por partido, top-N) y el scoring exacto
+      de cada cesta es barato gracias a la caché; el tamaño se elige por `G(T)` dentro de 5-8 (no se
+      prioriza el 8) y solo si no hay factible se admiten reducidas 2-4.
+14. **El ranking es crecimiento log con Kelly fraccional SIN tope de stake (aclaración a la dec. 1,
+    medida, no supuesta).** El tope `stake_max_parlay_u` pertenece al sizing (dec. 6), no al objetivo. Con el
+    tope dentro de `G`, y `f` fijo en el tope, `G ≈ f_tope·EV_cons`: el ranking degenera en EV bruto y el
+    tamaño del ticket deja de ser un resultado para ser un sesgo. MEDICIÓN (config real, 12 piernas): el tope
+    estaba activo en el 100 % de las cestas factibles (ventaja +12 %/pierna) y en el 55 % (+4 %), y en los
+    tres escenarios probados `argmax G con tope == argmax EV_cons`. Corrección: `G_ranking` usa
+    `kelly_fraccion_parlay · f*` sin tope; `stake_u` (con tope) es solo el stake propuesto y
+    `log_crecimiento_con_tope` se reporta como informativo. Test discriminante: con 5 piernas fuertes y 3
+    débiles el EV bruto elegiría 8 piernas y el crecimiento log elige 5; el auditor registra
+    `criterio_ranking`. Sigue sin haber pesos λ.
 
 ## 3. Alternativas descartadas
 
@@ -170,3 +215,5 @@ cuota combinada ni el número de selecciones.
 | v0.4 | 2026-11-09 | Operacionalización de los criterios: (i) tolerancia Wilson unilateral 95% sobre n_eff; (ii) CLV vs Pinnacle/consenso devig, yield a stake plano, tratamiento de push/void, horizonte 12 meses; (iii) discriminación por bootstrap IC 99%; orden de validación EV→IC→lift→K con re-chequeo conjunto (decisión 10); criterio de viabilidad ≥1 ticket/15 días (decisión 11). |
 | v0.5 | 2026-11-09 | Separación de muestras: validación con CLV de backtest (proxy) sobre cestas ex-post walk-forward OOS (ii-a) vs re-validación con CLV real en paper trading (ii-b); disciplina walk-forward del backtest explícita (iv); viabilidad = dos condiciones obligatorias, validación en backtest Y viabilidad/re-validación en vivo (decisión 11). |
 | v0.6 | 2026-11-09 | Decisión 12: política de caché de p_i por partido para tickets.py (clave con τ/σ/semilla/n_draws → invalidación automática; TTL por corrida, no persiste; LRU con tope configurable). Fijada a priori (condición 4 de la vectorización). |
+| v0.7 | 2026-11-09 | Decisión 13: contrato de salida tickets→cerebro2 fijado antes de implementar (motivo POR constraint con valor/umbral, p_conservadora por pierna y del ticket, lift conjunto, techo/promovible, versiones y c/σ registradas; tickets nunca emite APROBADO). Precisión a la dec. 12: semillas deterministas por liga/partido (caché válida entre cestas). Piernas con push fuera en v1; pre-ranking a nivel de pierna. |
+| v0.8 | 2026-11-09 | Dec. 14: el ranking usa crecimiento log SIN tope de stake (con tope degeneraba en EV bruto: medido, argmax G == argmax EV en 3/3 escenarios y tope activo en 55-100 % de las cestas); `log_crecimiento_con_tope` informativo. Dec. 13: `cuota_combinada` registrada como teórica bajo independencia de precios (no ejecutable); migración 004 = primer paso de cerebro2 y bloqueante para producción. |

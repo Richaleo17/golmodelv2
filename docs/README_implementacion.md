@@ -62,6 +62,12 @@ primero la maquinaria de `dependencia.py` **parametrizada** por τ/σ, luego se 
 Cada etapa se valida antes de pasar a la siguiente; nada se promueve de `modo_experimental` hasta que los
 umbrales pre-registrados pasen su validación OOS.
 
+**Gate de producción de `tickets.py` (BLOQUEANTE).** `tickets.py` produce un `RegistroAuditoria` cuyo
+`a_json()` es el payload de `auditoria_decisiones`, pero esa tabla aún no existe. Por eso **la migración 004
+(`db/migraciones/004_cerebro2.sql`, con `evaluaciones_riesgo` y `auditoria_decisiones`) es el PRIMER paso de
+`cerebro2/`, no un paso posterior**, y `tickets.py` no debe usarse en producción hasta que la tabla exista en
+la BD y el registro se persista. Hasta entonces el sistema permanece en `modo_experimental`.
+
 ## 3. Deuda técnica (con fecha, no "mejora futura" genérica)
 
 - **2026-11-09 · Rendimiento de `motor/dependencia.py` (BLOQUEA `tickets.py`).** El núcleo reconstruye la
@@ -79,3 +85,19 @@ umbrales pre-registrados pasen su validación OOS.
     cesta (20k draws × 6 piernas), pico **7.8 MB**; **budget §2.7 (≤50 ms, ≤50 MB) cumplido**. Equivalencia
     EXACTA con el bucle de referencia (conservado solo en `@pytest.mark.slow`). Clip de λ `[0.02, 12]`
     preservado con test del caso τ grande. Lever para margen en producción: `n_draws` con control de `error_mc`.
+
+## 4. Limitaciones explícitas de v1 (no son deuda oculta)
+
+- **Sin selecciones con push.** `tickets.py` solo admite selecciones de `APTAS_PARLAY` (como v2): quedan fuera
+  los hándicaps asiáticos de línea entera (±1.0), que pueden devolver la apuesta. Consecuencia: la capa 3b de
+  distribución de pago (cuota reducida por push/void, `parlay_liquidaciones='reducido'`) **no está implementada**
+  porque no puede darse con las selecciones admitidas. Admitirlas exige diseñar esa capa primero. Una pierna con
+  push se rechaza con el constraint `seleccion_con_push` (queda en la auditoría).
+- **`cuota_combinada` es teórica, no ejecutable.** Es el producto de las cuotas por pierna bajo independencia de
+  precios; la cuota combinada real de la casa (en particular un SGP) puede diferir de forma material. Se registra
+  como `cuota_combinada_tipo` en la auditoría y en cada ticket; el EV de ticket hereda esa limitación.
+- **`max_edad_horas = 24` es un placeholder** (pre-registro §2.8): laxo cerca del inicio del partido; el
+  refinamiento dependiente del tiempo al inicio requiere añadir la hora de inicio a `Candidata`.
+- **El ranking usa crecimiento log SIN tope de stake** (diseño de tickets, dec. 14); el tope solo acota el stake.
+- **Todo está verificado con datos sintéticos; nada está validado con datos reales.** `modo_experimental`
+  permanece activo; solo el backtest OOS real puede desactivarlo.

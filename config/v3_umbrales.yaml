@@ -41,10 +41,25 @@ umbrales_provisionales:
   viabilidad_min_tickets: 1      # U11 generación en vivo
   viabilidad_por_dias: 15        # U11
 
-# --- Gestión de banca (reusa bankroll.py) ---
+# --- Gestión de banca (reusa bankroll.py; valores iguales a config/config.yaml de v2) ---
 bankroll:
   kelly_fraccion_simple: 0.25
   kelly_fraccion_parlay: 0.10
+  unidad_pct_banca: 0.01
+  stake_max_parlay_u: 0.5
+
+# --- Constructor de tickets (motor/tickets.py) · pre-registro §2.8 · PROVISIONAL ---
+tickets:
+  tamano_alta_min: 5
+  tamano_alta_max: 8
+  tamano_reducido_min: 2             # reducidas 2-4 solo si no hay factible de 5-8; <2 no genera
+  top_n_piernas: 12                  # acotador de cómputo (NO umbral de calidad)
+  max_cestas_evaluadas: 20000        # si se excede -> error explícito, nunca truncado en silencio
+  p_min_pierna: 0.75                 # Master Prompt §10.1-C
+  crs_max_pierna: 40                 # Master Prompt §8/§10.1-C
+  max_edad_horas: 24
+  ev_cons_pierna_min: 0.0
+  cache_max_entradas: 1000           # ≈160 MB a n_draws=20000 (dec. 12)
 
 # --- Probabilidad conjunta (motor/dependencia.py) ---
 dependencia:

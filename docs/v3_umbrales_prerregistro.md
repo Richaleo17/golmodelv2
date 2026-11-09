@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.5
+- Versión: v0.7
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -185,6 +185,42 @@ el bucle Python actual de `dependencia.py` se EXCEDE → **vectorización requer
 segmentos_calibrados, segmentos_fallback, c_seg/σ/σ_g, calibrado_con`. `calibrado_con="sinteticos"` **NO**
 desactiva `modo_experimental`; solo el backtest OOS real puede.
 
+### 2.8 Umbrales de pierna, no-relajación y bandera de `motor/tickets.py` — fijado ANTES de implementar (v0.6, 2026-11-09)
+
+**Filtros de pierna (provisionales; origen: filtros iniciales del Master Prompt §8/§10.1-C, "a probar en
+backtesting, no ajustar para fabricar tickets"):** `p_calibrada ≥ 0.75`; CRS disponible y `< 40` y sin veto;
+`EV_cons_pierna > 0`; dato no posterior a `ahora` (anti look-ahead) y con edad ≤ **24 h**; selección en
+`APTAS_PARLAY`. `top_n_piernas = 12` es un acotador de cómputo (no un umbral de calidad).
+
+**No-relajación (fail-closed):** todos los umbrales salen de `cfg`; ninguna ruta de código los modifica. Sin
+cesta factible → **ABSTENCIÓN** con el registro de qué constraint bloqueó cada candidata. Relajar = otra
+versión de config (otro `config_hash_restricciones` visible en la auditoría), nunca una decisión de runtime.
+
+**Bandera:** `modo_experimental` es parámetro obligatorio sin default (keyword-only); `tickets.py` nunca
+emite APROBADO: comunica `techo_estado` (`CON_RESERVAS` con la bandera) y `promovible = not modo_experimental`.
+
+**Reproducibilidad:** misma entrada y misma `semilla`/`ahora` ⇒ salida idéntica (sin lecturas de reloj dentro).
+
+**Criterio de ranking:** crecimiento log con Kelly fraccional SIN tope de stake (diseño de tickets, dec. 14);
+ranking por EV bruto o con tope activo queda excluido (sesgo hacia los tickets más largos).
+
+**Justificación de `max_edad_horas = 24` (provisional; NO derivado de datos).** Es una elección a priori y
+debe leerse como un placeholder auditable:
+- *Qué acota:* la antigüedad de NUESTRA información (`ahora − info_hasta`), no cuándo publicó la casa la línea.
+  Por eso es independiente del patrón de publicación: aun aceptando que unas casas publiquen ~72 h antes y
+  otras ~2 h antes, una línea publicada hace 72 h es válida si la capturamos hace ≤ 24 h, y una publicada
+  hace 2 h también.
+- *Por qué 24 h:* v2 opera por jornada y expone la frescura por fuente (`v_frescura`); 24 h es el techo
+  coherente con una actualización diaria y con el horizonte de decisión de un ticket de una jornada.
+- *Limitación reconocida:* es LAXA cerca del inicio (las cuotas se mueven más en las últimas horas y las
+  alineaciones se confirman ~1 h antes: un dato de 24 h a 2 h del inicio es muy viejo) e irrelevante lejos
+  del inicio. Una regla correcta dependería del tiempo al inicio (p. ej. `min(24 h, fracción del tiempo
+  restante)`); `Candidata` no lleva hoy la hora de inicio, así que no se implementa en v1.
+- *Mitigación:* Cerebro 2 aplica su propio gate de frescura (AVISO por dato viejo, ABSTENCIÓN por `info_hasta`
+  demasiado antiguo) y `info_posterior_a_ahora` bloquea datos del futuro.
+- *Validación OOS:* sensibilidad del CLV por tramos de antigüedad del dato; si discrimina, se endurece (y se
+  puede hacer dependiente del tiempo al inicio); nunca se relaja.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -220,3 +256,5 @@ desactiva `modo_experimental`; solo el backtest OOS real puede.
 | v0.3 | 2026-11-09 | §2.5 (fijado antes de implementar): gate de τ/σ con cobertura BILATERAL (sub/sobre-cobertura, ambas en incertidumbre) separada de la falta de valor económico (tickets); contrato de interfaz `SeleccionCalibrada` (dataclass, p_cruda+flag en fallback, versión ausente = error fail-closed); desambiguación ABSTENCIÓN (p_conservadora no computable → ticket no se genera) vs CON_RESERVAS (τ/σ no validado pero computable → experimental, no promovido); fallback global con nulo explícito; VersionIncertidumbre. |
 | v0.4 | 2026-11-09 | §2.6: gate de `motor/dependencia.py` fijado antes de implementar — invariante de reducción a independencia (σ=τ=0 → p_media=p_independencia, lift=1), gate estadístico diferido a cobertura de ticket (U1) + lift_max (U4), negativo obligatorio (piernas correlacionadas → lift≠1), reproducibilidad por semilla, contrato de entrada (FactorSampler inyectado). |
 | v0.5 | 2026-11-09 | §2.7: gate bilateral a nivel de ticket de `calibracion_tickets.py` (objetivo 1−q, δ=0.10, ≥8 buckets, ≥100 cestas/bucket), c_seg propio ≥200 cestas o fallback global con nulo, contrato de consumo para tickets.py (fail-closed sin versión, techo CON_RESERVAS en modo_experimental, registro en auditoria), presupuesto ≤30 min/(temporada×liga) con vectorización requerida antes de tickets.py, y VersionCalibradorTickets con `calibrado_con` (sinteticos NO desactiva modo_experimental). |
+| v0.6 | 2026-11-09 | §2.8 (fijado antes de implementar tickets.py): filtros de pierna provisionales (p≥0.75, CRS<40 sin veto, EV_cons_pierna>0, dato ≤24 h y no posterior a `ahora`, APTAS_PARLAY), top_n_piernas=12 como acotador de cómputo, no-relajación fail-closed (relajar = otro config_hash), `modo_experimental` obligatorio sin default y tickets nunca emite APROBADO, reproducibilidad por semilla/ahora. |
+| v0.7 | 2026-11-09 | §2.8: criterio de ranking = crecimiento log sin tope (excluye EV bruto); justificación explícita de `max_edad_horas=24` (provisional, no derivado de datos; acota la edad de nuestra información, no la publicación de la casa; laxo cerca del inicio, mitigado por el gate de frescura de Cerebro 2; refinamiento dependiente del inicio documentado). |

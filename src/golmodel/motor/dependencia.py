@@ -16,6 +16,7 @@ de factores. El SGP intra-partido se evalúa por intersección de celdas de la m
 from __future__ import annotations
 
 import math
+import zlib
 from dataclasses import dataclass
 
 import numpy as np
@@ -27,6 +28,7 @@ from golmodel.modelos.mercados import mascara, probabilidad
 # Guarda numérica: λ perturbada extrema (τ grande durante el ajuste) hace que la matriz
 # Dixon-Coles produzca NaN al renormalizar. Se acota a un rango futbolístico sano.
 LAMBDA_MIN, LAMBDA_MAX = 0.02, 12.0
+VERSION = "dependencia-v1"          # identificador de versión del algoritmo (auditoría de tickets)
 GMAX = 10
 _G = np.arange(GMAX + 1)
 _FACT = np.array([math.factorial(k) for k in range(GMAX + 1)], dtype=float)
@@ -129,13 +131,72 @@ def probabilidad_conjunta(piernas: list[Pierna], sampler: FactorSampler, cfg: di
         lam_vis = np.clip(p.lambda_visitante * g * u[p.liga] * d_vis, LAMBDA_MIN, LAMBDA_MAX)
         acum *= _p_pierna_vec(lam_loc, lam_vis, p.rho, maskM)
 
+    return _resumir(acum, float(p_indep), q, (ic_lo, ic_hi), semilla)
+
+
+def _resumir(acum: np.ndarray, p_indep: float, q: float, ic: tuple[float, float], semilla: int) -> ResultadoConjunta:
+    """Estadísticos de la distribución de Π p_i (un solo np.quantile con los 3 cuantiles)."""
+    S = int(acum.shape[0])
     p_media = float(acum.mean())
-    p_cons = float(np.quantile(acum, q))
-    ic = (float(np.quantile(acum, ic_lo)), float(np.quantile(acum, ic_hi)))
+    cons, lo, hi = (float(x) for x in np.quantile(acum, [q, ic[0], ic[1]]))
     lift = float(p_media / p_indep) if p_indep > 0 else float("inf")
     error_mc = float(acum.std(ddof=1) / np.sqrt(S)) if S > 1 else 0.0
     metodo = "independencia" if np.allclose(acum, acum[0]) else "montecarlo_jerarquico"
-    return ResultadoConjunta(p_media, p_cons, float(p_indep), ic, lift, error_mc, metodo, int(semilla), S)
+    return ResultadoConjunta(p_media, cons, float(p_indep), (lo, hi), lift, error_mc, metodo, int(semilla), S)
+
+
+# --------------------------------------------------------------------- caché-friendly (usado por tickets.py)
+#
+# Para reutilizar p_i⁽ˢ⁾ de un partido entre cestas distintas (política de caché, dec. 12), los factores
+# compartidos y el ruido idiosincrático NO pueden depender de qué otras piernas acompañan al partido.
+# Se generan con semillas deterministas por canal: SeedSequence([semilla, canal, liga|partido]).
+
+@dataclass(frozen=True, eq=False)
+class Factores:
+    g: np.ndarray                     # (S,) factor global
+    u: dict                           # liga -> (S,) factor de liga
+    n_draws: int
+    semilla: int
+
+
+def _rng(semilla: int, *claves: int) -> np.random.Generator:
+    return np.random.default_rng(np.random.SeedSequence([int(semilla), *[int(c) for c in claves]]))
+
+
+def factores_compartidos(sampler: FactorSampler, ligas, n_draws: int, semilla: int) -> Factores:
+    """g y u_ℓ con rng propio por canal: `u[liga]` es idéntico sea cual sea el conjunto de ligas pedido."""
+    g, _ = sampler.muestrear([], n_draws, _rng(semilla, 0))
+    u: dict = {}
+    for liga in sorted(set(ligas)):
+        _, ul = sampler.muestrear([liga], n_draws, _rng(semilla, 1, zlib.crc32(liga.encode("utf-8"))))
+        u[liga] = ul[liga]
+    return Factores(g, u, int(n_draws), int(semilla))
+
+
+def p_pierna_sorteos(p: Pierna, f: Factores, semilla: int) -> tuple[np.ndarray, float]:
+    """(p_i⁽ˢ⁾ de los S sorteos, p_i(θ̂)) de UNA pierna. Determinista en (pierna, factores, semilla):
+    no depende de las demás piernas de la cesta ⇒ cacheable entre cestas."""
+    S = f.n_draws
+    rng = _rng(semilla, 2, p.partido_id)
+    d_loc = np.exp(rng.normal(0.0, p.tau_local, S)) if p.tau_local > 0 else np.ones(S)
+    d_vis = np.exp(rng.normal(0.0, p.tau_visit, S)) if p.tau_visit > 0 else np.ones(S)
+    lam_loc = np.clip(p.lambda_local * f.g * f.u[p.liga] * d_loc, LAMBDA_MIN, LAMBDA_MAX)
+    lam_vis = np.clip(p.lambda_visitante * f.g * f.u[p.liga] * d_vis, LAMBDA_MIN, LAMBDA_MAX)
+    maskM = _mascara_pierna(p.selecciones)
+    arr = _p_pierna_vec(lam_loc, lam_vis, p.rho, maskM)
+    p_indep = float(_p_pierna_vec(np.array([p.lambda_local]), np.array([p.lambda_visitante]), p.rho, maskM)[0])
+    return arr, p_indep
+
+
+def resumir_conjunta(arrays: list[np.ndarray], p_indeps: list[float], cfg: dict, semilla: int) -> ResultadoConjunta:
+    """Conjunta de una cesta a partir de los p_i⁽ˢ⁾ ya calculados (de caché o frescos)."""
+    dcfg = cfg.get("dependencia", {})
+    q = float(dcfg.get("percentil_conservador", cfg.get("incertidumbre", {}).get("q", 0.25)))
+    ic_lo, ic_hi = dcfg.get("ic", [0.025, 0.975])
+    acum = arrays[0].copy()
+    for a in arrays[1:]:
+        acum *= a
+    return _resumir(acum, float(np.prod(p_indeps)), q, (ic_lo, ic_hi), semilla)
 
 
 # --------------------------------------------------------------------- referencia (bucle, solo test)
