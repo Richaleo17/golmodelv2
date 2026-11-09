@@ -46,15 +46,30 @@
 
 ## 2. Orden de implementación (respeta dependencias de datos)
 
-**`calibracion_mercado.py` → `incertidumbre` → `dependencia` → `tickets` → `cerebro2`.**
+**`calibracion_mercado.py` → `incertidumbre` → `dependencia` → `calibracion_tickets` → `tickets` → `cerebro2`.**
 
-Razón: `calibracion_mercado.py` produce `p_calibrada` (el **nivel** de la probabilidad), que todo lo de
-abajo consume. Si `cerebro2/` se construyera antes de que `calibracion_mercado.py` esté estable, el auditor
-heredaría un input no calibrado.
+Razón: `calibracion_mercado.py` produce `p_calibrada` (el **nivel**), que todo lo de abajo consume.
+**`backtest/calibracion_tickets.py` va ANTES que `tickets.py`**: calibra `c_seg`/`σ` (el ancho) usando la
+maquinaria de `dependencia.py`; si `tickets.py` consumiera `p_conservadora`/`lift` con `c_seg`/`σ` sin
+calibrar, heredaría el mismo error que evitamos con el bucle incertidumbre→calibración. `cerebro2/` va al
+final, para no auditar sobre inputs no calibrados.
 
 Nota de acoplamiento: `incertidumbre` (τ/σ) se define antes que `dependencia` (el Monte Carlo que los
-consume), pero `backtest/calibracion_tickets.py` **ajusta** τ/σ usando ese mismo Monte Carlo. Por eso se
-construye primero la maquinaria de `dependencia.py` **parametrizada** por τ/σ, y luego se calibran los τ/σ.
+consume), pero `calibracion_tickets.py` **ajusta** τ/σ usando ese mismo Monte Carlo. Por eso se construye
+primero la maquinaria de `dependencia.py` **parametrizada** por τ/σ, luego se calibran los τ/σ en
+`calibracion_tickets.py`, y solo entonces `tickets.py`.
 
 Cada etapa se valida antes de pasar a la siguiente; nada se promueve de `modo_experimental` hasta que los
 umbrales pre-registrados pasen su validación OOS.
+
+## 3. Deuda técnica (con fecha, no "mejora futura" genérica)
+
+- **2026-11-09 · Rendimiento de `motor/dependencia.py` (BLOQUEA `tickets.py`).** El núcleo reconstruye la
+  matriz Dixon-Coles por sorteo en un bucle Python: `O(n_draws × n_piernas)` construcciones. A `n_draws=20000`
+  son segundos–minutos por ticket; `tickets.py` evalúa combinaciones de 5-8 piernas (cientos–miles de cestas)
+  × `n_draws` → horas, inviable. **Antes de escribir `tickets.py` debe existir un plan de rendimiento**, con
+  al menos una de: (a) vectorizar la matriz sobre sorteos (construir las 121 celdas para los `S` valores de λ
+  de una vez con numpy, sin bucle Python); (b) caché de `p_i⁽ˢ⁾` por partido reutilizada entre cestas que
+  comparten ese partido (ya previsto en `v3_tickets_objetivo_diseno.md`); (c) reducir `n_draws` con control de
+  error (elegir `S` por `error_mc` objetivo); (d) muestreo analítico donde el evento lo permita. Responsable de
+  cerrar esta deuda: el diseño de rendimiento previo a `tickets.py`.

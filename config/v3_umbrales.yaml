@@ -46,6 +46,12 @@ bankroll:
   kelly_fraccion_simple: 0.25
   kelly_fraccion_parlay: 0.10
 
+# --- Probabilidad conjunta (motor/dependencia.py) ---
+dependencia:
+  n_draws: 20000
+  percentil_conservador: 0.25        # = q (coherente con incertidumbre)
+  ic: [0.025, 0.975]
+
 # --- Muestras de validación (ver pre-registro §2.2) ---
 validacion:
   cobertura_min_buckets: 8

@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.3
+- Versión: v0.4
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -146,6 +146,23 @@ explícito (`fuente="global"`, `calibrado_incertidumbre=False`); el Cerebro 2 lo
 **VersionIncertidumbre (contrato 4):** `datos_hasta`, `segmento`, `metodo`, `config_hash` (+ params:
 `c_seg`, `σ_ℓ`, `σ_g`, `n0`). Inmutable, reconstruible punto-en-el-tiempo.
 
+### 2.6 Gate de `motor/dependencia.py` — fijado ANTES de implementar (v0.4, 2026-11-09)
+
+- **Invariante de módulo (unit test duro):** con `σ_g=σ_ℓ=0` y todos los `τ=0`, la conjunta se reduce
+  EXACTAMENTE al producto ingenuo: `p_media == p_independencia`, `lift==1`, `metodo="independencia"`. Si no
+  se cumple, es un bug.
+- **Gate estadístico de despliegue:** la validez de la conjunta se mide por **cobertura a nivel de TICKET**
+  (misma prueba que U1, sobre la `p_conservadora` del ticket vs frecuencia real de "ganan todas"), en
+  `backtest/calibracion_tickets.py`; y por `lift ≤ lift_max` (U4) en `tickets.py`. `dependencia.py` por sí
+  sola no se "aprueba": su salida se valida junto con τ/σ en la calibración de cestas.
+- **Negativo obligatorio:** con piernas correlacionadas (`σ_ℓ>0` en una liga compartida) `lift ≠ 1` de forma
+  material → el producto por independencia (`math.prod`) es incorrecto; el test verifica que la conjunta MC
+  se separa del ingenuo.
+- **Reproducibilidad/versionado:** `ResultadoConjunta` lleva `semilla`, `n_draws`, `metodo`; mismo seed →
+  salida idéntica. El ticket guarda `metodo_conjunta`, `semilla`, `n_draws`.
+- **Contrato de entrada:** consume un `FactorSampler` inyectado (de `incertidumbre`), los `τ_i` y, por
+  pierna, `(λ_local, λ_visit, ρ, liga, selecciones)`; nunca reimplementa el muestreo de factores.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -179,3 +196,4 @@ explícito (`fuente="global"`, `calibrado_incertidumbre=False`); el Cerebro 2 lo
 | v0.1 | 2026-11-09 | Pre-registro consolidado U1–U11 (provisionales), separación muestra backtest/vivo, y árbol de decisión de ajuste (input antes que umbral; nunca más laxo). |
 | v0.2 | 2026-11-09 | Enmienda del gate de despliegue del calibrador de nivel (§2.4): ECE absoluto → Wilson por bin primario + ECE relativo al suelo de ruido (k=1.5). Motivo: el ECE absoluto rechazaba calibradores válidos por varianza a n pequeño. Más estricto en ambos regímenes, no más laxo. |
 | v0.3 | 2026-11-09 | §2.5 (fijado antes de implementar): gate de τ/σ con cobertura BILATERAL (sub/sobre-cobertura, ambas en incertidumbre) separada de la falta de valor económico (tickets); contrato de interfaz `SeleccionCalibrada` (dataclass, p_cruda+flag en fallback, versión ausente = error fail-closed); desambiguación ABSTENCIÓN (p_conservadora no computable → ticket no se genera) vs CON_RESERVAS (τ/σ no validado pero computable → experimental, no promovido); fallback global con nulo explícito; VersionIncertidumbre. |
+| v0.4 | 2026-11-09 | §2.6: gate de `motor/dependencia.py` fijado antes de implementar — invariante de reducción a independencia (σ=τ=0 → p_media=p_independencia, lift=1), gate estadístico diferido a cobertura de ticket (U1) + lift_max (U4), negativo obligatorio (piernas correlacionadas → lift≠1), reproducibilidad por semilla, contrato de entrada (FactorSampler inyectado). |
