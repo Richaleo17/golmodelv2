@@ -1,7 +1,7 @@
 # Muestreador de incertidumbre τ/σ y su calibración · Diseño V3
 
 - Estado: aprobado
-- Versión: v0.3
+- Versión: v0.5
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`
@@ -28,8 +28,15 @@ control de calidad sobre leakage, cuantil q, sesgo de supervivencia y correlaci�
      dentro de la liga, que es donde hay causa compartida real).
    - `σ_g`: factor log del nivel más alto de la jerarquía. **Por defecto = 0** (ver decisión 9).
 3. **Generación de τ_i** (no se ajusta un τ libre por partido, es inidentificable):
-   `τ_i = c_seg(i) · (1/√peso_efectivo_i) [+ término Hessiano si disponible]`, con
-   `seg = (liga, familia de mercado, rango de cuota)`. Se calibra `{c_seg}, {σ_ℓ}, σ_g, n₀`.
+   `τ_i = c_seg(i) · s_i`, con `seg = (liga, familia de mercado, rango de cuota)` y `s_i` = desviación
+   estándar de estimación de la fuerza del equipo. **`s_i` tiene fuente principal y proxy, ALTERNATIVAS
+   (no aditivas):** si el optimizador guardó la covarianza del MLE penalizado (Hessiano / información de
+   Fisher, en `versiones_modelo.convergencia`), `s_i` = ese error estándar; si no, la proxy
+   `s_i = 1/√peso_efectivo_i`. **Por qué √:** el error estándar de un estimador escala como
+   `1/√(tamaño efectivo)` (teoría de muestreo). **`peso_efectivo`** = campo real del esquema
+   `parametros_equipo.peso_efectivo` = suma de pesos de decaimiento `φ(t)` de los partidos del equipo
+   (nº efectivo de partidos, ponderado por recencia); **NO es el `n_eff` del pooling** (ese es nº de
+   partidos distintos). `c_seg` es la escala por segmento que se calibra `{c_seg}, {σ_ℓ}, σ_g, n₀`.
 4. **Fuente de calibración (`calibracion_tickets.py`, walk-forward):**
    - Nivel base de τ por selección: fiabilidad por segmento (Brier, ECE) + **cobertura de intervalos**.
    - Factores compartidos σ_ℓ, σ_g: **log-loss del indicador "ganan todas"** sobre cestas históricas
@@ -87,6 +94,16 @@ control de calidad sobre leakage, cuantil q, sesgo de supervivencia y correlaci�
     provisional", se bloquea su promoción a paper/real, y `auditoria_decisiones` registra el
     `calibrador_incertidumbre_id`, q y σ_g vigentes. El flag solo se limpia cuando 12-13 se cumplen, y
     esa limpieza es un evento versionado y auditado. (Se formaliza en `v3_tickets_objetivo_diseno.md`.)
+15. **Inversión de dependencia con `dependencia.py` (orden de implementación).** `incertidumbre.py` POSEE la
+    interfaz `FactorSampler` (Protocol) y su implementación por defecto (`FactorSamplerJerarquico`, con
+    `σ_g=0` por defecto); **NO importa `dependencia.py`**. `dependencia.py` (que llega después) CONSUME un
+    `FactorSampler` inyectado. La dependencia apunta `dependencia → incertidumbre`, coherente con el orden
+    (incertidumbre primero). Prohibido importar desde `dependencia.py`.
+16. **Hessiano reservado, proxy por defecto.** El modelo base (Dixon-Coles+xG, `scipy.optimize.minimize`)
+    NO expone hoy el Hessiano/Fisher (`versiones_modelo.convergencia` guarda iteraciones/nll/mensaje, no la
+    covarianza). Por tanto `s_i = 1/√peso_efectivo` es la implementación por defecto y el Hessiano es una
+    **interfaz reservada**: parámetro opcional `s_hessiano: float | None = None` que, si en el futuro se
+    persiste, se inyecta. Nada de código aspiracional que falle con AttributeError.
 
 ## 3. Alternativas descartadas
 
@@ -128,3 +145,5 @@ control de calidad sobre leakage, cuantil q, sesgo de supervivencia y correlaci�
 | v0.1 | 2026-11-09 | Diseño inicial del muestreador τ/σ y su calibración. |
 | v0.2 | 2026-11-09 | Cestas de calibración ex-post sin filtrar (anti-sesgo de selección); σ_g por defecto 0 y evidencia-dependiente; q explícito como política global no adaptativa + test de cobertura; leakage como garantía dura explícita. |
 | v0.3 | 2026-11-09 | Pre-registro de los protocolos de aceptación de q (cobertura: ≥8 buckets, ≥200 n_eff/bucket, umbral 0.75/δ=0.10, cap 5 pp) y de activación de σ_g (mejora log-loss ≥1%, bootstrap IC 99%, ≥2 folds); gate `modo_experimental` obligatorio. Aprobado. |
+| v0.4 | 2026-11-09 | Aclaración de la decisión 3: `τ_i = c_seg·s_i` con `s_i` = Hessiano (fuente principal) o `1/√peso_efectivo` (proxy), ALTERNATIVAS no aditivas; justificación de √ (SE∝1/√n); `peso_efectivo` (campo del esquema, ponderado por recencia) ≠ `n_eff` del pooling. |
+| v0.5 | 2026-11-09 | Decisiones de orden de implementación: 15) `incertidumbre.py` posee la interfaz `FactorSampler` e inyecta; no importa `dependencia.py` (inversión de dependencia). 16) Hessiano NO expuesto por el modelo base → proxy `1/√peso_efectivo` por defecto, Hessiano como interfaz reservada (`s_hessiano=None`). |

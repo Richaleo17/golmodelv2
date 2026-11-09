@@ -87,3 +87,64 @@ def test_version_serializable():
     j = v.a_json()
     assert j["datos_hasta"] == "2026-01-01T00:00:00"
     assert j["segmento"] == ["EPL", "OU:2.5", "medio"]
+
+
+# --- Punto 1: reproducibilidad punto-en-el-tiempo -------------------------------
+
+def test_reproducibilidad_determinista():
+    # Misma entrada → mismo output (sin aleatoriedad ni estado global).
+    p, y = _datos(1.8, 6000, seed=10)
+    h = 3000
+    r1 = cm.seleccionar(p[:h], y[:h], p[h:], y[h:], 2, h, {})
+    r2 = cm.seleccionar(p[:h], y[:h], p[h:], y[h:], 2, h, {})
+    assert r1.metodo == r2.metodo and r1.calibrador.params == r2.calibrador.params
+    q = np.linspace(0.05, 0.95, 20)
+    assert np.allclose(r1.calibrador.aplicar(q), r2.calibrador.aplicar(q))
+
+
+def test_reconstruccion_desde_version():
+    # Reconstruir un Calibrador desde los params guardados en VersionCalibrador
+    # reproduce exactamente la predicción (contrato con incertidumbre/cerebro2).
+    from datetime import datetime
+    p, y = _datos(1.8, 4000, seed=12)
+    cal = cm.ajustar_temperature(p, y)
+    v = cm.VersionCalibrador("cm-v1", datetime(2026, 1, 1), ("EPL", "1X2", "medio"),
+                             cal.metodo, cal.params, 2000, "hash")
+    recon = cm.Calibrador(v.metodo, cal.clases, v.params)
+    assert np.allclose(recon.aplicar(p), cal.aplicar(p))
+
+
+def test_ajuste_depende_solo_de_su_ventana():
+    # El calibrador ajustado sobre el pasado NO cambia aunque existan datos futuros
+    # (pureza: el ajuste depende solo de lo que se le pasa; la separación temporal
+    # la garantiza el orquestador walk-forward de backtest/, aquí se verifica pureza).
+    p, y = _datos(1.8, 6000, seed=13)
+    h = 3000
+    a = cm.ajustar_temperature(p[:h], y[:h])
+    _ = cm.ajustar_temperature(p, y)                 # "ver el futuro" en otra llamada
+    b = cm.ajustar_temperature(p[:h], y[:h])         # re-ajuste sobre el mismo pasado
+    assert a.params == b.params
+
+
+# --- Punto 2: pooling con n_eff real --------------------------------------------
+
+def test_pooling_shrinkage_por_neff():
+    hijo = cm.Calibrador("temperature", 2, {"T": 2.0})
+    padre = cm.Calibrador("temperature", 2, {"T": 1.0})
+    pocos = cm.poolear(hijo, padre, n_eff=10, cfg={})        # w pequeño → cerca del padre
+    muchos = cm.poolear(hijo, padre, n_eff=100000, cfg={})   # w→1 → cerca del hijo
+    assert abs(pocos.params["T"] - 1.0) < abs(pocos.params["T"] - 2.0)
+    assert abs(muchos.params["T"] - 2.0) < 1e-2
+    # monotonía: más n_eff → más cerca del hijo (T sube 1→2)
+    seq = [cm.poolear(hijo, padre, n_eff=n, cfg={}).params["T"] for n in (10, 100, 1000, 10000)]
+    assert all(seq[i] <= seq[i + 1] for i in range(len(seq) - 1))
+
+
+def test_pooling_platt_interpola_y_no_mezcla_metodos():
+    hijo = cm.Calibrador("platt", 2, {"a": 0.6, "b": 0.2})
+    padre = cm.Calibrador("platt", 2, {"a": 1.0, "b": 0.0})
+    pooled = cm.poolear(hijo, padre, n_eff=150, cfg={})       # w=0.5 con n0=150
+    assert 0.6 < pooled.params["a"] < 1.0
+    # métodos distintos no se mezclan: devuelve el hijo sin tocar
+    t = cm.Calibrador("temperature", 2, {"T": 1.5})
+    assert cm.poolear(t, padre, 100, {}).metodo == "temperature"

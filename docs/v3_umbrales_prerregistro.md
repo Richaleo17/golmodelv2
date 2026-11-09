@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.2
+- Versión: v0.3
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -105,6 +105,47 @@ n crece, así que el umbral se aprieta por debajo de 0.03). No hay régimen en e
 de temperature correcto daba ECE 0.031 ≈ suelo de ruido y era rechazado por el umbral absoluto. La enmienda
 elimina ese falso rechazo sin relajar el criterio.
 
+### 2.5 Gate, contrato y protocolo de fallo de `incertidumbre` (τ/σ) — fijado ANTES de implementar (v0.3, 2026-11-09)
+
+**Gate de τ/σ — cobertura BILATERAL (ambos modos estadísticos se detectan en `incertidumbre.py`):**
+- **Demasiado estrecho → sub-cobertura:** la frecuencia observada queda por debajo de `p_conservadora` más
+  de lo tolerado por el Wilson unilateral (U1). Acción: ensanchar τ/σ; nunca bajar `q`.
+- **Demasiado ancho → sobre-cobertura:** la brecha `frecuencia − cota` es sistemáticamente MUCHO mayor que
+  la que predice `q` (la cota demasiado por debajo de lo real). Detectable en la misma prueba. Acción:
+  afinar τ/σ.
+- **NO confundir con falta de valor económico:** si τ/σ está bien calibrado y aun así ningún ticket supera
+  `EV_cons`/viabilidad (U6/U11), eso es ausencia de edge, NO fallo del calibrador. En `auditoria_decisiones`
+  se separa `incertidumbre_gate_fallo` (estadístico, en incertidumbre) de `tickets_sin_valor` (económico, en
+  tickets) — la distinción importa para la metacalibración del auditor.
+
+**Contrato de interfaz `calibracion_mercado → incertidumbre` (`@dataclass(frozen=True)`):**
+
+```
+class SeleccionCalibrada:
+    p_calibrada: float        # = p_cruda SI calibrado=False (fallback identidad); nunca None
+    calibrador_version: str   # SIEMPRE presente; "identidad:sin_calibrador" en fallback
+    calibrado: bool
+    segmento: tuple           # (liga, mercado, rango)
+```
+- `calibrado=False` → `p_calibrada = p_cruda` (no `None`), con la marca; nunca exclusión.
+- `calibrador_version` ausente/vacío → **error fail-closed** (`incertidumbre.py` rechaza la entrada): es un
+  bug de pipeline; el caso legítimo "sin calibrador" usa el sentinel, no ausencia.
+
+**ABSTENCIÓN vs CON_RESERVAS (niveles distintos; depende de si `p_conservadora` es computable):**
+- **τ/σ falla el gate pero `p_conservadora` SÍ se computa** (τ/σ provisional o fallback global): los
+  picks/tickets SE generan, el Cerebro 2 los topa en **CON_RESERVAS** y **no se promueven** a paper/real.
+  NO es abstención: es la operación experimental normal (se registran para calibración). El τ usado es el
+  provisional o el fallback global.
+- **`p_conservadora` NO se computa** para las selecciones requeridas (τ/σ del todo indisponible): el ticket
+  no se puede construir → **ABSTENCIÓN** a nivel de ticket (decisión 8). No hay atajo de `p_conservadora`
+  fija inventada.
+
+**Fallback explícito (sin τ inventado):** segmento sin datos suficientes → `τ/σ = default global` con nulo
+explícito (`fuente="global"`, `calibrado_incertidumbre=False`); el Cerebro 2 lo trata conservadoramente.
+
+**VersionIncertidumbre (contrato 4):** `datos_hasta`, `segmento`, `metodo`, `config_hash` (+ params:
+`c_seg`, `σ_ℓ`, `σ_g`, `n0`). Inmutable, reconstruible punto-en-el-tiempo.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -137,3 +178,4 @@ elimina ese falso rechazo sin relajar el criterio.
 |---|---|---|
 | v0.1 | 2026-11-09 | Pre-registro consolidado U1–U11 (provisionales), separación muestra backtest/vivo, y árbol de decisión de ajuste (input antes que umbral; nunca más laxo). |
 | v0.2 | 2026-11-09 | Enmienda del gate de despliegue del calibrador de nivel (§2.4): ECE absoluto → Wilson por bin primario + ECE relativo al suelo de ruido (k=1.5). Motivo: el ECE absoluto rechazaba calibradores válidos por varianza a n pequeño. Más estricto en ambos regímenes, no más laxo. |
+| v0.3 | 2026-11-09 | §2.5 (fijado antes de implementar): gate de τ/σ con cobertura BILATERAL (sub/sobre-cobertura, ambas en incertidumbre) separada de la falta de valor económico (tickets); contrato de interfaz `SeleccionCalibrada` (dataclass, p_cruda+flag en fallback, versión ausente = error fail-closed); desambiguación ABSTENCIÓN (p_conservadora no computable → ticket no se genera) vs CON_RESERVAS (τ/σ no validado pero computable → experimental, no promovido); fallback global con nulo explícito; VersionIncertidumbre. |
