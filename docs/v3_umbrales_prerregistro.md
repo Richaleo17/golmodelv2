@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.11
+- Versión: v0.12
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -313,6 +313,33 @@ cambio posterior se registra como enmienda con fecha.
 | `calibracion_tickets.cestas_historicas.n_cestas_por_dia = 40` | Esfuerzo de muestreo elegido por el desarrollador (presupuesto de cómputo), no un umbral de calidad. | Con ≈8 partidos/día y tamaños 2–8 da cientos de cestas por pocos días; apunta a ≥ 200 cestas por segmento y ≥ 2000 cestas entre ligas (protocolo de σ_g, decisión 13) sin salirse del presupuesto de §2.7 (≤ 30 min por temporada×liga). | Estabilidad de `c_global` y del gate con 20/40/80 cestas por día (misma semilla y semillas distintas); subir el valor si el resultado se mueve más que el error de Monte Carlo. |
 | `cerebro2.consenso_mercado.casas_elegibles = [pinnacle, bet365, williamhill, marathonbet, nordicbet, tipico_de, onexbet, unibet_se, leovegas_se, betway, interwetten, ladbrokes, vcbet]` | **Revisado en v0.10 (2026-11-09) por decisión del responsable** tras consultar la BD real (`/diag/resumen`). v0.9 traía `[pinnacle, bet365, williamhill, marathon]` (placeholder con TODO). | `marathon` no existía: la clave real de The Odds API es `marathonbet` (corregida). Las casas ya llegan a la BD desde The Odds API (región `eu`; `casa_id()` las crea solas) y las demás vienen del histórico de football-data. La columna `rol` de `casas_apuestas` **no interviene en el gate** (solo esta lista), así que la etiqueta `agregado` de bet365 es irrelevante y bet365 se mantiene. Ampliada el 2026-11-09 por el responsable con `betway`, `interwetten`, `ladbrokes` y `vcbet` (las 4 casas reales restantes del histórico) por robustez: con 7 elegibles en el histórico, si faltan 1-2 en un partido el consenso sigue teniendo ≥ 3. | Tras reingerir (`scripts/cargar_historico.py`, idempotente), medir por liga/temporada el % de partidos con ≥ 3 casas elegibles y 1X2 completo (SQL en README §6). Donde < 3, **opción (b)**: techo `CON_RESERVAS` para ese segmento, sin relajar `n_min = 3` (la regla existe para que el consenso no dependa de una sola fuente real). Supuesto aún NO verificado con un CSV real: over/under 2.5 solo trae B365 y Pinnacle ⇒ para esa familia el gate queda en `AVISO`. |
 
+#### Valores provisionales del orquestador del backtest y de «Soñadoras» (v0.12, 2026-11-10) — origen, justificación y validación
+
+| Valor (clave de config) | (a) Origen | (b) Justificación | (c) Procedimiento de validación |
+|---|---|---|---|
+| `backtest_oos.n_folds = 4`, `embargo_dias = 1` | Desarrollador, 2026-11-10 (provisional) | 5 bloques de días (1 solo-entrenamiento + 4 de test) dan varios folds OOS sin dejar cada test demasiado chico; el embargo evita entrenar con cestas aún no resueltas | Sensibilidad: repetir con 3 y 6 folds y embargo 0/2; el veredicto de los gates no debe depender de ese corte (si depende, se reporta) |
+| `backtest_oos.min_cestas_entrenamiento = 500` | Desarrollador (provisional) | No ajustar `c` con muestra chica; ≈ el `n_min` de segmento (200) × 2.5 | Comprobar cuántos folds quedan omitidos con los datos reales; bajarlo NUNCA para "pasar" |
+| `backtest_oos.folds_min_validos = 2` | Desarrollador (provisional) | Un solo fold 'ok' no es evidencia; coherente con "estable en ≥ 2 folds" de la decisión 13. Regla: cualquier fold estrecho/ancho invalida el conjunto | Revisar el reporte; cambiarlo es nueva versión de config |
+| `backtest_oos.casa = pinnacle` | Igual a `mercado.casa_referencia` (única referencia) | Casa con más historia en la BD (≈139 mil cuotas) | Confirmar con el SQL de cobertura (README §6) |
+| `protocolo_sigma_g.grid = [0.05, 0.10]` | Desarrollador (provisional): la decisión 13 no fijó los niveles | Dos niveles chicos; más niveles = más corrección de Bonferroni y más cómputo | Si algún nivel pasa en el borde, ampliar el grid como enmienda |
+| `protocolo_sigma_g`: `min_cestas_entre_ligas = 2000`, `reduccion_logloss_min = 0.01`, `ic_nivel = 0.99`, `folds_estables_min = 2` | **PRE-REGISTRADOS** (decisión 13, v0.2 del diseño de incertidumbre) | — | Implementados tal cual; el IC se corrige por Bonferroni sobre el grid (más estricto que Holm: nunca más laxo) |
+| `protocolo_sigma_g.min_dias_cobertura = 600` | Aproximación de "≥ 2 temporadas" por días de calendario (desarrollador) | La BD no etiqueta temporada por cesta | Sustituir por conteo de temporadas si se añade ese dato |
+| `protocolo_sigma_g.bootstrap_n = 2000` | Desarrollador (esfuerzo) | Precisión suficiente del cuantil 0.5 %-1 % | Estabilidad del IC con 2000/5000 |
+| `sonadoras.{p_min_pierna 0.75, crs_max 40, n_min 10, n_max 15, cuota_objetivo 100, stake_pct_banca 0.001}` | **Pedidos por el responsable** el 2026-11-10 | Producto de alta varianza; no es parte de la estrategia de inversión | No hay validación de rentabilidad que esperar: el EV del producto es negativo en la práctica. Solo se valida que la aritmética sea honesta (tests) |
+| `sonadoras.stake_max_u = 0.5` | Desarrollador: mismo tope que `bankroll.stake_max_parlay_u` | Limita el monto definido por el usuario | Revisar si el responsable quiere otro tope |
+
+### 2.10 «Soñadoras» — semántica y hallazgo aritmético (v0.12, fijado DESPUÉS de implementar — se declara)
+
+Módulo SEPARADO (`motor/sonadoras.py` + `integracion/sonadoras.py`); no toca `tickets.py`, `cerebro2/` ni el ticket del día, no usa Kelly, no se persiste y nunca es
+`APROBADA` (tope `CON_RESERVAS` aplicado en el adaptador aunque el auditor dijera otra cosa). Selecciones simples con `p_conservadora > 0.75` (cuantil q de
+`dependencia.py`) y `CRS < 40` (más los filtros de cordura de `tickets.py`: sin push, dato no obsoleto ni futuro, sin veto CRS); máx. 1 por partido; entre 10 y 15; cuota combinada
+`> 100x`; probabilidad = la conjunta REAL (`dependencia.py`, misma ruta que `tickets.py`).
+
+**Hallazgo (verificado con test):** una selección con `p_conservadora > 0.75` tiene cuota justa `< 1.333`; con 15 de ellas la cuota combinada justa es `< 75x`. Superar `100x` exige selecciones con cuota
+**por encima de la justa** según el modelo, y entonces el EV del modelo es `>= 0.75^15 × 100 − 1 ≈ +34 %` — **positivo, no negativo**. Consecuencias: (1) lo normal es `NO_DISPONIBLE` (el motivo y la cuota máxima
+alcanzable se muestran; no se relaja ningún umbral); (2) cuando existe, es porque el modelo cree ver valor donde casi siempre hay error del modelo (la propia config marca los EV grandes como sospechosos); la UI lo advierte.
+El rótulo «EV Negativo» del título se refiere a la realidad del mercado (ventaja de la casa), no al cálculo del modelo.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -354,3 +381,4 @@ cambio posterior se registra como enmienda con fecha.
 | v0.9 | 2026-11-09 | **Fijado DESPUÉS de implementar los adaptadores (se declara):** §2.5 documenta `segmento_de` (definición única del segmento compartida por vivo e histórico, omisión corregida del contrato v0.3) y la revisión aprobada de la decisión 5 (cestas anuladas/pendientes se excluyen y se cuentan); §2.9 registra con origen, justificación y procedimiento de validación los valores provisionales de integración (`rangos_cuota`, `c_global=1.0`, `paso_dias=7`, `n_cestas_por_dia=40`, `casas_elegibles`) y el hallazgo de que el catálogo real solo tiene 2 casas. No cambia ningún umbral pre-registrado. |
 | v0.10 | 2026-11-09 | §2.9: `casas_elegibles` revisada con datos de la BD real (clave `marathonbet`; añade `nordicbet`, `tipico_de`, `onexbet`, `unibet_se`, `leovegas_se`; bet365 se mantiene) y el cargador histórico (`football_data_csv.CASAS`) amplía a B365/BW/IW/LB/PS/WH/VC. Cambio de datos/configuración, no de umbrales: `n_min = 3` y la regla fail-closed no se tocan. Se declara que (1) la reingesta con datos reales NO se ejecutó en esta sesión y (2) que el gate ≥ 3 casas es condición necesaria, no suficiente, de la ruta `APROBADO`. |
 | v0.11 | 2026-11-09 | §2.9: `casas_elegibles` suma `betway`, `interwetten`, `ladbrokes`, `vcbet` (decisión del responsable, robustez del consenso; `n_min = 3` intacto). §2.7: la calibración de tickets usa ahora la MISMA secuencia aleatoria que `tickets.py` (`probabilidad_conjunta` compone las primitivas de `dependencia.py`); igualdad bit a bit verificada. No cambia ningún umbral ni el estimador: cambia solo la realización de Monte Carlo de la ruta de calibración, por lo que los `c_seg` ajustados antes de esta fecha (ninguno real) quedan obsoletos. |
+| v0.12 | 2026-11-10 | §2.9: parámetros del orquestador del backtest OOS y de «Soñadoras» con origen/justificación/validación; §2.10 nuevo: semántica de «Soñadoras» y su hallazgo aritmético (p_conservadora > 0.75 ⇒ EV del modelo > 0 cuando existe). Fijado DESPUÉS de implementar. No cambia ningún umbral previo. |

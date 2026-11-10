@@ -112,6 +112,36 @@ calibracion_tickets:
     sigma_liga: 0.0
     sigma_g: 0.0
 
+# --- "Soñadoras": combinadas de ALTA VARIANZA y EV NEGATIVO por diseño (motor/sonadoras.py) · PROVISIONAL ---
+# NO forman parte de la estrategia de inversión principal: no usan Kelly, nunca son APROBADAS por Cerebro 2 y no entran a la exposición.
+# Los umbrales p_min_pierna, crs_max, n_min/n_max, cuota_objetivo y el stake simbólico los pidió el responsable (2026-11-09).
+sonadoras:
+  p_min_pierna: 0.75                 # p_conservadora (cuantil q de dependencia.py) ESTRICTAMENTE mayor
+  crs_max: 40                        # CRS estrictamente menor
+  n_min: 10
+  n_max: 15
+  cuota_objetivo: 100.0              # cuota combinada ESTRICTAMENTE mayor (x)
+  stake_pct_banca: 0.001             # stake fijo simbólico: 0.1 % de la banca (sin Kelly)
+  stake_max_u: 0.5                   # tope del monto definido por el usuario (mismo tope que un parlay: bankroll.stake_max_parlay_u)
+
+# --- Orquestador del backtest OOS (integracion/backtest_oos.py, scripts/backtest_oos.py) · PROVISIONAL ---
+# Parámetros de PROTOCOLO y de esfuerzo; su origen y validación están en pre-registro §2.9 (v0.12). Los de `protocolo_sigma_g` marcados
+# [pre-registrado] son los de la decisión 13 de v3_incertidumbre_diseno.md; el resto los fijó el desarrollador (provisionales).
+backtest_oos:
+  n_folds: 4                         # bloques de test consecutivos (expanding window); el primer bloque solo entrena
+  embargo_dias: 1                    # una cesta entrena solo si su día de decisión es <= inicio_del_test - embargo (ya resuelta)
+  min_cestas_entrenamiento: 500      # menos => el fold se omite (no se ajusta con muestra chica)
+  folds_min_validos: 2               # folds con gate 'ok' necesarios; CUALQUIER fold estrecho/ancho invalida el conjunto
+  casa: pinnacle                     # casa de cuotas del histórico (parámetro explícito; sin respaldo a otra)
+  protocolo_sigma_g:
+    grid: [0.05, 0.10]               # niveles de σ_g a probar (provisional: la decisión 13 no fijó los niveles)
+    min_cestas_entre_ligas: 2000     # [pre-registrado]
+    min_dias_cobertura: 600          # ≈ 2 temporadas [pre-registrado: >= 2 temporadas]; aproximado por días de calendario
+    reduccion_logloss_min: 0.01      # [pre-registrado] reducción relativa del log-loss OOS >= 1 %
+    ic_nivel: 0.99                   # [pre-registrado] bootstrap pareado IC 99 % (corregido por Bonferroni sobre el grid: nunca más laxo)
+    bootstrap_n: 2000
+    folds_estables_min: 2            # [pre-registrado] mejora en >= 2 folds
+
 # --- Muestras de validación (ver pre-registro §2.2) ---
 validacion:
   cobertura_min_buckets: 8

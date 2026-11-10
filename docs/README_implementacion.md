@@ -116,9 +116,9 @@ la BD y el registro se persista. Hasta entonces el sistema permanece en `modo_ex
   `ticket` y `top_piernas` de `config.sugerencias` se eliminaron (siguen en el historial de git). Lo que SIGUE en el panel y no usa producto de
   probabilidades: mejores jugadas, "con valor" y "rompe parlays" (señales por partido). `motor/modulo2.py` quedó sin ningún llamador en la ruta
   en vivo (solo sus tests); candidato a eliminar después de la validación.
-- **2026-11-09 · Orquestador del backtest OOS y almacén de `VersionCalibradorTickets` / calibradores de mercado (integración, no
-  modelo).** No existen aún; deben esperar a que el push esté cerrado. Mientras tanto `benchmark.py` usa la versión provisional de la
-  config (`no_calibrado`).
+- **2026-11-09 · Orquestador del backtest OOS y almacén de `VersionCalibradorTickets`. RESUELTO 2026-11-10** (migración 005, `integracion/almacen_calibradores.py`,
+  `integracion/backtest_oos.py`, `scripts/backtest_oos.py`; ver §6 «Backtest OOS: cómo correrlo»). Sigue pendiente el almacén de **calibradores de mercado** (`calibracion_mercado`):
+  `candidatas.py` usa identidad con `calibrado=False` mientras no exista.
 
 ## 4. Limitaciones explícitas de v1 (no son deuda oculta)
 
@@ -303,3 +303,25 @@ gate = ct.gate_cobertura_tickets(list(r.cestas), aj.c_global, cfg_v3, semilla=0)
 **Estado (2026-11-09):** el responsable aclaró que la pausa era solo para módulos de modelo; los bloqueadores del backtest OOS son integración y se
 resuelven antes. Hechos: casas del consenso, unificación de Monte Carlo y `/panel` (retirada de los bloques por independencia). Queda, en este orden: (1) el orquestador del
 backtest y el almacén de versiones, (2) correr el backtest OOS con datos reales (tuyo).
+
+## 6b. Backtest OOS, almacén de calibradores y «Soñadoras» (2026-11-10)
+
+**Migración 005** (`db/migraciones/005_version_calibrador_tickets.sql`, NO aplicada en ninguna BD real): tabla inmutable `versiones_calibrador_tickets`
+(`datos_hasta`, `config_hash`, `n_draws`, `semilla`, `metodo`, `c_seg_json`, `sigma_json`, `calibrado_con`, `gates_ok`, `resultado_json`, `creado_en`; la columna del
+timestamp se llama `creado_en` como el resto del esquema). Defensa en BD: `oos_real` exige `gates_ok`. Aditiva e idempotente; `down` en `db/migraciones_down/005_down.sql` (se niega con filas).
+**El runner aplica TAMBIÉN la 004 si aún no está aplicada** (ambas llegan en el mismo arranque de la API; la 004 va primero).
+
+**Almacén:** `almacen_calibradores.guardar_version` (siempre; también si los gates fallan) y `cargar_ultima_valida` (solo `gates_ok` Y `oos_real`, creada `<= ahora`). `benchmark.generar_decision_v3`
+usa esa versión si existe y, si no, la provisional (`no_calibrado`). Una versión `sinteticos` o que falló sus gates NUNCA se carga.
+
+**Orquestador (`scripts/backtest_oos.py`):** cestas ex-post → folds walk-forward estrictos (expanding window, embargo de 1 día; el ajuste de cada fold solo ve cestas resueltas ANTES del test,
+verificado alterando resultados) → `ajustar` en train / gate de cobertura bilateral en test → protocolo de σ_g (decisión 13; solo si hay ≥ 2000 cestas entre-ligas y ≥ 600 días; si no, σ_g = 0 con el motivo)
+→ versión final + almacén + `reports/backtest_oos_resultado.md`. **Alcance real:** `calibracion_tickets` v1 ajusta UN `c` global y marca segmentos calibrado/fallback; **σ_ℓ NO se ajusta** (se conserva el de la config) y el
+reporte lo dice. `calibrado_con='oos_real'` solo con gates superados Y `--datos-reales`; con gates OK sin esa declaración queda `sinteticos` (no sirve para apagar `modo_experimental`). El script **nunca**
+modifica `modo_experimental` ni la config. Códigos de salida: 0 gates superados · 3 gates NO superados (la versión queda registrada, no se usa) · 2 error de uso/datos.
+Lento por diseño (Monte Carlo sobre miles de cestas; presupuesto §2.7): `--n-draws` baja la precisión para una prueba rápida.
+
+**«Soñadoras»** (`motor/sonadoras.py` + `integracion/sonadoras.py`, `/sonadoras/{fecha}`, sección «🚨 Soñadoras (Alto Riesgo / EV Negativo)» del panel): ver pre-registro §2.10. Módulo separado; no altera el ticket del día;
+Cerebro 2 la audita con tope `CON_RESERVAS`; no se persiste. **Hallazgo:** con los umbrales pedidos casi nunca existe (p > 0.75 ⇒ cuota justa de 15 piernas < 75x), y cuando existe su EV según el modelo es positivo (error del modelo, no valor).
+
+**Verificado con datos SINTÉTICOS y PostgreSQL real; NADA de esto está validado con datos reales ni aplicado en tu BD.**

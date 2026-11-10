@@ -22,6 +22,8 @@ services:
     environment:
       DATABASE_URL: postgresql://golmodel:${POSTGRES_PASSWORD:-golmodel_local}@db:5432/golmodel
     ports: ["127.0.0.1:8000:8000"]
+    volumes:
+      - ./reports:/app/reports        # scripts/backtest_oos.py escribe aquí su reporte (visible en tu carpeta del proyecto)
     depends_on: { db: { condition: service_healthy } }
 
   worker:   # único job automático: snapshots de cierre

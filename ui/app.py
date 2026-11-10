@@ -746,6 +746,31 @@ if VISTA == 1:
         else:
             st.warning("⚠️ " + v3["advertencia"])
             st.markdown(tarjeta_ticket_v3(v3), unsafe_allow_html=True)
+        st.markdown("### 🚨 Soñadoras (Alto Riesgo / EV Negativo)")
+        usar_monto = st.checkbox("Definir mi propio monto (unidades; 1 u = 1% de la banca)", key="son_usar")
+        monto = st.number_input("Monto (u)", min_value=0.01, max_value=0.5, value=0.1, step=0.05, key="son_monto") if usar_monto else None
+        son, err_son = api("GET", f"/sonadoras/{dia.isoformat()}", **({"params": {"stake_u": monto}} if monto else {}))
+        if son is None:
+            st.error(f"No se pudieron calcular las soñadoras: {err_son}")
+        else:
+            st.warning(son["aviso"])
+            if son["sonadora"] is None:
+                dg = son["diagnostico"]
+                st.info(f"**Hoy no hay soñadora** — {son['motivo']}. Selecciones elegibles (p conservadora > "
+                        f"{dg['umbrales']['p_min_pierna']:.0%} y CRS < {dg['umbrales']['crs_max']}): {dg['n_selecciones_elegibles']} en "
+                        f"{dg['n_partidos_elegibles']} partidos; cuota máxima alcanzable {dg['cuota_maxima_alcanzable']:.1f}x "
+                        f"(objetivo > {dg['umbrales']['cuota_objetivo']:g}x). No se relajan los umbrales para forzar una combinada.")
+            else:
+                x = son["sonadora"]
+                legs = "".join(f'<div class="pierna">• <b>{esc(p["jugada"])}</b> <span class="meta">{p["hora"]} · {esc(p["local"])} vs '
+                               f'{esc(p["visitante"])} · cuota {p["cuota"]:.2f} · p cons. {p["p_conservadora"]:.0%}</span></div>' for p in x["piernas"])
+                st.markdown(f'<div class="parlay"><h4>🎰 {x["n"]} selecciones · paga ≈ {x["cuota_combinada"]:.0f}x</h4>'
+                            f'<div class="meta"><b>Probabilidad real: {x["probabilidad_real_texto"]}</b> (1 de cada {x["uno_de_cada"]:,.0f}) · '
+                            f'EV según el modelo {x["ev_real"]:+.0%} por unidad apostada · si fueran independientes: {x["p_independencia"]:.2%}</div>'
+                            f'<div class="no">⚠ Ese EV es optimista: una soñadora solo existe cuando el modelo cree que las cuotas superan a las justas, '
+                            f'y eso casi siempre es error del modelo, no valor.</div>{legs}'
+                            f'<div class="meta">Stake {son["stake_u"]:.2f} u ({son["stake_tipo"]}) · Cerebro 2: <b>{son["estado_cerebro2"]}</b> '
+                            f'(máximo permitido: CON_RESERVAS; nunca APROBADA) · no promovible</div></div>', unsafe_allow_html=True)
         st.caption("Los parlays por perfil, «más seguros» y los tickets de 5 equipos se retiraron: se armaban multiplicando "
                    "probabilidades (independencia). Volverán rediseñados sobre V3 cuando esté validado con datos reales.")
         with st.expander("📋 Copiar este resumen"):

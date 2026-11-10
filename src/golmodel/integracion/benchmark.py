@@ -20,6 +20,7 @@ from golmodel.cerebro2 import persistencia, riesgo
 from golmodel.cerebro2.benchmark_mercado import MercadoPierna
 from golmodel.cerebro2.decision import Veredicto
 from golmodel.config import hash_config
+from golmodel.integracion import almacen_calibradores as almacen
 from golmodel.integracion.candidatas import ResultadoCandidatas, construir_candidatas
 from golmodel.modelos.mercados import GRUPO_DE, GRUPOS
 from golmodel.motor import tickets as tk
@@ -57,6 +58,12 @@ def version_provisional(cfg_v3: dict, ahora: datetime) -> VersionCalibradorTicke
         metodo="provisional_sin_calibrar", segmentos_calibrados=[], segmentos_fallback=[],
         c_global=float(vp["c_global"]), sigma_liga=vp.get("sigma_liga", 0.0), sigma_g=float(vp.get("sigma_g", 0.0)),
         calibrado_con="no_calibrado")
+
+
+def resolver_version(conn, ahora: datetime, cfg_v3: dict) -> VersionCalibradorTickets:
+    """La última versión VÁLIDA del backtest OOS (oos_real + gates_ok, creada <= ahora) o, si no hay, la provisional (no_calibrado)."""
+    guardada = almacen.cargar_ultima_valida(conn, ahora)
+    return guardada[1] if guardada else version_provisional(cfg_v3, ahora)
 
 
 def mercado_de_candidatas(conn, candidatas, ahora: datetime, cfg_v2: dict, cfg_v3: dict) -> dict:
@@ -106,7 +113,7 @@ def generar_decision_v3(conn, dia: date, ahora: datetime, cfg_v2: dict, cfg_v3: 
     """Lee la BD as-of `ahora`, genera el ticket del día con probabilidad conjunta real y lo audita (Cerebro 2).
     Determinista: mismo estado de BD + mismos argumentos ⇒ misma decisión."""
     cands = construir_candidatas(conn, dia, ahora, cfg_v2, cfg_v3, registro_calibradores)
-    version_cal = version_cal or version_provisional(cfg_v3, ahora)
+    version_cal = version_cal or resolver_version(conn, ahora, cfg_v3)
     semilla = int(dia.strftime("%Y%m%d")) if semilla is None else int(semilla)
     mercado = mercado_de_candidatas(conn, cands.candidatas, ahora, cfg_v2, cfg_v3)
     salida, veredicto, error = decidir(cands.candidatas, mercado, version_cal, cfg_v3, semilla=semilla, ahora=ahora, cache=cache)

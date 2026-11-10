@@ -16,6 +16,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from golmodel import db, migraciones, repositorio as repo
+from golmodel.config import cargar_v3
 from golmodel.config import cargar
 from golmodel.ingesta.pipeline import ETAPAS, Pipeline
 from golmodel.ingesta.proveedores.cadena import Interruptor
@@ -180,6 +181,25 @@ def get_parlays(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexi
         if f.get("fuente") != "v3":          # el ticket V3 usa dependencia real y trae su propio aviso (calibración provisional)
             f["advertencia"] = ADVERTENCIA_INDEPENDENCIA
     return filas
+
+
+@app.get("/sonadoras/{fecha}")
+def get_sonadoras(fecha: str, stake_u: float | None = None, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """«Soñadoras» (alto riesgo, EV negativo): combinada de 10-15 selecciones con cuota > 100x y su probabilidad REAL (dependencia.py), auditada por
+    Cerebro 2 (máximo CON_RESERVAS). Stake fijo simbólico o `stake_u` definido por el usuario (0 < x <= tope). Se calcula al pedirla; no se persiste.
+    NO forma parte de la estrategia de inversión principal y no modifica el ticket del día."""
+    from zoneinfo import ZoneInfo
+    from golmodel.integracion import sonadoras as son
+    try:
+        cfg_v3 = cargar_v3()
+    except FileNotFoundError:
+        raise HTTPException(503, "config/v3_umbrales.yaml no disponible")
+    d = _dia(fecha, s)
+    try:
+        dec = son.generar_sonadoras_dia(conn, d, s.reloj(), s.cfg, cfg_v3, stake_u=stake_u)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return son.presentar(conn, dec, ZoneInfo(s.cfg["zona_horaria"]))
 
 
 @app.get("/tickets/{fecha}")
