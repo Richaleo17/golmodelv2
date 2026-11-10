@@ -94,6 +94,19 @@ Imprime un enlace `https://algo.trycloudflare.com`: ábrelo en el celular o mán
 
 **Qué no se expone:** la base de datos y la API interna siguen cerradas a tu computadora; solo la pantalla (puerto 8501) está abierta, y con contraseña.
 
+## 9a. App del celular (PWA): `http://IP:8000/app/`
+Además de la pantalla completa (Streamlit, puerto 8501), la API sirve una **app pensada para el celular** con el aspecto del v1: tema oscuro, menú inferior y 5 pantallas — **Diario · Qué meter** (ticket V3 y, si lo enciendes, el banner rojo BETA) **· Soñadoras · Cuotas · Datos**. Usa las mismas contraseñas (administrador y consulta).
+
+**Abrirla en tu WiFi:**
+```bash
+ipconfig getifaddr en0
+```
+En el celular, en la misma WiFi, abre `http://ESA_IP:8000/app/` y entra con tu `APP_PASSWORD` (o la de consulta). Para tenerla como ícono: en iPhone, Safari → Compartir → «Agregar a pantalla de inicio»; en Android, Chrome → menú → «Agregar a pantalla de inicio».
+- El administrador ve todo, incluidos los botones de **actualizar** y la **captura de cuotas**; el de consulta solo ve (la API rechaza con 403 cualquier escritura, aunque alguien manipule la pantalla).
+- **La API ahora tiene candado:** sin `APP_PASSWORD` en `.env` y abierta a la red **no responde nada** (503). Para dejarla solo en tu computadora, pon `UI_BIND=127.0.0.1` en `.env`.
+- Límites honestos: por ser `http` (no `https`) el navegador no instala la PWA completa ni guarda la app sin conexión; funciona como página y como ícono. Para eso haría falta `https` (Tailscale con certificado o Render). Resolver nombres de equipo y conflictos de datos sigue siendo solo de la pantalla completa (8501).
+- Para que llegue a tu Mac este cambio: `git pull origin v3`, `docker compose build api` y `docker compose up -d`.
+
 ## 9b. Capturar cuotas de tu casa (Draftea)
 Pestaña **Capturar cuotas**:
 - **Pegar lista (rápido):** una línea por partido, local primero: `Napoli - Lazio 2.26 3.64 2.92`. Con 5 cuotas agrega más/menos 2.5; con 7, ambos anotan. Primero «Revisar sin guardar»: ves qué partido reconoció, y nada se guarda si hay duda. Luego «Guardar y recalcular».

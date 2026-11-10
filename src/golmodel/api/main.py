@@ -7,15 +7,19 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from pathlib import Path
 from collections.abc import Iterator
 from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from golmodel import db, migraciones, repositorio as repo
+from golmodel import acceso, db, migraciones, repositorio as repo
+from golmodel.api import seguridad
 from golmodel.config import cargar_v3
 from golmodel.config import cargar
 from golmodel.ingesta.pipeline import ETAPAS, Pipeline
@@ -59,6 +63,50 @@ class Servicio:
 
 app = FastAPI(title="golmodelv2", version="0.1.0")
 _servicio: Servicio | None = None
+RUTA_WEB = Path(__file__).resolve().parents[3] / "web"          # la PWA estática (celular); en Docker: /app/web
+
+
+@app.middleware("http")
+async def proteger(request: Request, call_next):
+    """Candado de TODA la API (contraseña con dos roles; ver api/seguridad.py). Sin APP_PASSWORD y solo en local queda abierta, como siempre."""
+    status, detalle, rol = seguridad.decidir(request.method, request.url.path, request.headers.get("authorization"), os.environ)
+    if status:
+        return JSONResponse({"detail": detalle}, status_code=status)
+    request.state.rol = rol
+    return await call_next(request)
+
+
+class Login(BaseModel):
+    clave: str = Field(max_length=200)
+
+
+@app.get("/auth/estado")
+def get_auth_estado():
+    return {"modo": seguridad.modo(os.environ)}
+
+
+@app.post("/auth/login")
+def post_login(l: Login):
+    m = seguridad.modo(os.environ)
+    if m == "abierto":
+        return {"modo": m, "rol": acceso.ADMIN, "token": None}
+    if m != "login":
+        raise HTTPException(503, seguridad.MENSAJE_MODO[m])
+    espera = seguridad.limitador.bloqueado()
+    if espera > 0:
+        raise HTTPException(429, f"Demasiados intentos. Espera {int(espera) + 1} s.", headers={"Retry-After": str(int(espera) + 1)})
+    admin, lector = acceso.claves_desde_env(os.environ)
+    rol = acceso.verificar(l.clave, admin, lector)
+    if rol is None:
+        seguridad.limitador.fallo()
+        raise HTTPException(401, "Contraseña incorrecta.")
+    seguridad.limitador.exito()
+    return {"modo": m, "rol": rol, "token": acceso.crear_token(rol, acceso.secreto(admin, lector, os.environ)), "dias": acceso.DIAS_TOKEN}
+
+
+@app.get("/", include_in_schema=False)
+def raiz():
+    return RedirectResponse("/app/")
 
 
 def servicio() -> Servicio:
@@ -360,3 +408,7 @@ def get_conflictos(conn=Depends(conexion)):
     return conn.execute("""SELECT c.*, el.nombre AS local, ev.nombre AS visitante FROM conflictos_datos c
                            JOIN partidos p ON p.id = c.partido_id JOIN equipos el ON el.id = p.local_id
                            JOIN equipos ev ON ev.id = p.visitante_id WHERE NOT c.resuelto""").fetchall()
+
+
+if RUTA_WEB.is_dir():          # al final: no pisa ninguna ruta de la API
+    app.mount("/app", StaticFiles(directory=str(RUTA_WEB), html=True), name="pwa")

@@ -164,6 +164,10 @@ def api(metodo: str, ruta: str, **kw):
     # Defensa en el servidor de la UI: un lector nunca puede modificar nada, aunque manipule la pantalla.
     if metodo != "GET" and st.session_state.get("rol", acceso.ADMIN) != acceso.ADMIN:
         return None, "Solo el administrador puede hacer esto."
+    admin_, lector_ = acceso.claves_desde_env(os.environ)
+    if admin_ or lector_:                          # la API tiene candado: la UI se presenta con un token de su rol (misma llave que la API)
+        tok = acceso.crear_token(st.session_state.get("rol", acceso.ADMIN), acceso.secreto(admin_, lector_, os.environ))
+        kw["headers"] = {**kw.get("headers", {}), "Authorization": f"Bearer {tok}"}
     try:
         r = httpx.request(metodo, f"{API}{ruta}", timeout=30, **kw)
     except httpx.HTTPError as e:

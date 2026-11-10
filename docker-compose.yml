@@ -21,7 +21,10 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://golmodel:${POSTGRES_PASSWORD:-golmodel_local}@db:5432/golmodel
-    ports: ["127.0.0.1:8000:8000"]
+      UI_BIND: ${UI_BIND:-0.0.0.0}
+    # La API sirve también la PWA del celular en http://IP-de-tu-Mac:8000/app/ — protegida con contraseña (APP_PASSWORD en .env): sin ella NO responde.
+    # Para dejarla solo en tu computadora: UI_BIND=127.0.0.1 en .env
+    ports: ["${UI_BIND:-0.0.0.0}:8000:8000"]
     volumes:
       - ./reports:/app/reports        # scripts/backtest_oos.py escribe aquí su reporte (visible en tu carpeta del proyecto)
     depends_on: { db: { condition: service_healthy } }

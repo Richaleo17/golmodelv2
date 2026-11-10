@@ -333,6 +333,8 @@ ajuste de calibración; aparecen en la ruta en vivo con su aviso «solo mercado�
 
 **Modo «Operativo (Beta)» (pre-registro §2.14):** `modo_operativo_beta.activo` en `config/v3_umbrales.yaml` (booleano estricto; **encendido el 2026-11-10 por decisión del responsable**, viene apagado en el código). Activado a mano, y **solo si hay una calibración `oos_real` vigente** (la versión 5 de tu BD lo es), la decisión de tickets se toma sin el techo `CON_RESERVAS` (el auditor puede emitir APROBADO), con Kelly fraccional ≤ 0.10 sobre `p_conservadora` y el tope `bankroll.stake_max_parlay_u`; el banner rojo y el sello BETA van en la UI y en `auditoria_decisiones`. **`modo_experimental` no se toca** (sigue `true`). Para activarlo: poner `activo: true`, `docker compose build api`, `docker compose up -d` y recalcular el día. Para apagarlo: `activo: false` y lo mismo. **No valida τ**: úsalo bajo tu propio riesgo.
 
+**App del celular (PWA):** la API sirve `web/` en `/app/` (HTML/CSS/JS sin dependencias; aspecto del v1, pantallas del v2: Diario, Qué meter con el ticket V3 y banner Beta, Soñadoras, Cuotas, Datos). **Candado de la API** (`api/seguridad.py`, reutiliza `acceso.py`): sin contraseña y en red no se sirve nada; con `APP_PASSWORD`, todo dato exige token (`POST /auth/login`) y el rol consulta solo puede leer (403 al escribir). Probada en un Chromium móvil real (`scripts/pwa_e2e.js` desde `tests/test_pwa_navegador.py`, con datos simulados y con la API real) y en `tests/test_pwa.py`. Ver `docs/operacion.md` §9a.
+
 **Cómo volver a correr el backtest con datos reales (en tu Mac, desde `~/golmodelv2`; no hace falta reingestar):**
 ```bash
 git pull origin v3 && docker compose build api
