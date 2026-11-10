@@ -21,6 +21,7 @@ from golmodel.cerebro2.benchmark_mercado import MercadoPierna
 from golmodel.cerebro2.decision import Veredicto
 from golmodel.config import hash_config
 from golmodel.integracion import almacen_calibradores as almacen
+from golmodel.integracion import beta as modo_beta
 from golmodel.integracion.candidatas import ResultadoCandidatas, construir_candidatas
 from golmodel.modelos.mercados import GRUPO_DE, GRUPOS
 from golmodel.motor import tickets as tk
@@ -37,6 +38,7 @@ class DecisionV3:
     salida: tk.SalidaTickets | None      # None solo si tickets/dependencia fallaron (ver `error`)
     veredicto: Veredicto | None          # None si hubo ABSTENCIÓN (no hay ticket que auditar)
     error: str | None                    # "Tipo: mensaje" si algo falló: la decisión es ABSTENCIÓN, nunca independencia
+    beta: dict | None = None             # modo «Operativo (Beta)»: {'solicitado','efectivo',...} (ver integracion/beta.py); None si no se evaluó
 
     @property
     def estado(self) -> str:
@@ -97,8 +99,9 @@ def decidir(candidatas, mercado: dict, version_cal: VersionCalibradorTickets, cf
             ahora: datetime, cache=None) -> tuple[tk.SalidaTickets | None, Veredicto | None, str | None]:
     """Núcleo puro (sin BD): tickets.py (con dependencia.py) → Cerebro 2. Cualquier fallo ⇒ (None, None, error): ABSTENCIÓN."""
     try:
-        salida = tk.generar_tickets(list(candidatas), version_cal, cfg_v3,
-                                    modo_experimental=bool(cfg_v3["modo_experimental"]), semilla=semilla,
+        modo, cfg_tickets, _ = modo_beta.resolver(cfg_v3, version_cal)          # sin Beta: modo_experimental de la config, cfg intacta
+        salida = tk.generar_tickets(list(candidatas), version_cal, cfg_tickets,
+                                    modo_experimental=modo, semilla=semilla,
                                     ahora=ahora, cache=cache)
     except Exception as e:                       # noqa: BLE001 — fail-closed: NO se cae a independencia
         log.error("tickets/dependencia fallaron; ABSTENCIÓN (sin respaldo a independencia): %s: %s", type(e).__name__, e)
@@ -117,14 +120,17 @@ def generar_decision_v3(conn, dia: date, ahora: datetime, cfg_v2: dict, cfg_v3: 
     semilla = int(dia.strftime("%Y%m%d")) if semilla is None else int(semilla)
     mercado = mercado_de_candidatas(conn, cands.candidatas, ahora, cfg_v2, cfg_v3)
     salida, veredicto, error = decidir(cands.candidatas, mercado, version_cal, cfg_v3, semilla=semilla, ahora=ahora, cache=cache)
-    return DecisionV3(dia, ahora, cands, salida, veredicto, error)
+    return DecisionV3(dia, ahora, cands, salida, veredicto, error, modo_beta.resolver(cfg_v3, version_cal)[2])
 
 
 def persistir(conn, d: DecisionV3) -> dict:
     """Guarda en auditoria_decisiones / evaluaciones_riesgo (migración 004). Falla en voz alta si no está aplicada."""
     ids = {}
     if d.salida is not None:
-        ids["tickets"] = persistencia.guardar_decision_tickets(conn, d.salida, payload_extra={"dia": d.dia.isoformat()})
+        extra = {"dia": d.dia.isoformat()}
+        if d.beta and d.beta.get("solicitado"):                  # sello BETA + banner en auditoria_decisiones.payload (también si no surtió efecto: queda el motivo)
+            extra["beta"] = d.beta
+        ids["tickets"] = persistencia.guardar_decision_tickets(conn, d.salida, payload_extra=extra)
         if d.veredicto is not None:
             ids["cerebro2"] = persistencia.guardar_veredicto(conn, d.veredicto)
     return ids

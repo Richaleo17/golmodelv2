@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.15
+- Versión: v0.15.1
 - Fecha: 2026-11-10
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -521,6 +521,21 @@ Control negativo sobre un modelo perfecto (150 repeticiones): × 1.5 detectado 9
 
 **Qué se verificó y qué NO:** verificado con datos sintéticos (tests con mutantes, simulaciones). **No** se ejecutó con datos reales el backtest con esta enmienda: pendiente en el Mac del responsable.
 
+### 2.14 Modo «Operativo (Beta)» (2026-11-10) — decisión del responsable; interruptor manual, NO automático
+
+**Contexto:** la corrida real con la v0.15 dejó la versión 5 del calibrador (`oos_real`, gates superados: A `ok` —global z = +0.37, 5/5 grupos dentro, ninguno con |z| > 4— y B `ok` —p = 0.087, potencia 0.97—). El responsable pidió poder empezar a usar la app en vivo **sin romper la regla fail-closed**. Esta sección registra la solución y sus límites.
+
+**Qué es:** el interruptor `modo_operativo_beta.activo` en `config/v3_umbrales.yaml` (**`false` por defecto**, booleano estricto). Activado **a mano**:
+- la decisión de tickets se toma **sin el techo `CON_RESERVAS`** (el auditor, Cerebro 2, puede emitir APROBADO con sus propios gates), pero **solo si hay una calibración `oos_real` vigente** (la que deja el backtest con A y B superadas). Sin ella el modo **no surte efecto** (fail-closed) y la auditoría registra el motivo;
+- **`modo_experimental` de la config NO se modifica**: sigue siendo la protección por defecto y lo cambia el responsable. Una versión `oos_real` **sola** no apaga el techo (probado);
+- stake = **Kelly fraccional de `p_conservadora`** (el que ya calcula `tickets.py`) con la fracción **como máximo 0.10** (`min(bankroll.kelly_fraccion_parlay, 0.10)`) y el tope `bankroll.stake_max_parlay_u`;
+- cada decisión lleva el **sello BETA** y el **banner** en `auditoria_decisiones.payload.beta` (también cuando se solicitó y no surtió efecto, con el motivo); la UI muestra el banner **completo y en rojo** y el sello BETA en el ticket. Solo con el modo efectivo y estado APROBADO del auditor el ticket puede ser «apuesta del día».
+Texto del banner (aprobado por el responsable): «⚠️ MODO BETA. La probabilidad central pasó la prueba de calibración y no se detectó sobredispersión por liga y día, pero la incertidumbre de cada partido (τ) NO está validada y la prueba solo descarta sesgos grandes. Kelly conservador; apuestas con sello BETA. Úsalo bajo tu propio riesgo.»
+
+**Implementación:** `integracion/beta.py` (adaptador) + `benchmark.py` + `servicios/vistas.py` + UI. **No se tocó** `tickets.py`, `dependencia.py` ni `cerebro2/`; el candado de `tickets.py` («`modo_experimental = False` exige `oos_real`») sigue vigente y probado.
+
+**Lo que este modo NO resuelve (honestidad):** A y B son condición necesaria, no suficiente. La incertidumbre idiosincrática (τ) **no está validada**; `p_conservadora` ≈ 52 % de `p_media`; A solo descarta sesgos grandes (sesgo mínimo detectable ≈ 30-40 %); la corrida abarca 522 días (σ_g sin evaluar) y solo cestas con `p_media` ≥ 1 %. Activar el modo es **una decisión de riesgo del responsable**, no una validación. Nota de proceso: al registrar esta enmienda el reporte completo de la corrida (control negativo y sesgo mínimo detectable) **no había sido compartido**; se recomienda revisarlo antes de activar el modo.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -567,3 +582,4 @@ Control negativo sobre un modelo perfecto (150 repeticiones): × 1.5 detectado 9
 | v0.13.1 | 2026-11-10 | Addendum a §2.11, DESPUÉS de la primera corrida real (declarado): (1) backtest limitado a cestas de 5-8 piernas (91.7 % de las cestas muestreadas tenía 2-4); (2) tabla de confiabilidad por bucket en el reporte (diagnóstico); (3) corrige la frase de la enmienda sobre la «cola alta» (el gate falló por `ancho`, no por sub-cobertura en la cola); (4) hallazgo simulado sobre el gate bilateral por bucket: enmienda v0.14 APLAZADA. Ningún umbral ni criterio de gate cambia. |
 | v0.14 | 2026-11-10 | §2.12 ENMIENDA tras la corrida real con 5-8 piernas (declarado: posterior al resultado, fijada con simulaciones, sin datos reales de A/B): el gate de cobertura por buckets se declara INVÁLIDO para la cota de un ticket (identificabilidad; rango ≤ 0.25 vs ≥ 8 buckets de 0.05) y pasa a INFORMATIVO; el veredicto sale de la prueba A (calibración de `p_media`, 5 cuantiles, 95 %, varianza robusta por día porque las cestas de un día comparten partidos) y la prueba B (sobredispersión día × liga, una pierna por partido, nulo por simulación, potencia exigida). Umbrales fijados y validados por simulación; iteración 1 → 2 documentada. Techo `CON_RESERVAS` y `modo_experimental` sin cambios; advertencia obligatoria sobre `p_cons ≈ 50 % de p_media`. |
 | v0.15 | 2026-11-10 | §2.13 ENMIENDA POSTERIOR al resultado real (declarada): la prueba A agrupa por igual número de EVENTOS ESPERADOS (≈ 80 por grupo) en lugar de igual número de cestas (el grupo bajo tenía 4.3 eventos esperados → `no_evaluable`); filtro de relevancia `p_media` ≥ 0.01 (instrucción del responsable; por predicción, no por resultado; lo descartado se reporta); sesgo mínimo detectable y control negativo (× 1.5, × 0.6667) en cada reporte. Reglas de decisión de A y prueba B sin cambios. Validado por simulación. El modo «Operativo (Beta)» queda NO implementado (condicionado y en conflicto con la regla de decisión humana; ver §2.13). |
+| v0.15.1 | 2026-11-10 | §2.14: modo «Operativo (Beta)» (interruptor manual, apagado por defecto): sin techo `CON_RESERVAS` solo con calibración `oos_real` vigente, `modo_experimental` de la config intacto, Kelly fraccional ≤ 0.10 sobre `p_conservadora` con tope, sello BETA y banner en la auditoría y en la UI. No toca `tickets.py`, `dependencia.py` ni `cerebro2/`. Ningún umbral estadístico cambia. |

@@ -279,11 +279,14 @@ def decision_v3(conn, d: date) -> dict | None:
                             AND ticket_id = %s ORDER BY id DESC LIMIT 1""", (fila["ticket_id"],)).fetchone()
         ver = None if v is None else {"estado": v["estado"], "categoria": v["categoria"], "motivo": v["motivo"]}
     aud = fila["payload"]["auditoria"]
+    beta = fila["payload"].get("beta")                       # sello BETA + banner guardados al decidir (integracion/beta.py); None si no se solicitó
+    beta_ok = bool(beta and beta.get("efectivo"))
     return {"dia": d.isoformat(), "estado": ver["estado"] if ver else "ABSTENCION", "estado_tickets": fila["estado"],
             "motivo": fila["motivo"], "categoria": fila["categoria"], "veredicto": ver,
             "modo_experimental": fila["modo_experimental"], "techo_estado": fila["techo_estado"],
             "calibrado_con": fila["calibrado_con"], "info_asof": fila["info_asof"], "ticket_id": fila["ticket_id"],
-            "n_candidatas": aud["n_candidatas"], "ticket": fila["payload"]["ticket"], "advertencia": ADVERTENCIA_V3}
+            "n_candidatas": aud["n_candidatas"], "ticket": fila["payload"]["ticket"],
+            "advertencia": beta["banner"] if beta_ok else ADVERTENCIA_V3, "beta": beta, "sello": beta["sello"] if beta_ok else None}
 
 
 def _ticket_v3_como_parlay(conn, dec: dict) -> dict:
@@ -306,7 +309,10 @@ def _ticket_v3_como_parlay(conn, dec: dict) -> dict:
     return {"id": None, "fuente": "v3", "ranking": 1, "n_bloques": t["n"], "dia": dec["dia"],
             "p_parlay": t["p_conservadora"], "p_media": t["p_media"], "p_independencia": t["p_independencia"], "lift": t["lift"],
             "cuota_combinada": t["cuota_combinada"], "cuota_justa": 1.0 / t["p_conservadora"], "ev": t["ev_cons"],
-            "stake_u": t["stake_u"], "es_apuesta_del_dia": False,        # nunca promovido bajo modo_experimental
+            "stake_u": t["stake_u"],
+            # solo promovible con el modo Beta EFECTIVO (calibración oos_real, sin techo) y si el auditor lo APROBÓ; con modo_experimental nunca
+            "es_apuesta_del_dia": bool(dec.get("sello") and dec["estado"] == "APROBADO" and t.get("promovible")),
+            "sello": dec.get("sello"), "beta": dec.get("beta"),
             "estado": dec["estado"], "techo_estado": dec["techo_estado"], "modo_experimental": dec["modo_experimental"],
             "calibrado_con": dec["calibrado_con"], "advertencia": dec["advertencia"], "bloques": bloques,
             "resultado": None, "ganancia_u": None, "ganancia_simples_u": None}

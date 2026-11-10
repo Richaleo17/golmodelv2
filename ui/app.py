@@ -636,6 +636,12 @@ def _sin_acentos(t: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", t.lower()) if unicodedata.category(c) != "Mn")
 
 
+def banner_beta(texto: str) -> None:
+    """Banner GRANDE en rojo del modo «Operativo (Beta)». El texto viene de la config aprobada (`modo_operativo_beta.banner`) y se muestra COMPLETO."""
+    st.markdown('<div style="background:#b00020;color:#fff;font-size:1.25rem;font-weight:700;padding:1.1rem 1.3rem;border-radius:10px;'
+                f'margin:.5rem 0 1rem 0;border:3px solid #ff5252">{esc(texto)}</div>', unsafe_allow_html=True)
+
+
 def tarjeta_ticket_v3(v3: dict) -> str:
     """Ticket V3 del panel: probabilidad conjunta CON dependencia (cota conservadora), calibración provisional, no promovible."""
     t = v3["ticket"]
@@ -646,10 +652,13 @@ def tarjeta_ticket_v3(v3: dict) -> str:
             crs = f' <span class="chip {"rojo" if x["crs_alerta"] == "ALTA" else "viejo"}">CRS {x["crs_total"]}</span>'
         piernas += (f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{x["hora"]} · '
                     f'{esc(x["local"])} vs {esc(x["visitante"])} · {x["p_calibrada"]:.0%} · cuota {x["cuota"]:.2f}</span>{crs}</div>')
-    return (f'<div class="parlay"><h4>🎫 Ticket V3 · {v3["estado"]} · {t["n_bloques"]} partidos · paga ≈ {t["cuota_combinada"]:.1f}x</h4>'
+    sello = f' <span class="chip rojo">{esc(v3["sello"])}</span>' if v3.get("sello") else ""
+    pie = (f'Stake propuesto {float(t["stake_u"]):.2f} u (Kelly fraccional sobre la probabilidad conservadora, con tope) · sello {esc(v3["sello"])}.'
+           if v3.get("sello") else f'Stake propuesto {float(t["stake_u"]):.2f} u — NO promovido a paper/real mientras la calibración sea provisional.')
+    return (f'<div class="parlay"><h4>🎫 Ticket V3{sello} · {v3["estado"]} · {t["n_bloques"]} partidos · paga ≈ {t["cuota_combinada"]:.1f}x</h4>'
             f'<div class="meta">Prob. conservadora <b>{t["p_parlay"]:.1%}</b> (media {t["p_media"]:.1%}; si los partidos fueran '
             f'independientes: {t["p_independencia"]:.1%}) · factor de dependencia {t["lift"]:.2f}</div>{piernas}'
-            f'<div class="meta">Stake propuesto {float(t["stake_u"]):.2f} u — NO promovido a paper/real mientras la calibración sea provisional.</div></div>')
+            f'<div class="meta">{pie}</div></div>')
 
 
 pan, err_pan = api("GET", f"/panel/{dia.isoformat()}")
@@ -744,7 +753,10 @@ if VISTA == 1:
             st.info(f"**V3: abstención** — {v3.get('motivo') or 'sin ticket'}. El sistema prefiere no proponer ticket antes que "
                     "inventar una probabilidad (no se usa independencia como respaldo).")
         else:
-            st.warning("⚠️ " + v3["advertencia"])
+            if v3.get("sello"):                                   # modo Beta efectivo: banner GRANDE en rojo (texto aprobado, sin recortar)
+                banner_beta(v3["advertencia"])
+            else:
+                st.warning("⚠️ " + v3["advertencia"])
             st.markdown(tarjeta_ticket_v3(v3), unsafe_allow_html=True)
         st.markdown("### 🚨 Soñadoras (Alto Riesgo / EV Negativo)")
         usar_monto = st.checkbox("Definir mi propio monto (unidades; 1 u = 1% de la banca)", key="son_usar")
@@ -942,8 +954,10 @@ if VISTA == 3:
     titulo('04', 'CUOTAS', 'Arma parlays con las cuotas reales de tu casa.')
     pls, _ = api("GET", f"/parlays/{dia.isoformat()}")
     dec_v3, _ = api("GET", f"/tickets/{dia.isoformat()}")
-    for aviso in sorted({p["advertencia"] for p in pls or [] if p.get("advertencia")}):
+    for aviso in sorted({p["advertencia"] for p in pls or [] if p.get("advertencia") and not p.get("sello")}):
         st.warning("⚠️ " + aviso)
+    for aviso in sorted({p["advertencia"] for p in pls or [] if p.get("advertencia") and p.get("sello")}):
+        banner_beta(aviso)
     if dec_v3 and not dec_v3.get("ticket"):
         st.info(f"**V3: abstención** — {dec_v3.get('motivo') or 'sin ticket'}. El sistema prefiere no proponer ticket antes que "
                 "inventar una probabilidad (no se usa independencia como respaldo).")
@@ -952,7 +966,8 @@ if VISTA == 3:
     for par in pls or []:
         with st.container(border=True):
             v3 = par.get("fuente") == "v3"
-            titulo = (f"🎫 Ticket V3 · {par['estado']} (calibración provisional)" if v3
+            titulo = (f"🎫 Ticket V3 · {par['estado']} · {par['sello']}" if v3 and par.get("sello")
+                      else f"🎫 Ticket V3 · {par['estado']} (calibración provisional)" if v3
                       else "🎯 Parlay del día" if par["es_apuesta_del_dia"] else f"Alternativa {par['ranking'] - 1}")
             st.markdown(f"### {titulo} · {par['n_bloques']} partidos"
                         + ("" if par["es_apuesta_del_dia"] else " <span class='meta'>(no suma a la exposición)</span>"),

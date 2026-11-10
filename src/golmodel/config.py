@@ -47,6 +47,15 @@ def cargar_v3(ruta: Path | str = RUTA_V3) -> dict[str, Any]:
         raise ValueError(f"v3_umbrales.yaml incompleto, faltan secciones: {faltan}")
     if not isinstance(cfg["modo_experimental"], bool):
         raise ValueError("modo_experimental debe ser un booleano explícito")
+    if "modo_operativo_beta" in cfg:                                    # opcional; si está, se valida estricto (nada de truthiness)
+        b = cfg["modo_operativo_beta"]
+        if not isinstance(b, dict) or not isinstance(b.get("activo"), bool):
+            raise ValueError("modo_operativo_beta.activo debe ser un booleano explícito")
+        f = b.get("kelly_fraccion_parlay")
+        if isinstance(f, bool) or not isinstance(f, (int, float)) or not 0 < f <= 0.25:
+            raise ValueError("modo_operativo_beta.kelly_fraccion_parlay debe estar en (0, 0.25]")
+        if not isinstance(b.get("sello"), str) or not b["sello"] or not isinstance(b.get("banner"), str) or not b["banner"]:
+            raise ValueError("modo_operativo_beta.sello y .banner deben ser texto no vacío")
     return cfg
 
 

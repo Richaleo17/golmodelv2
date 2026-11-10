@@ -400,7 +400,7 @@ def panel_v3(conn, d: date, zona: ZoneInfo) -> dict | None:
     return {"dia": dec["dia"], "estado": dec["estado"], "estado_tickets": dec["estado_tickets"], "motivo": dec["motivo"],
             "categoria": dec["categoria"], "veredicto": dec["veredicto"], "modo_experimental": dec["modo_experimental"],
             "techo_estado": dec["techo_estado"], "calibrado_con": dec["calibrado_con"], "n_candidatas": dec["n_candidatas"],
-            "advertencia": dec["advertencia"], "ticket": ticket}
+            "advertencia": dec["advertencia"], "beta": dec.get("beta"), "sello": dec.get("sello"), "ticket": ticket}
 
 
 def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:

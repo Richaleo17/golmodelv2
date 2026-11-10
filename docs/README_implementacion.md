@@ -331,6 +331,8 @@ ajuste de calibración; aparecen en la ruta en vivo con su aviso «solo mercado�
 
 **Enmienda v0.15 (2026-11-10, posterior al resultado real; pre-registro §2.13):** la prueba A agrupa por igual número de **eventos esperados** (≈ 80 por grupo) y solo evalúa cestas con `p_media` ≥ 0.01 (el reporte muestra lo descartado, el **sesgo mínimo detectable** y un **control negativo**: la misma prueba con `p_media` × 1.5 y × 0.6667 debe marcarla `descalibrado`). Las reglas de decisión no cambian. El modo «Operativo (Beta)» no se implementó (condicionado a que A y B pasen; ver §2.13).
 
+**Modo «Operativo (Beta)» (pre-registro §2.14):** `modo_operativo_beta.activo` en `config/v3_umbrales.yaml` (`false` por defecto; booleano estricto). Activado a mano, y **solo si hay una calibración `oos_real` vigente** (la versión 5 de tu BD lo es), la decisión de tickets se toma sin el techo `CON_RESERVAS` (el auditor puede emitir APROBADO), con Kelly fraccional ≤ 0.10 sobre `p_conservadora` y el tope `bankroll.stake_max_parlay_u`; el banner rojo y el sello BETA van en la UI y en `auditoria_decisiones`. **`modo_experimental` no se toca** (sigue `true`). Para activarlo: poner `activo: true`, `docker compose build api`, `docker compose up -d` y recalcular el día. Para apagarlo: `activo: false` y lo mismo. **No valida τ**: úsalo bajo tu propio riesgo.
+
 **Cómo volver a correr el backtest con datos reales (en tu Mac, desde `~/golmodelv2`; no hace falta reingestar):**
 ```bash
 git pull origin v3 && docker compose build api
