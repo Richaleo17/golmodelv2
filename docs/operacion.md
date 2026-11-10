@@ -104,7 +104,9 @@ ipconfig getifaddr en0
 En el celular, en la misma WiFi, abre `http://ESA_IP:8000/app/` y entra con tu `APP_PASSWORD` (o la de consulta). Para tenerla como ícono: en iPhone, Safari → Compartir → «Agregar a pantalla de inicio»; en Android, Chrome → menú → «Agregar a pantalla de inicio».
 - El administrador ve todo, incluidos los botones de **actualizar** y la **captura de cuotas**; el de consulta solo ve (la API rechaza con 403 cualquier escritura, aunque alguien manipule la pantalla).
 - **La API ahora tiene candado:** sin `APP_PASSWORD` en `.env` y abierta a la red **no responde nada** (503). Para dejarla solo en tu computadora, pon `UI_BIND=127.0.0.1` en `.env`.
-- Límites honestos: por ser `http` (no `https`) el navegador no instala la PWA completa ni guarda la app sin conexión; funciona como página y como ícono. Para eso haría falta `https` (Tailscale con certificado o Render). Resolver nombres de equipo y conflictos de datos sigue siendo solo de la pantalla completa (8501).
+- Límites honestos: por ser `http` (no `https`) el navegador no instala la PWA completa ni guarda la app sin conexión; funciona como página y como ícono. Para eso haría falta `https` (Tailscale con certificado o Render). Resolver nombres de equipo y conflictos de datos sigue siendo solo de la pantalla completa (8501, en tu computadora).
+- **Diario (varios días):** muestra hoy y los próximos 3 o 7 días. Cada partido trae una tarjeta por mercado — quién gana, primer gol (aproximado), más de 1.5, más de 2.5, ambos anotan, menos de 3.5 — con su porcentaje, nivel ALTA/MEDIA/BAJA y **cuota mínima** (la que da valor). Córners y tarjetas no están modelados. «Qué meter» y «Soñadoras» no cambian.
+- **Cuotas → Analizar mi boleto (solo administrador):** subes la captura, el modelo (Anthropic, vía `ANTHROPIC_API_KEY` del servidor; cada lectura consume tu crédito) la lee, **tú confirmas o corriges** selecciones y cuotas, y se calcula la probabilidad conjunta con la dependencia entre partidos (motor V3), EV con tu cuota total y qué pasa al quitar cada partido. Solo entran partidos programados con modelo; el resto se avisa. Es análisis estadístico, no una garantía.
 - Para que llegue a tu Mac un cambio: `git pull origin v3` y `docker compose up -d --build` (api, pantalla completa y worker comparten una sola imagen; reconstruir una sola cosa deja la otra con código viejo y la pantalla completa mostraría «401: No autenticado»).
 
 ## 9b. Capturar cuotas de tu casa (Draftea)
@@ -147,17 +149,15 @@ En **🎯 Qué meter → 🎫 Tickets**: las 3 combinaciones MÁS probables de 5
 
 **CRS en el modelo:** sigue vetando las selecciones del favorito con CRS ≥ 70 y baja la confianza. Además, en los tickets y parlays las piernas del favorito con CRS medio/alto pesan menos al **ordenar** combinaciones (`crs.factor_credibilidad`: ×0.96 / ×0.88). La probabilidad mostrada NO se altera hasta que `backtest/crs_eval.py` demuestre mejora (modo sombra).
 
-## 14. Desplegar en la nube (Render) para verlo desde el celular sin tu Mac
-El repo trae `render.yaml` (una pantalla pública con contraseña + PostgreSQL administrado; la API y el worker de cierre corren dentro del mismo contenedor y **no** quedan expuestos).
-1. En render.com crea cuenta → **New → Blueprint** → conecta el repo `Richaleo17/golmodelv2` → Apply.
-2. Render te pide los valores marcados como secretos: `APP_PASSWORD` (admin), `APP_VIEWER_PASSWORD` (tu amigo) y las llaves de API. **Escríbelos en Render, nunca en el chat ni en el repo.**
-3. Al terminar el deploy, abre la URL `https://golmodelv2-XXXX.onrender.com` en el celular, entra con tu contraseña y agrégala a la pantalla de inicio.
-4. La primera vez la base está vacía. En Render abre tu servicio → pestaña **Shell** y corre (una sola vez, tarda varios minutos; no necesitas tu Mac):
-```bash
-python scripts/cargar_historico.py --temporadas 5 --sin-xg
-```
-5. En la app: **Datos → Actualizar datos** y luego **Qué meter**.
-Notas: el plan `starter` del servicio y el de la base son de pago (revisa precios en Render); el plan gratuito duerme el servicio y apaga el worker de cierre, así que no se recomienda. Datos reales = tus llaves corriendo allá.
+## 14. Desplegar en la nube (Render) para consultarlo fuera de casa
+Render sirve **la PWA y la API** (`https://<tu-servicio>.onrender.com/app/`, y `/` redirige ahí) con contraseña; el worker de cierre corre en el mismo contenedor. Streamlit ya no se expone en Render (sigue en tu computadora con `docker compose`).
+Si ya tienes el servicio `golmodelv2` y la base `golmodel-db` creados (no se crea nada nuevo ni se paga de más):
+1. **Rama:** el servicio sigue `main` con el código viejo. Cambia la rama del servicio a `v3` (Settings → Branch) o fusiona `v3` en `main`. Render redespliega solo.
+2. **Variables** (Environment del servicio, **nunca en el chat ni en el repo**): `APP_PASSWORD` (admin), `APP_VIEWER_PASSWORD` (solo consulta), `APP_SECRET` (si alguna vez pegaste un enlace con `?s=admin…` en un chat, **rota `APP_SECRET`**: invalida esos enlaces), `API_FOOTBALL_KEY`, `ODDS_API_KEY`, `FOOTBALL_DATA_ORG_KEY` y `ANTHROPIC_API_KEY` (lectura de capturas en Cuotas; opcional `ANTHROPIC_MODEL`). Sin `APP_PASSWORD` la API responde 503 a propósito.
+3. Las migraciones se aplican solas en la primera petición. Abre `https://<tu-servicio>.onrender.com/app/`, entra y revisa **Datos → Llaves del servidor**.
+4. **Calibrador validado:** el backtest real corrió en tu Mac, así que la versión `oos_real` vive en tu base local. Sin ella, Render queda en calibración provisional (Beta no se activa). Para llevarla: `pg_dump --data-only --inserts -t versiones_calibrador_tickets` desde tu base local y `psql "$DATABASE_URL"` contra la de Render (Render → base → Connect → External URL).
+5. **Datos:** en la app, **Datos → Actualizar datos** y luego **Diario / Qué meter**. Si la base está vacía: `python scripts/cargar_historico.py --temporadas 5 --sin-xg` desde la pestaña Shell.
+Notas: el plan `starter` y el de la base son de pago pero ya los tienes; el gratuito duerme el servicio y apaga el worker. Datos reales = tus llaves corriendo allá.
 
 ## 15. Navegación, diagnóstico y validaciones
 **Pantalla.** Arriba eliges el día (HOY, MAÑANA, LUN 12…; «Otra fecha» en la barra lateral). Abajo, la barra numerada: 01 DIARIO · 02 QUÉ METER · 03 ANÁLISIS · 04 CUOTAS (parlay con tus cuotas / capturar) · 05 MÁS (CLV, guía, datos). En el Diario hay buscador de equipo.

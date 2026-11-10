@@ -26,7 +26,7 @@ from golmodel.ingesta.pipeline import ETAPAS, Pipeline
 from golmodel.ingesta.proveedores.cadena import Interruptor
 from golmodel.ingesta.proveedores.registro import construir_cadenas, construir_presupuestos, construir_proveedores
 from golmodel.modelos.mercados import CONDICIONES
-from golmodel.servicios import captura, sugerencias, vistas
+from golmodel.servicios import boleto, captura, sugerencias, vistas
 
 
 class Servicio:
@@ -109,6 +109,12 @@ def raiz():
     return RedirectResponse("/app/")
 
 
+@app.get("/_stcore/health", include_in_schema=False)
+def salud_compatible():
+    """Render revisa esta ruta (era la de Streamlit); se mantiene para que el cambio de arranque no rompa el despliegue."""
+    return "ok"
+
+
 def servicio() -> Servicio:
     global _servicio
     if _servicio is None:
@@ -157,7 +163,7 @@ def get_estado(s: Servicio = Depends(servicio), conn=Depends(conexion)):
     e = vistas.estado(conn, s.cfg, s.reloj(), s.interruptor.estado())
     # Solo si cada llave está presente (nunca su valor)
     e["llaves"] = {k: bool(os.environ.get(k, "").strip())
-                   for k in ("API_FOOTBALL_KEY", "ODDS_API_KEY", "FOOTBALL_DATA_ORG_KEY")}
+                   for k in ("API_FOOTBALL_KEY", "ODDS_API_KEY", "FOOTBALL_DATA_ORG_KEY", "ANTHROPIC_API_KEY")}
     return e
 
 
@@ -326,6 +332,53 @@ def post_cuotas_texto(t: TextoCuotas, s: Servicio = Depends(servicio), conn=Depe
     """Pega una lista de cuotas; con guardar=false solo muestra qué entendió (vista previa)."""
     lineas = captura.procesar_texto(conn, _dia(t.fecha, s), t.texto, guardar=t.guardar, ahora=s.reloj())
     return {"lineas": [vars(l) for l in lineas], "guardadas": sum(l.ok for l in lineas) if t.guardar else 0}
+
+
+# ------------------------------------------------------------------ boleto por captura (visión de Anthropic + modelo V3)
+class LeerBoleto(BaseModel):
+    imagen_base64: str = Field(max_length=8_000_000)
+    media_type: str = "image/png"
+
+
+class LegBoleto(BaseModel):
+    partido_id: int
+    seleccion: str
+    cuota: float | None = Field(default=None, gt=1.0, lt=1000)
+    texto: str | None = Field(default=None, max_length=300)
+
+
+class AnalizarBoleto(BaseModel):
+    legs: list[LegBoleto] = Field(min_length=1, max_length=20)
+    cuota_total: float | None = Field(default=None, gt=1.0, lt=100000)
+    monto: float | None = Field(default=None, gt=0, lt=10_000_000)
+
+
+@app.post("/boleto/leer")
+def post_boleto_leer(b: LeerBoleto, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Lee la captura de un boleto (Anthropic) y la empareja con los partidos programados. Devuelve lo leído para que el usuario lo CONFIRME antes de analizar."""
+    import base64
+    import binascii
+    try:
+        imagen = base64.b64decode(b.imagen_base64, validate=True)
+        lectura = boleto.leer_captura(imagen, b.media_type)
+    except binascii.Error:
+        raise HTTPException(422, "La imagen no llegó bien codificada.")
+    except boleto.ErrorBoleto as e:
+        raise HTTPException(e.codigo, str(e))
+    return {"lectura": lectura, **boleto.resolver(conn, s.reloj(), ZoneInfo(s.cfg["zona_horaria"]), lectura)}
+
+
+@app.post("/boleto/analizar")
+def post_boleto_analizar(a: AnalizarBoleto, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Probabilidad conjunta REAL (dependencia entre partidos, motor V3) del boleto confirmado, EV con su cuota total y qué pasa si quitas cada partido."""
+    try:
+        cfg_v3 = cargar_v3()
+    except FileNotFoundError:
+        raise HTTPException(503, "config/v3_umbrales.yaml no disponible")
+    try:
+        return boleto.analizar(conn, s.cfg, cfg_v3, s.reloj(), [g.model_dump() for g in a.legs], cuota_total=a.cuota_total, monto=a.monto)
+    except boleto.ErrorBoleto as e:
+        raise HTTPException(e.codigo, str(e))
 
 
 class EventoPick(BaseModel):

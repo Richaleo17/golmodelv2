@@ -12,7 +12,7 @@ const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var
 const TOKEN = "golmodel.token";
 const LIGAS = { EPL: "Premier League", LL: "LaLiga", SA: "Serie A", BUN: "Bundesliga", L1: "Ligue 1", MX1: "Liga MX", MLS: "MLS", BR1: "Brasileirão", ERE: "Eredivisie", BEL: "Jupiler Pro", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "diario", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "diario", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, boleto: null };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -129,15 +129,16 @@ async function render() {
   if (html.alMontar) html.alMontar(vista);
 }
 
-async function panel() {
-  const k = "panel:" + S.dia;
+async function panelDe(d) {
+  const k = "panel:" + d;
   if (!S.cache[k]) {
-    const r = await api("GET", "/panel/" + S.dia);
+    const r = await api("GET", "/panel/" + d);
     if (!r.ok) return { error: r.error };
     S.cache[k] = r.data;
   }
   return { pan: S.cache[k] };
 }
+const panel = () => panelDe(S.dia);
 
 const fallo = (txt, msg) => ({ html: `<h2>${txt}</h2><div class="card"><p class="error">${esc(msg)}</p></div>` });
 
@@ -162,6 +163,15 @@ function filaInd(lab, txt, p) {
 }
 
 const htmlForma = (f) => ((f || "").split("").map((c) => `<span class="${esc(c)}">${esc(c)}</span>`).join("") || '<span class="meta">sin datos</span>');
+const nombreDia = (d) => new Date(d + "T12:00:00").toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "short" });
+
+/* Tarjeta de un mercado (como en el v1): lo más probable, su probabilidad, el nivel y la cuota mínima para tener valor. */
+function mosaico(m) {
+  const col = colorP(m.p);
+  return `<div class="tile${m.clave === "primer_gol" ? " ancho" : ""}"><div class="tt">${esc(m.titulo)}${m.aprox ? " <small>(aprox.)</small>" : ""}</div><div class="tp">${esc(m.pick)}</div>` +
+    `<div class="tv"><b style="color:${col}">${pct(m.p)}</b><span class="nv ${esc(m.nivel)}">${esc(m.nivel)}</span></div>` +
+    `<div class="barra"><i style="width:${Math.max(2, Math.min(100, 100 * m.p)).toFixed(0)}%;background:${col}"></i></div><div class="tm">CUOTA MÍN. ${num(m.cuota_min)}×</div></div>`;
+}
 
 function tarjetaDiario(p, nombres) {
   const enJuego = p.estado === "en_juego";
@@ -181,13 +191,18 @@ function tarjetaDiario(p, nombres) {
   if (p.rompe) badges += '<span class="chip rojo">💥 rompe parlays</span>';
   let h = `<div class="mc">${cab}<div class="mc-top"><span>${punto}${esc(nombreLiga(p, nombres)).toUpperCase()}</span><span>${esc(p.hora)}${final} · CONF ${esc(p.confianza)}/10</span></div>` +
     `<div class="mc-eq">${esc(p.local)} vs ${esc(p.visitante)}</div><div class="mc-badges">${badges}</div>`;
-  h += filaInd("GANA", `${esc(g.favorito)} <small>empate ${pct(g.empate)}</small>`, g.p);
-  h += filaInd("PRIMER GOL", `${esc(pg.equipo)} <small>(aprox.)</small>`, pg.p);
-  h += filaInd("EL OTRO ANOTA", `${esc(ot.equipo)} <small>aunque pierda, ≥1 gol</small>`, ot.p);
+  if (p.mercados && p.mercados.length) {
+    h += `<div class="tiles">${p.mercados.map(mosaico).join("")}</div>`;
+    h += filaInd("EL OTRO ANOTA", `${esc(ot.equipo)} <small>aunque pierda, ≥1 gol</small>`, ot.p);
+  } else {
+    h += filaInd("GANA", `${esc(g.favorito)} <small>empate ${pct(g.empate)}</small>`, g.p);
+    h += filaInd("PRIMER GOL", `${esc(pg.equipo)} <small>(aprox.)</small>`, pg.p);
+    h += filaInd("EL OTRO ANOTA", `${esc(ot.equipo)} <small>aunque pierda, ≥1 gol</small>`, ot.p);
+  }
   const ge = p.goles_esperados || {};
-  h += `<div class="dia-foot">Forma ${esc(p.local)} <span class="forma">${htmlForma(p.forma && p.forma.local)}</span> · ${esc(p.visitante)} ` +
+  h += `<div class="dia-foot">Empate ${pct(g.empate)} · Forma ${esc(p.local)} <span class="forma">${htmlForma(p.forma && p.forma.local)}</span> · ${esc(p.visitante)} ` +
     `<span class="forma">${htmlForma(p.forma && p.forma.visitante)}</span><br>Ventaja del favorito +${(100 * g.margen).toFixed(0)} pts sobre ${esc(g.rival)} · ` +
-    `Más de 2.5: ${pct(p.over25)} · Ambos anotan: ${pct(p.btts)} · Goles esperados ${num(ge.local, 1)}–${num(ge.visitante, 1)}</div>`;
+    `Goles esperados ${num(ge.local, 1)}–${num(ge.visitante, 1)}</div>`;
   if (p.rompe) h += `<div class="rompe">💥 ${esc((p.rompe.razones || []).join("; "))}</div>`;
   if (p.jugadas && p.jugadas.length) {
     const j = p.jugadas[0];
@@ -199,32 +214,59 @@ function tarjetaDiario(p, nombres) {
 const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 async function vDiario() {
-  const { pan, error } = await panel();
-  if (error) return fallo("Diario", "No se pudo armar el diario: " + error);
-  const nombres = (pan.resumen && pan.resumen.nombres_liga) || {};
-  const part = pan.partidos || [];
+  // Varios días seguidos (hoy y los próximos): un panel por día, pedidos en paralelo y cacheados.
+  const dias = Array.from({ length: S.rango }, (_, i) => sumarDias(S.dia, i));
+  const res = await Promise.all(dias.map(panelDe));
+  if (res[0].error) return fallo("Diario", "No se pudo armar el diario: " + res[0].error);
+  const nombres = {};
+  const part = [];
+  const fallidos = [];
+  res.forEach((r, i) => {
+    if (r.error) { fallidos.push(dias[i]); return; }
+    Object.assign(nombres, (r.pan.resumen && r.pan.resumen.nombres_liga) || {});
+    (r.pan.partidos || []).forEach((p) => part.push({ ...p, _dia: dias[i] }));
+  });
   const ligas = [...new Set(part.map((p) => p.liga))].sort();
   const sel = new Set(ligas.filter((l) => !S.ligasOff.has(l)));            // se guardan las ligas DESACTIVADAS: un día vacío no apaga las de otros días
+  const botonesRango = [[1, "Solo este día"], [3, "3 días"], [7, "7 días"]]
+    .map(([n, t]) => `<button class="chip" type="button" data-rango="${n}" aria-pressed="${S.rango === n}">${t}</button>`).join("");
   const html = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">01</b> Diario</h2>` +
-    `<p class="lead">Los partidos del día con tres indicadores: quién gana, quién mete el primer gol y la opción del equipo más débil de anotar al menos un gol. ` +
-    `Cada porcentaje mezcla modelo y mercado.</p>` +
-    (part.length === 0 ? `<div class="card vacio">No hay partidos para este día. Cambia la fecha o ve a <b>Datos → Actualizar datos</b>.</div>` :
+    `<p class="lead">Los partidos de hoy y de los próximos días, con la opinión del modelo en cada mercado: quién gana, primer gol, más de 1.5 / 2.5, ambos anotan, menos de 3.5. ` +
+    `Cada tarjeta trae su porcentaje, el nivel (ALTA / MEDIA / BAJA) y la <b>cuota mínima</b> a la que ya conviene meterlo.</p>` +
+    `<div class="chips" id="chips-rango">${botonesRango}</div>` +
+    (fallidos.length ? `<p class="error">No se pudieron cargar: ${fallidos.map(esc).join(", ")}.</p>` : "") +
+    (part.length === 0 ? `<div class="card vacio">No hay partidos modelados entre ${esc(dias[0])} y ${esc(dias[dias.length - 1])}. ` +
+      `Prueba «7 días», cambia la fecha o ve a <b>Datos → Actualizar datos</b> (puede haber descanso de selecciones o ligas sin jornada).</div>` :
       `<div class="chips" id="chips-ligas">${ligas.map((l) => `<button class="chip" type="button" data-liga="${esc(l)}" aria-pressed="${sel.has(l)}">${esc(LIGAS[l] || nombres[l] || l)}</button>`).join("")}</div>` +
       `<div class="fila"><input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo">` +
       `<select id="orden" aria-label="Ordenar">${["Hora", "Confianza", "Ventaja"].map((o) => `<option ${o === S.orden ? "selected" : ""}>${o}</option>`).join("")}</select></div>` +
-      `<p class="meta" style="margin:8px 0">Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. «Primer gol» es una estimación aproximada.</p>` +
+      `<p class="meta" style="margin:8px 0">Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. «Primer gol» es una estimación aproximada. Córners y tarjetas no están modelados.</p>` +
       `<div id="lista-diario"></div>`);
   return {
     html,
     alMontar: (v) => {
+      $$("#chips-rango .chip", v).forEach((b) => b.addEventListener("click", () => { S.rango = Number(b.dataset.rango); render(); }));
       const pintar = () => {
         const q = sinAcentos(S.q);
         let lista = part.filter((p) => sel.has(p.liga) && (!q || sinAcentos(p.local).includes(q) || sinAcentos(p.visitante).includes(q)));
+        const porHora = (a, b) => String(a._dia).localeCompare(String(b._dia)) || String(a.hora).localeCompare(String(b.hora));
         if (S.orden === "Confianza") lista.sort((a, b) => (b.confianza ?? -1) - (a.confianza ?? -1));
         else if (S.orden === "Ventaja") lista.sort((a, b) => (b.prediccion ? b.gana.margen : -1) - (a.prediccion ? a.gana.margen : -1));
-        else lista.sort((a, b) => String(a.hora).localeCompare(String(b.hora)));
+        else lista.sort(porHora);
         const c = $("#lista-diario", v);
-        if (c) c.innerHTML = lista.length ? lista.map((p) => tarjetaDiario(p, nombres)).join("") : `<div class="card vacio">Ningún partido coincide con el filtro.</div>`;
+        if (!c) return;
+        if (!lista.length) { c.innerHTML = `<div class="card vacio">Ningún partido coincide con el filtro.</div>`; return; }
+        // En orden por hora se agrupa por día con un encabezado; en los otros órdenes va una sola lista con la fecha en cada tarjeta.
+        if (S.orden === "Hora" && S.rango > 1) {
+          let h = "", dia = null;
+          lista.forEach((p) => {
+            if (p._dia !== dia) { dia = p._dia; h += `<h3 class="dia-h">${esc(nombreDia(dia))}</h3>`; }
+            h += tarjetaDiario(p, nombres);
+          });
+          c.innerHTML = h;
+        } else {
+          c.innerHTML = lista.map((p) => tarjetaDiario({ ...p, hora: S.rango > 1 ? `${p._dia.slice(5)} ${p.hora}` : p.hora }, nombres)).join("");
+        }
       };
       $$("#chips-ligas .chip", v).forEach((b) => b.addEventListener("click", () => {
         const l = b.dataset.liga;
@@ -349,9 +391,130 @@ async function vSonadoras() {
 }
 
 // ------------------------------------------------------------------ Cuotas
+/* Boleto por captura: foto → lectura (visión) → el usuario confirma/edita → probabilidad conjunta REAL del motor V3. */
+const ETQ_SEL = {
+  "1X2:1": "Gana el local", "1X2:X": "Empate", "1X2:2": "Gana el visitante",
+  "BTTS:si": "Ambos anotan: sí", "BTTS:no": "Ambos anotan: no",
+  "OU:1.5:over": "Más de 1.5 goles", "OU:1.5:under": "Menos de 1.5 goles", "OU:2.5:over": "Más de 2.5 goles", "OU:2.5:under": "Menos de 2.5 goles",
+  "OU:3.5:over": "Más de 3.5 goles", "OU:3.5:under": "Menos de 3.5 goles",
+  "ANOTA:local:si": "Local anota", "ANOTA:local:no": "Local no anota", "ANOTA:visitante:si": "Visitante anota", "ANOTA:visitante:no": "Visitante no anota",
+  "DC:1X": "Local o empate (1X)", "DC:X2": "Empate o visitante (X2)", "DC:12": "Sin empate (12)",
+  "AH:local:+1.5": "Hándicap local +1.5", "AH:local:-1.5": "Hándicap local −1.5", "AH:visitante:+1.5": "Hándicap visitante +1.5", "AH:visitante:-1.5": "Hándicap visitante −1.5",
+};
+const etqSel = (c) => ETQ_SEL[c] || c;
+const ESTADO_LEG = { sin_partido: "No encontré el partido", no_reconocido: "No entendí la selección", no_soportado: "Mercado no modelado", ya_empezo: "Ya empezó o terminó", sin_modelo: "Sin modelo para este partido" };
+
+/* Reduce la foto del teléfono (varios MB) a ≤1600 px en JPEG: suficiente para leer el boleto y rápido de subir. */
+function reducirImagen(archivo, max = 1600) {
+  return new Promise((ok, mal) => {
+    const url = URL.createObjectURL(archivo), img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
+      c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      ok({ b64: c.toDataURL("image/jpeg", 0.85).split(",")[1], tipo: "image/jpeg" });
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); mal(new Error("No pude abrir esa imagen. Usa una captura JPG o PNG.")); };
+    img.src = url;
+  });
+}
+
+function htmlBoletoLegs(b) {
+  const opciones = Object.keys(ETQ_SEL);
+  return `<table class="t"><tr><th></th><th>Partido y selección</th><th>Cuota</th></tr>${b.legs.map((g, i) => {
+    const ok = g.partido_id != null && g.seleccion;
+    if (!ok) return `<tr><td>❌</td><td>${esc(g.partido)}<div class="meta">${esc(g.texto)}</div><div class="no">${esc(ESTADO_LEG[g.estado] || g.estado)}: ${esc(g.motivo)}</div></td><td>${g.cuota ? num(g.cuota) : "—"}</td></tr>`;
+    return `<tr><td><input type="checkbox" data-leg="${i}" aria-label="Incluir" ${g.incluir === false ? "" : "checked"}></td>` +
+      `<td>${esc(g.partido)}<select data-sel="${i}" aria-label="Selección">${opciones.map((c) => `<option value="${esc(c)}" ${c === g.seleccion ? "selected" : ""}>${esc(etqSel(c))}</option>`).join("")}</select></td>` +
+      `<td><input type="number" step="0.01" min="1.01" data-cuota="${i}" value="${g.cuota ? esc(g.cuota) : ""}" placeholder="cuota" aria-label="Cuota"></td></tr>`;
+  }).join("")}</table>`;
+}
+
+function htmlBoletoResultado(a) {
+  const c = a.conjunta;
+  let h = `<h3>📊 Análisis del boleto</h3>`;
+  h += `<table class="t"><tr><th>Partido</th><th>Selección</th><th>Modelo</th><th>Cuota justa</th></tr>${a.piernas.map((f) =>
+    `<tr><td>${esc(f.partido)}</td><td>${f.selecciones.map((s) => esc(etqSel(s))).join(" + ")}</td>` +
+    (f.estado === "ok" ? `<td><b style="color:${colorP(f.p_mostrar)}">${pct(f.p_mostrar)}</b></td><td>${num(f.cuota_justa)}</td>` : `<td colspan="2" class="no">${esc(f.motivo)}</td>`) + `</tr>`).join("")}</table>`;
+  if (c) {
+    h += `<div class="kpis"><div class="kpi"><div class="v">${pct(c.p_media, 1)}</div><div class="l">Prob. conjunta</div></div><div class="kpi"><div class="v">${pct(c.p_conservadora, 1)}</div><div class="l">Conservadora</div></div>` +
+      `<div class="kpi"><div class="v">${pct(c.p_independencia, 1)}</div><div class="l">Si fueran independientes</div></div>` +
+      `<div class="kpi"><div class="v">${num(c.lift, 2)}×</div><div class="l">Efecto dependencia</div></div>` +
+      `<div class="kpi"><div class="v">${num(c.cuota_justa_conservadora)}</div><div class="l">Cuota mín. conserv.</div></div>` +
+      (c.ev_conservador != null ? `<div class="kpi"><div class="v" style="color:${c.ev_conservador > 0 ? "var(--hi)" : "var(--lo)"}">${(100 * c.ev_conservador).toFixed(1)}%</div><div class="l">EV conservador</div></div>` : "") + `</div>`;
+    if (c.cuota_total) {
+      h += `<p class="${c.ev_conservador > 0 ? "ok" : "no"}">Con tu cuota total ${num(c.cuota_total)}: EV con la prob. media ${(100 * c.ev_media).toFixed(1)}% · con la conservadora ${(100 * c.ev_conservador).toFixed(1)}%. ` +
+        (c.stake_referencia_u ? `Referencia de stake: ${num(c.stake_referencia_u)} u.` : "El modelo no ve ventaja con la conservadora: no hay stake de referencia.") + `</p>`;
+    }
+    if (c.sin_cada_partido && c.sin_cada_partido.length) {
+      h += `<h3>✂️ ¿Y si quitas un partido?</h3><table class="t"><tr><th>Sin…</th><th>Prob. conservadora</th><th>Sube</th><th>Cuota resultante</th></tr>${c.sin_cada_partido.map((x) =>
+        `<tr><td>${esc(x.partido)}</td><td>${pct(x.p_conservadora, 1)}</td><td>${x.sube_x ? num(x.sube_x, 2) + "×" : "—"}</td><td>${x.cuota ? num(x.cuota) : "—"}</td></tr>`).join("")}</table>`;
+    }
+  }
+  h += (a.avisos || []).map((t) => `<div class="aviso-prov">${esc(t)}</div>`).join("");
+  return h;
+}
+
+function montarBoleto(v) {
+  const zona = $("#bol", v);
+  if (!zona) return;
+  const pintar = () => {
+    const b = S.boleto;
+    if (!b) { zona.innerHTML = ""; return; }
+    zona.innerHTML = `<div class="card"><p class="meta">Leído de tu captura${b.confianza_lectura ? " (confianza de la lectura: " + esc(b.confianza_lectura) + ")" : ""}: ${esc(b.n_ok)} de ${esc(b.n_total)} selecciones reconocidas. ` +
+      `<b>Revisa que sea lo que dice tu boleto</b> y corrige lo que haga falta antes de analizar.</p>${htmlBoletoLegs(b)}` +
+      `<div class="fila"><div><label for="bol-ct">Cuota total del boleto</label><input id="bol-ct" type="number" step="0.01" min="1.01" value="${b.cuota_total ? esc(b.cuota_total) : ""}"></div>` +
+      `<div><label for="bol-monto">Monto apostado${b.moneda ? " (" + esc(b.moneda) + ")" : ""}</label><input id="bol-monto" type="number" step="0.01" min="0" value="${b.monto ? esc(b.monto) : ""}"></div></div>` +
+      `<div class="fila"><button id="bol-ok" class="btn primario" type="button">Analizar boleto</button><button id="bol-borrar" class="btn" type="button">Descartar</button></div><div id="bol-res">${b.resultado ? htmlBoletoResultado(b.resultado) : ""}</div></div>`;
+    $$("[data-leg]", zona).forEach((e) => e.addEventListener("change", () => { b.legs[Number(e.dataset.leg)].incluir = e.checked; }));
+    $$("[data-sel]", zona).forEach((e) => e.addEventListener("change", () => { b.legs[Number(e.dataset.sel)].seleccion = e.value; }));
+    $$("[data-cuota]", zona).forEach((e) => e.addEventListener("change", () => { b.legs[Number(e.dataset.cuota)].cuota = Number(e.value) > 1 ? Number(e.value) : null; }));
+    $("#bol-borrar", zona).addEventListener("click", () => { S.boleto = null; pintar(); });
+    $("#bol-ok", zona).addEventListener("click", async () => {
+      const res = $("#bol-res", zona), btn = $("#bol-ok", zona);
+      const usar = b.legs.filter((g) => g.partido_id != null && g.seleccion && g.incluir !== false);
+      if (!usar.length) { res.innerHTML = '<p class="error">No hay selecciones reconocidas e incluidas para analizar.</p>'; return; }
+      b.cuota_total = Number($("#bol-ct", zona).value) > 1 ? Number($("#bol-ct", zona).value) : null;
+      b.monto = Number($("#bol-monto", zona).value) > 0 ? Number($("#bol-monto", zona).value) : null;
+      btn.disabled = true;
+      res.innerHTML = '<p class="vacio"><span class="spin"></span>Calculando la probabilidad conjunta…</p>';
+      const cuerpo = { legs: usar.map((g) => ({ partido_id: g.partido_id, seleccion: g.seleccion, cuota: g.cuota || null, texto: g.texto })) };
+      if (b.cuota_total) cuerpo.cuota_total = b.cuota_total;
+      if (b.monto) cuerpo.monto = b.monto;
+      const r = await api("POST", "/boleto/analizar", cuerpo);
+      btn.disabled = false;
+      if (!r.ok) { res.innerHTML = `<p class="error">${esc(r.error)}</p>`; return; }
+      b.resultado = r.data;
+      res.innerHTML = htmlBoletoResultado(r.data);
+    });
+  };
+  const arch = $("#bol-arch", zona.parentElement), est = $("#bol-est", zona.parentElement);
+  if (arch) arch.addEventListener("change", async () => {
+    const f = arch.files && arch.files[0];
+    if (!f) return;
+    est.innerHTML = '<p class="vacio"><span class="spin"></span>Leyendo tu boleto… (unos segundos)</p>';
+    try {
+      const im = await reducirImagen(f);
+      const r = await api("POST", "/boleto/leer", { imagen_base64: im.b64, media_type: im.tipo });
+      if (!r.ok) { est.innerHTML = `<p class="error">${esc(r.error)}</p>`; return; }
+      S.boleto = { ...r.data, resultado: null };
+      est.innerHTML = "";
+      pintar();
+    } catch (e) { est.innerHTML = `<p class="error">${esc(e.message)}</p>`; }
+    arch.value = "";
+  });
+  pintar();
+}
+
 async function vCuotas() {
   const r = await api("GET", "/parlays/" + S.dia);
-  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">04</b> Cuotas</h2><p class="lead">El ticket V3 con las cuotas de tu casa, y captura de cuotas a mano.</p>`;
+  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">04</b> Cuotas</h2><p class="lead">Sube la captura de tu boleto para que el modelo lo analice, mira el ticket V3 con las cuotas de tu casa o captura cuotas a mano.</p>`;
+  if (S.rol === "admin") {
+    h += `<h3>📷 Analizar mi boleto</h3><div class="card"><p class="meta">Toma o sube la captura de tu boleto (selecciones y cuotas). El modelo lee la imagen, tú la confirmas y se calcula la probabilidad de que <b>todo</b> se cumpla, ` +
+      `con la dependencia entre partidos y qué pasa si quitas alguno.</p><label for="bol-arch">Captura del boleto</label>` +
+      `<input id="bol-arch" type="file" accept="image/*"><div id="bol-est"></div></div><div id="bol"></div>`;
+  }
   if (!r.ok) h += `<div class="card"><p class="error">${esc(r.error)}</p></div>`;
   else {
     const v3 = r.data.filter((p) => p.fuente === "v3");
@@ -375,6 +538,7 @@ async function vCuotas() {
   return {
     html: h,
     alMontar: (v) => {
+      montarBoleto(v);
       const t = $("#cuotas-texto", v);
       if (!t) return;
       const enviar = async (guardar) => {
@@ -408,6 +572,10 @@ async function vDatos() {
   if (!r.ok) return fallo("Datos", r.error);
   const e = r.data;
   (e.alertas || []).forEach((a) => (h += `<div class="aviso-prov">⚠️ ${esc(a)}</div>`));
+  const NOM_LLAVE = { API_FOOTBALL_KEY: "API-Football (partidos)", ODDS_API_KEY: "The Odds API (cuotas)", FOOTBALL_DATA_ORG_KEY: "football-data.org", ANTHROPIC_API_KEY: "Anthropic (leer capturas)" };
+  h += `<h3>🔑 Llaves del servidor</h3><div class="chips">${Object.entries(e.llaves || {}).map(([k, ok]) =>
+    `<span class="chip ${ok ? "ok" : "rojo"}">${esc(NOM_LLAVE[k] || k)}: ${ok ? "puesta" : "falta"}</span>`).join("")}</div>` +
+    (e.llaves && e.llaves.ANTHROPIC_API_KEY === false ? `<p class="meta">Sin la llave de Anthropic no se pueden leer capturas de boletos. Agrégala como variable de entorno <b>ANTHROPIC_API_KEY</b> en el servidor (nunca aquí ni en el chat).</p>` : "");
   h += `<h3>🔄 Actualizar</h3>`;
   if (S.rol !== "admin") h += `<div class="card vacio">👀 Estás en modo solo consulta: no puedes actualizar.</div>`;
   else {
@@ -424,7 +592,7 @@ async function vDatos() {
   if (e.modelo) h += `<h3>🧠 Modelo</h3><div class="card meta">Versión ${esc(e.modelo.version_id)} · ${esc(e.modelo.tipo)} · ${esc(e.modelo.creado)} · calibrado: ${e.modelo.calibrado ? "sí" : "no"}</div>`;
   h += `<h3>🌍 Cobertura por liga</h3><div class="card"><table class="t"><tr><th>Liga</th><th>Histórico</th><th>Próx. 3 días</th><th></th></tr>${(e.cobertura_ligas || []).map((c) =>
     `<tr><td>${esc(LIGAS[c.codigo] || c.codigo)}</td><td>${esc(c.finalizados)}</td><td>${esc(c.proximos)}</td><td>${c.problema ? "⚠" : "✅"}</td></tr>${c.problema ? `<tr><td colspan="4" class="meta">${esc(c.problema)}</td></tr>` : ""}`).join("")}</table></div>`;
-  h += `<h3>📝 Pendientes</h3><div class="card meta">Nombres de equipo por revisar: <b>${esc(e.alias_pendientes)}</b> · conflictos de datos abiertos: <b>${esc(e.conflictos_abiertos)}</b>. Para resolverlos usa la versión completa (puerto 8501).</div>`;
+  h += `<h3>📝 Pendientes</h3><div class="card meta">Nombres de equipo por revisar: <b>${esc(e.alias_pendientes)}</b> · conflictos de datos abiertos: <b>${esc(e.conflictos_abiertos)}</b>. Se resuelven en la versión completa de escritorio (Streamlit, puerto 8501 en tu computadora); no afectan lo que ves aquí.</div>`;
   const u = e.ultima_ejecucion;
   if (u) h += `<h3>🧾 Última actualización</h3><div class="card meta">${esc(u.tipo)} · ${esc(u.estado)}${(u.etapas || []).map((x) => `<br>${x.estado === "ok" ? "✅" : x.estado === "error" ? "❌" : "•"} ${esc(x.etapa)}${x.error ? " — " + esc(x.error) : ""}`).join("")}</div>`;
   return {

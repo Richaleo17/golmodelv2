@@ -13,7 +13,7 @@ from collections.abc import Mapping
 
 from golmodel import acceso
 
-PUBLICAS = {"/", "/salud", "/auth/login", "/auth/estado"}
+PUBLICAS = {"/", "/salud", "/_stcore/health", "/auth/login", "/auth/estado"}
 MENSAJE_MODO = {
     "sin_clave": "La app está abierta a la red pero no tiene contraseña: define APP_PASSWORD en .env y reinicia (docker compose up -d).",
     "config_invalida": "Hay APP_VIEWER_PASSWORD pero falta APP_PASSWORD: define también la contraseña de administrador.",

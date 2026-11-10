@@ -312,6 +312,23 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         "p_fav_mercado": pf_mk, "p_fav_modelo": pf_mod,
         "peso_min": peso_min if (f["local_id"] in pesos and f["visitante_id"] in pesos) else None,
     }
+    # Tarjetas de mercados del Diario (aditivo; NO alimenta «Qué meter»): lo más probable de cada mercado con su probabilidad y la cuota mínima para tener valor.
+    u_edge = float(cfg["valor"]["umbral_edge"])
+
+    def _mercado(clave: str, titulo: str, pick: str, p: float, aprox: bool = False) -> dict:
+        return {"clave": clave, "titulo": titulo, "pick": pick, "p": p, "cuota_min": (1 + u_edge) / p if p > 0 else None, "aprox": aprox,
+                "nivel": "ALTA" if p >= 0.80 else "MEDIA" if p >= 0.55 else "BAJA"}
+
+    def _si_no(clave: str, titulo: str, s_: str) -> dict:
+        ps = p_para_mostrar(s_)
+        return _mercado(clave, titulo, "Sí" if ps >= 0.5 else "No", ps if ps >= 0.5 else 1 - ps)
+    info["mercados"] = [
+        _mercado("ganador", "Ganador", nom[fav], p1[sf]),
+        _si_no("ambos", "Ambos anotan", "BTTS:si"),
+        _si_no("mas15", "Más de 1.5 goles", "OU:1.5:over"),
+        _si_no("mas25", "Más de 2.5 goles", "OU:2.5:over"),
+        _si_no("menos35", "Menos de 3.5 goles", "OU:3.5:under"),
+        _mercado("primer_gol", "Primer gol", nom[fav], pg_fav, aprox=True)]
 
     vetadas = set(f["crs_selecciones_vetadas"] or [])
     lado_fav = "1" if fav == "local" else "2"

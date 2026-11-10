@@ -65,6 +65,23 @@ button.chip[aria-pressed=true]{background:var(--accent);color:#0b0c20;border-col
 .dia-foot{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);font:400 11.5px/1.5 var(--mono);color:var(--muted)}
 .forma span{display:inline-block;width:16px;height:16px;line-height:16px;text-align:center;border-radius:3px;font:600 9px var(--mono);margin-right:2px;color:#08091a}
 .forma .W,.forma .G{background:var(--hi)}.forma .D,.forma .E{background:var(--mid)}.forma .L,.forma .P{background:var(--lo)}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:8px 0}
+.tile{background:var(--inset);border:1px solid var(--line);border-radius:9px;padding:9px 10px;min-width:0}
+.tile.ancho{grid-column:1/-1}
+.tile .tt{font:500 9.5px var(--mono);letter-spacing:.08em;color:var(--muted);text-transform:uppercase}
+.tile .tp{font-weight:700;font-size:14.5px;line-height:1.25;margin:3px 0 4px;overflow-wrap:anywhere}
+.tile .tv{display:flex;align-items:baseline;justify-content:space-between;gap:6px;margin-bottom:4px}
+.tile .tv b{font:700 22px var(--disp);letter-spacing:.02em}
+.tile .tm{font:500 10px var(--mono);color:var(--text-2);margin-top:5px;letter-spacing:.04em}
+.nv{font:600 9.5px var(--mono);padding:2px 7px;border-radius:999px;border:1px solid var(--line-3);letter-spacing:.06em}
+.nv.ALTA{color:var(--hi);border-color:rgba(68,224,176,.6)}
+.nv.MEDIA{color:var(--mid);border-color:rgba(242,193,78,.6)}
+.nv.BAJA{color:var(--lo);border-color:rgba(255,107,138,.7)}
+.dia-h{text-transform:capitalize;color:var(--accent);margin:18px 0 8px;font-size:21px}
+#bol select,#bol input[type=number]{margin-top:4px;min-height:40px}
+#bol table.t td:first-child{width:34px}
+#bol input[type=checkbox]{width:22px;height:22px;min-height:0}
+input[type=file]{width:100%;padding:8px;background:var(--inset);border:1px dashed var(--line-3);border-radius:8px}
 .rompe{margin-top:8px;padding:8px 10px;border:1px solid rgba(255,107,138,.5);border-radius:8px;background:rgba(255,107,138,.08);font-size:13px}
 .jug{margin-top:8px;font-size:13.5px}
 .mc-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line-3);margin-right:7px;vertical-align:1px}
