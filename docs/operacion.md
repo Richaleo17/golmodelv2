@@ -105,7 +105,7 @@ En el celular, en la misma WiFi, abre `http://ESA_IP:8000/app/` y entra con tu `
 - El administrador ve todo, incluidos los botones de **actualizar** y la **captura de cuotas**; el de consulta solo ve (la API rechaza con 403 cualquier escritura, aunque alguien manipule la pantalla).
 - **La API ahora tiene candado:** sin `APP_PASSWORD` en `.env` y abierta a la red **no responde nada** (503). Para dejarla solo en tu computadora, pon `UI_BIND=127.0.0.1` en `.env`.
 - Límites honestos: por ser `http` (no `https`) el navegador no instala la PWA completa ni guarda la app sin conexión; funciona como página y como ícono. Para eso haría falta `https` (Tailscale con certificado o Render). Resolver nombres de equipo y conflictos de datos sigue siendo solo de la pantalla completa (8501).
-- Para que llegue a tu Mac este cambio: `git pull origin v3`, `docker compose build api` y `docker compose up -d`.
+- Para que llegue a tu Mac un cambio: `git pull origin v3` y `docker compose up -d --build` (api, pantalla completa y worker comparten una sola imagen; reconstruir una sola cosa deja la otra con código viejo y la pantalla completa mostraría «401: No autenticado»).
 
 ## 9b. Capturar cuotas de tu casa (Draftea)
 Pestaña **Capturar cuotas**:

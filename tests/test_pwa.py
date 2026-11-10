@@ -236,3 +236,37 @@ def test_el_js_no_usa_apis_peligrosas_y_cada_ruta_que_llama_existe_en_la_api():
 def test_el_html_no_trae_scripts_en_linea_ni_manejadores_inline():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     assert not re.search(r"<script(?![^>]*\bsrc=)", html) and not re.search(r"\son[a-z]+=", html)
+
+
+# ------------------------------------------------------------------ la pantalla completa (Streamlit) con la API ya protegida
+from tests.test_integracion import cargado, cfg, dsn, mundo  # noqa: E402,F401
+from tests.test_integracion_benchmark import bd  # noqa: E402,F401
+from tests.test_integracion_candidatas import _dia, poblada  # noqa: E402,F401
+
+try:
+    from streamlit.testing.v1 import AppTest
+    from tests.test_ui_smoke import APP, _ir_a_panel, _textos, entorno  # noqa: E402,F401
+except Exception:                                    # pragma: no cover
+    AppTest = None
+
+
+@pytest.mark.skipif(AppTest is None, reason="streamlit no disponible")
+@pytest.mark.parametrize("rol", ["admin", "lector"])
+def test_la_ui_de_streamlit_funciona_con_la_api_protegida_enviando_su_token(entorno, bd, monkeypatch, rol):  # noqa: F811
+    """Regresión del 401 en 8501: con APP_PASSWORD puesto, la API exige token y la UI debe presentarse con el de su rol."""
+    from golmodel import db
+    from golmodel.integracion import benchmark as bm
+    from tests.test_integracion_benchmark import _ticket_con_partidos_reales
+    monkeypatch.setenv("APP_PASSWORD", ADMIN)
+    monkeypatch.setenv("APP_VIEWER_PASSWORD", LECTOR)
+    monkeypatch.setenv("UI_BIND", "0.0.0.0")
+    with db.conectar(bd) as c:
+        bm.persistir(c, _ticket_con_partidos_reales(c, _dia(c)))
+    token = acceso.crear_token(rol, acceso.secreto(ADMIN, LECTOR, {}))            # el enlace «recordado» de la pantalla de acceso
+    at = AppTest.from_file(APP, default_timeout=60)
+    at.query_params["s"] = token
+    at = _ir_a_panel(at)
+    assert not at.exception, [e.value for e in at.exception]
+    textos = _textos(at)
+    assert "401" not in textos and "No autenticado" not in textos and "La API respondió con un error" not in textos
+    assert any(m.value.startswith('<div class="parlay"><h4>🎫 Ticket V3') for m in at.markdown)         # los datos SÍ llegaron a la pantalla
