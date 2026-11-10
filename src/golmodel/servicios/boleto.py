@@ -26,7 +26,7 @@ from golmodel import repositorio as repo
 from golmodel.modelos import incertidumbre as inc
 from golmodel.modelos.mercados import CONDICIONES, probabilidad
 from golmodel.motor import dependencia as dep
-from golmodel.servicios import captura
+from golmodel.servicios import captura, catalogo
 
 MEDIA_TYPES = ("image/png", "image/jpeg", "image/webp", "image/gif")
 MAX_BYTES = 5_000_000
@@ -36,9 +36,10 @@ LINEAS_OU = (1.5, 2.5, 3.5)
 MAX_SGP = 2                                  # selecciones por partido dentro de una misma pierna (como el ticket V3)
 
 PROMPT = """Eres un lector de capturas de boletos de apuestas deportivas. Devuelve SOLO un JSON con esta forma:
-{"partidos":[{"local":"..","visita":"..","selecciones":[{"mercado_texto":"..","seleccion_texto":"..","linea":null|número,"cuota":null|número}]}],
+{"partidos":[{"local":"..","visita":"..","local_completo":null|"..","visita_completo":null|"..","selecciones":[{"mercado_texto":"..","seleccion_texto":"..","linea":null|número,"cuota":null|número}]}],
 "monto":número|null,"cobro":número|null,"cuota_total":número|null,"moneda":"MXN","confianza_lectura":0-1}
 Reglas: copia los textos tal como aparecen (ej. mercado "GANA" + selección "Cruz Azul"; mercado "TOTAL DE GOLES" + selección "Más 2.5" -> seleccion_texto "Más", linea 2.5).
+"local"/"visita" van TAL COMO se ven (si la casa abrevia con 3 letras como "CHE", pon "CHE"). En "local_completo"/"visita_completo" pon el nombre completo del club SOLO si estás seguro de a cuál se refiere la abreviatura; si dudas, null (nunca adivines).
 "cuota" es la cuota de ESA selección si se ve; si solo se ve la cuota total del boleto, ponla en "cuota_total". No inventes datos que no se vean: lo ilegible va como null.
 No incluyas texto fuera del JSON."""
 
@@ -106,19 +107,29 @@ def _n(t) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", str(t or "").lower()) if unicodedata.category(c) != "Mn").strip()
 
 
-def _lado(texto: str, local: str, visita: str) -> str | None:
+def _lado(texto: str, local: str, visita: str, nl: set[str] | None = None, nv: set[str] | None = None) -> str | None:
+    """«local» / «visitante» según a qué equipo se parece `texto` (nombre completo, parcial o abreviatura de 2-4 letras como «CHE»).
+    `nl`/`nv`: todos los nombres y alias de cada equipo (si se dan). Si encaja igual con los dos, no se adivina (None)."""
     t = _n(texto)
     if not t:
         return None
-    sl, sv = captura.puntaje(t, {_n(local)}), captura.puntaje(t, {_n(visita)})
+    if catalogo.es_abreviatura(texto):
+        al, av = catalogo.encaja(texto, nl or {local}), catalogo.encaja(texto, nv or {visita})
+        if not (al or av) or abs(al - av) < 0.05:
+            return None
+        return "local" if al > av else "visitante"
+    sl = max(captura.puntaje(t, {_n(x) for x in (nl or {local})}), 0.0)
+    sv = max(captura.puntaje(t, {_n(x) for x in (nv or {visita})}), 0.0)
     if max(sl, sv) < 0.6 or abs(sl - sv) < 0.05:
         return None
     return "local" if sl > sv else "visitante"
 
 
-def normalizar(mercado_texto, seleccion_texto, linea, local: str, visita: str) -> tuple[str | None, str]:
-    """(código del catálogo | None, motivo). Solo lo que el modelo del v2 cubre; lo demás se dice claro."""
+def normalizar(mercado_texto, seleccion_texto, linea, local: str, visita: str, nl: set[str] | None = None, nv: set[str] | None = None) -> tuple[str | None, str]:
+    """(código del catálogo | None, motivo). Solo lo que el modelo del v2 cubre; lo demás se dice claro.
+    `nl`/`nv` (opcionales): nombres y alias de cada equipo, para entender abreviaturas («CHE») además del nombre."""
     m, s = _n(mercado_texto), _n(seleccion_texto)
+    _lado_ = lambda t: _lado(t, local, visita, nl, nv)                           # noqa: E731
     if any(x in m for x in ("esquina", "corner", "tarjeta", "card", "tiros", "faltas", "jugador", "puntos")):
         return None, "Mercado que el modelo no cubre (esquinas, tarjetas, tiros o jugadores): no entra al análisis."
     if "primer" in m and "gol" in m or "primero" in m or "first" in m:
@@ -135,7 +146,7 @@ def normalizar(mercado_texto, seleccion_texto, linea, local: str, visita: str) -
             return c, ""
         a, b = (re.split(r"\s+o\s+|\s+/\s+|\s+or\s+", s) + [""])[:2]
         la, lb = ("empate" in a or a == "x"), ("empate" in b or b == "x")
-        sa, sb = _lado(a, local, visita), _lado(b, local, visita)
+        sa, sb = _lado_(a), _lado_(b)
         if (sa == "local" and lb) or (la and sb == "local"):
             return "DC:1X", ""
         if (sa == "visitante" and lb) or (la and sb == "visitante"):
@@ -155,14 +166,14 @@ def normalizar(mercado_texto, seleccion_texto, linea, local: str, visita: str) -
             return None, f"Línea {ln:g} fuera del catálogo del modelo (solo {', '.join(f'{x:g}' for x in LINEAS_OU)})."
         return None, "No entendí la línea de goles."
     if re.search(r"\b(anota|marca|score)\b", m):                                  # palabra completa: «marcador exacto» no es «equipo anota»
-        lado = _lado(m + " " + s, local, visita)
+        lado = _lado_(m + " " + s)
         if lado and (s.startswith(("si", "yes")) or "anota" in m):
             return f"ANOTA:{lado}:{'no' if s.startswith('no') else 'si'}", ""
         return None, "No entendí qué equipo debe anotar."
     if any(x in m for x in ("gana", "ganador", "resultado", "1x2", "moneyline", "partido", "match winner")):
         if "empate" in s or s in ("x", "draw"):
             return "1X2:X", ""
-        lado = _lado(seleccion_texto, local, visita)
+        lado = _lado_(seleccion_texto)
         if lado:
             return ("1X2:1" if lado == "local" else "1X2:2"), ""
         return None, "No pude saber a qué equipo corresponde el ganador."
@@ -170,6 +181,25 @@ def normalizar(mercado_texto, seleccion_texto, linea, local: str, visita: str) -
 
 
 # ------------------------------------------------------------------ resolver partidos y selecciones
+def _ubicar_partido(local: str, visita: str, local_completo: str, visita_completo: str, partidos: list[dict],
+                    nombres: dict[int, set[str]]) -> tuple[dict | None, str, list[dict], str]:
+    """(partido | None, motivo, opciones, vía). Orden: nombre tal cual → nombre completo que leyó Anthropic → abreviaturas («CHE - HAC»).
+    TODO se valida contra los partidos PROGRAMADOS: si la lectura del modelo o la abreviatura no encaja con un partido único, no se acepta."""
+    if not (local and visita and partidos):
+        return None, "No encontré ese partido entre los programados de los próximos días.", [], ""
+    p, err = captura.emparejar(local, visita, partidos, nombres)
+    if p:
+        return p, "", [], "nombre"
+    if local_completo and visita_completo:
+        p2, _, _ = catalogo.emparejar_flexible(local_completo, visita_completo, partidos, nombres)
+        if p2:
+            return p2, "", [], "nombre_completo"
+    p3, err3, opciones = catalogo.emparejar_flexible(local, visita, partidos, nombres)
+    if p3:
+        return p3, "", [], "abreviatura"
+    return None, (err if "invertido" in err else err3), opciones, ""
+
+
 def resolver(conn, ahora: datetime, zona: ZoneInfo, lectura: dict, *, dias: int = 7) -> dict:
     hoy = ahora.astimezone(zona).date()
     partidos = repo.partidos_de_dias(conn, [hoy + timedelta(days=i) for i in range(-1, dias + 1)])
@@ -179,7 +209,8 @@ def resolver(conn, ahora: datetime, zona: ZoneInfo, lectura: dict, *, dias: int 
         if not isinstance(bloque, dict):
             continue
         local, visita = str(bloque.get("local") or "").strip(), str(bloque.get("visita") or bloque.get("visitante") or "").strip()
-        p, err = (captura.emparejar(local, visita, partidos, nombres) if (local and visita and partidos) else (None, "No encontré ese partido entre los programados de los próximos días."))
+        lc, vc = str(bloque.get("local_completo") or "").strip(), str(bloque.get("visita_completo") or "").strip()
+        p, err, opciones, via = _ubicar_partido(local, visita, lc, vc, partidos, nombres)
         for sel in bloque.get("selecciones") or []:
             if not isinstance(sel, dict):
                 continue
@@ -187,13 +218,16 @@ def resolver(conn, ahora: datetime, zona: ZoneInfo, lectura: dict, *, dias: int 
             cuota = sel.get("cuota")
             cuota = float(cuota) if isinstance(cuota, (int, float)) and not isinstance(cuota, bool) and cuota > 1.0 else None
             leg = {"texto": texto, "partido_id": None, "partido": f"{local} vs {visita}", "seleccion": None, "cuota": cuota, "estado": "ok", "motivo": ""}
-            codigo, motivo = normalizar(sel.get("mercado_texto"), sel.get("seleccion_texto"), sel.get("linea"), p["local"] if p else local, p["visitante"] if p else visita)
+            codigo, motivo = normalizar(sel.get("mercado_texto"), sel.get("seleccion_texto"), sel.get("linea"), p["local"] if p else local, p["visitante"] if p else visita,
+                                        nombres.get(p["local_id"]) if p else None, nombres.get(p["visitante_id"]) if p else None)
             if p is None:
-                leg.update(estado="sin_partido", motivo=err)
+                leg.update(estado="sin_partido", motivo=err, opciones=opciones, seleccion_sugerida=codigo)
             elif codigo is None:
                 leg.update(partido_id=p["id"], partido=f"{p['local']} vs {p['visitante']}", estado="no_soportado" if "no cubre" in motivo or "no entra" in motivo else "no_reconocido", motivo=motivo)
             else:
                 leg.update(partido_id=p["id"], partido=f"{p['local']} vs {p['visitante']}", seleccion=codigo)
+            if p is not None and via in ("abreviatura", "nombre_completo"):
+                leg["entendido_como"] = f"«{local} - {visita}» → {p['local']} vs {p['visitante']} (por {'abreviatura' if via == 'abreviatura' else 'nombre completo leído'}): confírmalo"
             legs.append(leg)
     n_ok = sum(1 for g in legs if g["estado"] == "ok")
     return {"legs": legs, "n_ok": n_ok, "n_total": len(legs),
@@ -209,6 +243,45 @@ def _prediccion_leg(conn, partido: dict, ahora: datetime):
         return None, None
     pesos = cd._pesos(conn, pred["version_id"], [partido["local_id"], partido["visitante_id"]])
     return pred, pesos
+
+
+# Escalera de alternativas MÁS SEGURAS de una selección (misma dirección, menos exigente). Paga menos: se reporta la cuota justa nueva.
+ESCALERA = {"OU:3.5:over": ("OU:2.5:over", "OU:1.5:over"), "OU:2.5:over": ("OU:1.5:over",),
+            "OU:1.5:under": ("OU:2.5:under", "OU:3.5:under"), "OU:2.5:under": ("OU:3.5:under",),
+            "1X2:1": ("DC:1X",), "1X2:2": ("DC:X2",)}
+ETIQ = {"OU:1.5:over": "Más de 1.5 goles", "OU:2.5:over": "Más de 2.5 goles", "OU:3.5:over": "Más de 3.5 goles", "OU:1.5:under": "Menos de 1.5 goles",
+        "OU:2.5:under": "Menos de 2.5 goles", "OU:3.5:under": "Menos de 3.5 goles", "DC:1X": "Local o empate (1X)", "DC:X2": "Empate o visitante (X2)",
+        "1X2:1": "Gana el local", "1X2:2": "Gana el visitante"}
+MAX_SUGERENCIAS = 5
+
+
+def _sugerencias(piernas, matrices, base, sin, sampler, cfg_v3, semilla) -> list[dict]:
+    """Qué cambiar para subir la probabilidad conjunta, con los números del modelo (nada inventado):
+    · «bajar»: cambiar UNA selección por su alternativa más segura (más de 2.5 → más de 1.5, ganador → doble oportunidad).
+    · «quitar»: sacar un partido (de `sin_cada_partido`).
+    Se ordenan por cuánto sube la probabilidad conservadora del boleto. Cada alternativa PAGA MENOS: se da su cuota justa; la casa
+    debe pagar al menos eso (y algo más) para que valga la pena. No son recomendaciones de apostar."""
+    import dataclasses
+    out: list[dict] = []
+    if base.p_conservadora <= 0:
+        return out
+    for i, (fila, pierna) in enumerate(piernas):
+        if len(pierna.selecciones) != 1:
+            continue
+        sel = pierna.selecciones[0]
+        for alt in ESCALERA.get(sel, ()):
+            p_alt = float(probabilidad(matrices[pierna.partido_id], alt))
+            nueva = [dataclasses.replace(x[1], selecciones=(alt,)) if j == i else x[1] for j, x in enumerate(piernas)]
+            rr = dep.probabilidad_conjunta(nueva, sampler, cfg_v3, semilla)
+            out.append({"tipo": "bajar", "partido": fila["partido"], "de": sel, "a": alt, "de_etiqueta": ETIQ.get(sel, sel), "a_etiqueta": ETIQ.get(alt, alt),
+                        "p_pierna_antes": fila["p_mostrar"], "p_pierna_despues": p_alt, "cuota_justa_nueva": 1.0 / p_alt if p_alt > 0 else None,
+                        "p_conservadora_despues": rr.p_conservadora, "sube_x": rr.p_conservadora / base.p_conservadora})
+    for x in sin:
+        if x.get("sube_x"):
+            out.append({"tipo": "quitar", "partido": x["partido"], "p_conservadora_despues": x["p_conservadora"], "sube_x": x["sube_x"]})
+    out = [o for o in out if o["sube_x"] and o["sube_x"] > 1.0]
+    out.sort(key=lambda o: -o["sube_x"])
+    return out[:MAX_SUGERENCIAS]
 
 
 def analizar(conn, cfg: dict, cfg_v3: dict, ahora: datetime, legs: list[dict], *, cuota_total: float | None = None, monto: float | None = None,
@@ -231,6 +304,7 @@ def analizar(conn, cfg: dict, cfg_v3: dict, ahora: datetime, legs: list[dict], *
     sampler = inc.FactorSamplerJerarquico(sigma_g=float(version.sigma_g), sigma_liga=version.sigma_liga)
     semilla = int(ahora.strftime("%Y%m%d")) if semilla is None else int(semilla)
     filas, piernas, avisos = [], [], []
+    matrices: dict[int, object] = {}
     for pid, gs in por_partido.items():
         p = conn.execute("""SELECT p.*, l.codigo AS liga, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante FROM partidos p JOIN ligas l ON l.id = p.liga_id
                             JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id WHERE p.id = %s""", (pid,)).fetchone()
@@ -257,6 +331,7 @@ def analizar(conn, cfg: dict, cfg_v3: dict, ahora: datetime, legs: list[dict], *
         fila = {**base, "estado": "ok", "motivo": "", "p_modelo": p_mod, "p_mercado": p_mk, "p_mostrar": p_adj if p_adj is not None else p_mod,
                 "cuota_justa": 1.0 / (p_adj if p_adj is not None else p_mod) if (p_adj or p_mod) else None}
         filas.append(fila)
+        matrices[pid] = m
         piernas.append((fila, dep.Pierna(pid, p["liga"], float(pred["lambda_local"]), float(pred["lambda_visitante"]), float(pred["rho"]), tuple(base["selecciones"]),
                                          inc.tau_idiosincratico(version.c_global, pesos[p["local_id"]]), inc.tau_idiosincratico(version.c_global, pesos[p["visitante_id"]]))))
     resultado = None
@@ -282,10 +357,12 @@ def analizar(conn, cfg: dict, cfg_v3: dict, ahora: datetime, legs: list[dict], *
                     item.update({"cuota": c2, "ev_conservador": rr.p_conservadora * c2 - 1.0}) if c2 > 1.0 else None
                 sin.append(item)
             resultado["sin_cada_partido"] = sin
+        resultado["sugerencias"] = _sugerencias(piernas, matrices, r, resultado.get("sin_cada_partido") or [], sampler, cfg_v3, semilla)
     faltan = [f for f in filas if f["estado"] != "ok"]
     if faltan:
         avisos.append(f"{len(faltan)} partido(s) NO entran a la probabilidad conjunta (sin modelo o ya empezaron): la conjunta es del resto, no del boleto completo.")
     if version.calibrado_con != "oos_real":
         avisos.append("Calibración PROVISIONAL (sin validar con datos reales): tómalo con más reserva.")
+    avisos.append("El modelo no sabe de motivación ni de rotaciones (equipos ya clasificados, partidos sin nada en juego, descanso por otra competición). El mercado sí las suele reflejar cuando se conocen: ante la duda, revisa alineaciones y noticias antes de apostar.")
     avisos.append("La cota conservadora es ≈ la mitad de la probabilidad media: es prudente a propósito. Ninguna apuesta es segura; esto es análisis estadístico, no una garantía.")
     return {"piernas": filas, "conjunta": resultado, "avisos": avisos, "calibrado_con": version.calibrado_con, "n_draws": int(cfg_v3["dependencia"]["n_draws"]), "dia": ahora.date().isoformat()}

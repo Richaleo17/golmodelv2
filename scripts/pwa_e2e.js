@@ -45,9 +45,14 @@ const ESTADO = { llaves: { API_FOOTBALL_KEY: true, ODDS_API_KEY: true, FOOTBALL_
 const SON = { aviso: "Producto de alto riesgo y EV negativo.", sonadora: null, motivo: "no hay 10 selecciones elegibles", diagnostico: { umbrales: { p_min_pierna: 0.75, crs_max: 40, cuota_objetivo: 100 }, n_selecciones_elegibles: 4, n_partidos_elegibles: 4, cuota_maxima_alcanzable: 6.2 }, stake_u: 0.1, stake_tipo: "simbólico", estado_cerebro2: "ABSTENCION" };
 const PARLAYS = [{ fuente: "v3", estado: "APROBADO", es_apuesta_del_dia: true, sello: "BETA", cuota_combinada: 18.4, cuota_justa: 12.3, p_parlay: 0.081, ev: 0.49, stake_u: 0.12, bloques: [BLOQUE("10:30", "Arsenal", "Chelsea", "x", 0.8, 1.35)] }];
 
-const BOLETO = { lectura: { partidos: [] }, n_ok: 2, n_total: 3, monto: 50, cobro: null, cuota_total: 2.6, moneda: "MXN", confianza_lectura: "alta",
+let ULTIMO_ANALISIS = null;                                                       // cuerpo que mandó la pantalla a /boleto/analizar
+const BOLETO = { lectura: { partidos: [] }, n_ok: 2, n_total: 4, monto: 50, cobro: null, cuota_total: 2.6, moneda: "MXN", confianza_lectura: "alta",
   legs: [
-    { texto: "Arsenal - Chelsea: Total de goles Más de 1.5", partido_id: 1, partido: "Arsenal vs Chelsea", seleccion: "OU:1.5:over", cuota: 1.35, estado: "ok", motivo: "" },
+    { texto: "ARS - CHE: Total de goles Más de 1.5", partido_id: 1, partido: "Arsenal vs Chelsea", seleccion: "OU:1.5:over", cuota: 1.35, estado: "ok", motivo: "",
+      entendido_como: "«ARS - CHE» → Arsenal vs Chelsea (por abreviatura): confírmalo" },
+    { texto: "MAN - CHE: GANA CHE", partido_id: null, partido: "MAN vs CHE", seleccion: null, seleccion_sugerida: "1X2:2", cuota: 1.5, estado: "sin_partido",
+      motivo: "Ambiguo: la abreviatura encaja con varios partidos (Man City vs Chelsea; Man United vs Chelsea). Elige el correcto.",
+      opciones: [{ partido_id: 11, partido: "Man City vs Chelsea", liga: "EPL" }, { partido_id: 12, partido: "Man United vs Chelsea", liga: "EPL" }] },
     { texto: "Lyon - Niza: Ambos anotan Sí", partido_id: 4, partido: "Lyon vs Niza", seleccion: "BTTS:si", cuota: 1.9, estado: "ok", motivo: "" },
     { texto: "Equipo X - Equipo Y: Córners más de 9.5", partido_id: null, partido: "Equipo X vs Equipo Y", seleccion: null, cuota: 1.8, estado: "sin_partido", motivo: "No encontré ese partido " + XSS }] };
 const ANALISIS = { dia: "2026-11-10", calibrado_con: "oos_real", n_draws: 20000, avisos: ["La cota conservadora es ≈ la mitad de la probabilidad media: es prudente a propósito."],
@@ -55,7 +60,11 @@ const ANALISIS = { dia: "2026-11-10", calibrado_con: "oos_real", n_draws: 20000,
     { partido_id: 1, partido: "Arsenal vs Chelsea", liga: "EPL", selecciones: ["OU:1.5:over"], cuota: 1.35, estado: "ok", motivo: "", p_modelo: 0.8, p_mercado: 0.78, p_mostrar: 0.8, cuota_justa: 1.25 },
     { partido_id: 4, partido: "Lyon vs Niza", liga: "L1", selecciones: ["BTTS:si"], cuota: 1.9, estado: "ok", motivo: "", p_modelo: 0.55, p_mercado: 0.5, p_mostrar: 0.53, cuota_justa: 1.89 }],
   conjunta: { n_partidos: 2, p_media: 0.43, p_conservadora: 0.22, p_independencia: 0.42, lift: 1.02, ic: [0.2, 0.25], cuota_justa_conservadora: 4.5, cuota_total: 2.6, ev_media: 0.118, ev_conservador: -0.428, stake_referencia_u: 0,
-    sin_cada_partido: [{ partido: "Arsenal vs Chelsea", p_media: 0.53, p_conservadora: 0.3, sube_x: 1.36, cuota: 1.9, ev_conservador: -0.43 }, { partido: "Lyon vs Niza", p_media: 0.8, p_conservadora: 0.41, sube_x: 1.86, cuota: 1.35, ev_conservador: -0.45 }] } };
+    sin_cada_partido: [{ partido: "Arsenal vs Chelsea", p_media: 0.53, p_conservadora: 0.3, sube_x: 1.36, cuota: 1.9, ev_conservador: -0.43 }, { partido: "Lyon vs Niza", p_media: 0.8, p_conservadora: 0.41, sube_x: 1.86, cuota: 1.35, ev_conservador: -0.45 }],
+    sugerencias: [
+      { tipo: "bajar", partido: "Arsenal vs Chelsea", de: "OU:2.5:over", a: "OU:1.5:over", de_etiqueta: "Más de 2.5 goles", a_etiqueta: "Más de 1.5 goles", p_pierna_antes: 0.55, p_pierna_despues: 0.8, cuota_justa_nueva: 1.25, p_conservadora_despues: 0.31, sube_x: 1.41 },
+      { tipo: "quitar", partido: "Lyon vs Niza", p_conservadora_despues: 0.41, sube_x: 1.86 }] } };
+const CATALOGO = [{ id: 1, nombre: "Brighton", pais: "Inglaterra", ligas: ["EPL"], alias: { odds_api: ["Brighton and Hove Albion"] }, abreviaturas: ["BRI"] }];
 
 async function simular(page) {
   const j = (cuerpo) => ({ status: 200, contentType: "application/json", body: JSON.stringify(cuerpo) });
@@ -66,7 +75,9 @@ async function simular(page) {
     r.fulfill(j(d === HOY ? PANEL : d === sumar(HOY, 1) ? manana : vacio));
   });
   await page.route(/\/boleto\/leer$/, (r) => r.fulfill(j(BOLETO)));
-  await page.route(/\/boleto\/analizar$/, (r) => r.fulfill(j(ANALISIS)));
+  await page.route(/\/boleto\/analizar$/, (r) => { ULTIMO_ANALISIS = r.request().postDataJSON(); r.fulfill(j(ANALISIS)); });
+  await page.route(/\/catalogo\/equipos/, (r) => r.fulfill(j(CATALOGO)));
+  await page.route(/\/catalogo\/alias$/, (r) => r.fulfill(j({ equipo_id: 1, equipo: "Brighton", alias: "BHA", nuevo: true })));
   await page.route(/\/estado$/, (r) => (r.request().url().includes("/auth/") ? r.fallback() : r.fulfill(j(ESTADO))));      // /auth/estado va al servidor real
   await page.route(/\/sonadoras\//, (r) => r.fulfill(j(SON)));
   await page.route(/\/parlays\//, (r) => r.fulfill(j(PARLAYS)));
@@ -165,12 +176,19 @@ async function simular(page) {
     await page.setInputFiles("#bol-arch", { name: "boleto.png", mimeType: "image/png", buffer: PNG });
     await page.waitForSelector("#bol #bol-ok");
     const bol = await page.textContent("#bol");
-    ok(/2 de 3 selecciones reconocidas/.test(bol) && /No encontré el partido/.test(bol), "Boleto: muestra lo leído y marca lo que no pudo emparejar");
+    ok(/2 de 4 selecciones reconocidas/.test(bol) && /No encontré el partido/.test(bol), "Boleto: muestra lo leído y marca lo que no pudo emparejar");
+    ok(/por abreviatura/.test(bol) && /confírmalo/.test(bol), "Boleto: avisa cuando entendió una abreviatura y pide confirmarla");
     ok((await page.evaluate(() => window.__xss)) === undefined && (await page.$$("#bol img")).length === 0, "Boleto: el HTML del motivo no se ejecuta");
+    ok((await page.$$('[data-opc="1"] option')).length === 3 && /Ambiguo/.test(bol), "Boleto: si la abreviatura es ambigua, ofrece elegir entre los partidos candidatos");
+    await page.selectOption('[data-opc="1"]', "11");                                  // la persona elige «Man City vs Chelsea»
+    await page.waitForSelector('select[data-sel="1"]');
+    ok((await page.inputValue('select[data-sel="1"]')) === "1X2:2" && /Elegiste tú este partido/.test(await page.textContent("#bol")), "Boleto: elegir el partido deja la selección que entendió el modelo (gana el visitante)");
     await page.fill("#bol-ct", "2.6");
     await page.click("#bol-ok");
     await page.waitForSelector("#bol-res table");
+    ok(ULTIMO_ANALISIS && ULTIMO_ANALISIS.legs.length === 3 && ULTIMO_ANALISIS.legs.some((g) => g.partido_id === 11 && g.seleccion === "1X2:2" && g.cuota === 1.5), "Boleto: lo que se analiza es lo que la persona confirmó (3 selecciones, incluida la que eligió)");
     const res = await page.textContent("#bol-res");
+    ok(/Qué cambiaría el modelo/.test(res) && /cambia «Más de 2\.5 goles» por «Más de 1\.5 goles»/.test(res) && /Quita Lyon vs Niza/.test(res) && /paga menos/.test(res), "Boleto: sugerencias (bajar la línea / quitar un partido) con la advertencia de que pagan menos");
     ok(/Prob\. conjunta/.test(res) && /43\.0%/.test(res) && /22\.0%/.test(res) && /EV conservador/.test(res), "Boleto: probabilidad conjunta, conservadora y EV");
     ok(/¿Y si quitas un partido\?/.test(res) && /Sin…/.test(res), "Boleto: tabla de qué pasa al quitar cada partido");
     await page.screenshot({ path: `${OUT}/04b-boleto.png`, fullPage: true });
@@ -184,6 +202,17 @@ async function simular(page) {
   ok(/Actualizar datos/.test(datos) && /Cobertura por liga/.test(datos) && /Frescura/.test(datos) && /Llaves del servidor/.test(datos), "Datos: botones de actualizar, frescura, cobertura y llaves");
   ok((await page.$$("button[data-tipo]")).length === 4, "Datos: los 4 botones de actualización (administrador)");
   if (MODO === "mock") ok(/Costo: odds_api 2/.test(await page.textContent("#costo-actualizar_todo")), "Datos: muestra el costo estimado de cada actualización");
+  if (MODO === "mock") {
+    await page.click("#cat summary");
+    await page.fill("#cat-q", "brigh");
+    await page.waitForSelector("#cat-res .card");
+    const cat = await page.textContent("#cat-res");
+    ok(/Brighton/.test(cat) && /BRI/.test(cat) && /Brighton and Hove Albion/.test(cat), "Catálogo: muestra el equipo, su abreviatura derivada y su nombre en otra API");
+    await page.fill('[data-alias-q="1"]', "BHA");
+    await page.click('button[data-alias="1"]');
+    await page.waitForSelector("#alias-m-1 .ok");
+    ok(/Alias agregado: BHA/.test(await page.textContent("#alias-m-1")), "Catálogo: el administrador puede agregar un alias");
+  }
   await page.screenshot({ path: `${OUT}/05-datos.png`, fullPage: true });
 
   // --- navegación por fecha
@@ -206,6 +235,12 @@ async function simular(page) {
   await page.click('#nav button[data-v="datos"]');
   await page.waitForSelector("#vista h3");
   ok((await page.$$("button[data-tipo]")).length === 0 && /solo consulta/.test(await page.textContent("#vista")), "El lector NO ve los botones de actualizar");
+  if (MODO === "mock") {
+    await page.click("#cat summary");
+    await page.fill("#cat-q", "brigh");
+    await page.waitForSelector("#cat-res .card");
+    ok(/Brighton/.test(await page.textContent("#cat-res")) && (await page.$$("button[data-alias], input[data-alias-q]")).length === 0, "El lector SÍ consulta el catálogo pero NO ve dónde agregar alias");
+  }
   await page.click('#nav button[data-v="cuotas"]');
   await page.waitForSelector("#vista h3");
   ok((await page.$$("#cuotas-texto")).length === 0 && (await page.$$("#bol-arch")).length === 0, "El lector NO ve el formulario de captura de cuotas ni la subida de boletos");

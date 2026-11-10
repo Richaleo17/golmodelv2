@@ -423,10 +423,19 @@ function reducirImagen(archivo, max = 1600) {
 function htmlBoletoLegs(b) {
   const opciones = Object.keys(ETQ_SEL);
   return `<table class="t"><tr><th></th><th>Partido y selección</th><th>Cuota</th></tr>${b.legs.map((g, i) => {
-    const ok = g.partido_id != null && g.seleccion;
-    if (!ok) return `<tr><td>❌</td><td>${esc(g.partido)}<div class="meta">${esc(g.texto)}</div><div class="no">${esc(ESTADO_LEG[g.estado] || g.estado)}: ${esc(g.motivo)}</div></td><td>${g.cuota ? num(g.cuota) : "—"}</td></tr>`;
+    const cuota = g.cuota ? num(g.cuota) : "—";
+    if (g.partido_id == null) {                                              // no se encontró un partido único: si hay candidatos, que lo elija la persona
+      const elegir = g.opciones && g.opciones.length
+        ? `<label for="opc-${i}">¿Cuál es el partido?</label><select id="opc-${i}" data-opc="${i}" aria-label="Partido"><option value="">Elige…</option>${g.opciones.map((o) => `<option value="${esc(o.partido_id)}">${esc(o.partido)}</option>`).join("")}</select>` : "";
+      return `<tr><td>❌</td><td>${esc(g.partido)}<div class="meta">${esc(g.texto)}</div><div class="no">${esc(ESTADO_LEG[g.estado] || g.estado)}: ${esc(g.motivo)}</div>${elegir}</td><td>${cuota}</td></tr>`;
+    }
+    if (!g.seleccion && g.estado !== "no_reconocido") {                      // mercado que el modelo no cubre (córners, tarjetas…): no se puede forzar
+      return `<tr><td>❌</td><td>${esc(g.partido)}<div class="meta">${esc(g.texto)}</div><div class="no">${esc(ESTADO_LEG[g.estado] || g.estado)}: ${esc(g.motivo)}</div></td><td>${cuota}</td></tr>`;
+    }
+    const nota = g.entendido_como ? `<div class="meta">🔎 ${esc(g.entendido_como)}</div>` : "";
+    const aviso = g.seleccion ? "" : `<div class="no">${esc(g.motivo)} Elige tú la selección.</div>`;
     return `<tr><td><input type="checkbox" data-leg="${i}" aria-label="Incluir" ${g.incluir === false ? "" : "checked"}></td>` +
-      `<td>${esc(g.partido)}<select data-sel="${i}" aria-label="Selección">${opciones.map((c) => `<option value="${esc(c)}" ${c === g.seleccion ? "selected" : ""}>${esc(etqSel(c))}</option>`).join("")}</select></td>` +
+      `<td>${esc(g.partido)}${nota}${aviso}<select data-sel="${i}" aria-label="Selección">${g.seleccion ? "" : '<option value="">Elige la selección…</option>'}${opciones.map((c) => `<option value="${esc(c)}" ${c === g.seleccion ? "selected" : ""}>${esc(etqSel(c))}</option>`).join("")}</select></td>` +
       `<td><input type="number" step="0.01" min="1.01" data-cuota="${i}" value="${g.cuota ? esc(g.cuota) : ""}" placeholder="cuota" aria-label="Cuota"></td></tr>`;
   }).join("")}</table>`;
 }
@@ -452,6 +461,12 @@ function htmlBoletoResultado(a) {
         `<tr><td>${esc(x.partido)}</td><td>${pct(x.p_conservadora, 1)}</td><td>${x.sube_x ? num(x.sube_x, 2) + "×" : "—"}</td><td>${x.cuota ? num(x.cuota) : "—"}</td></tr>`).join("")}</table>`;
     }
   }
+  if (c && c.sugerencias && c.sugerencias.length) {
+    h += `<h3>💡 Qué cambiaría el modelo</h3><p class="meta">Ordenado por cuánto sube la probabilidad conservadora del boleto. Cambiar a una opción más segura <b>paga menos</b>: mételo solo si tu casa paga más que la cuota justa indicada.</p>` +
+      c.sugerencias.map((s) => s.tipo === "bajar"
+        ? `<div class="card"><b>${esc(s.partido)}</b>: cambia «${esc(s.de_etiqueta)}» por «${esc(s.a_etiqueta)}».<div class="meta">Esa selección pasa de ${pct(s.p_pierna_antes)} a ${pct(s.p_pierna_despues)} (cuota justa ${num(s.cuota_justa_nueva)}); el boleto sube a ${pct(s.p_conservadora_despues, 1)} conservadora (${num(s.sube_x, 2)}×).</div></div>`
+        : `<div class="card"><b>Quita ${esc(s.partido)}</b>.<div class="meta">El boleto sube a ${pct(s.p_conservadora_despues, 1)} conservadora (${num(s.sube_x, 2)}×), pero pagará menos.</div></div>`).join("");
+  }
   h += (a.avisos || []).map((t) => `<div class="aviso-prov">${esc(t)}</div>`).join("");
   return h;
 }
@@ -468,7 +483,13 @@ function montarBoleto(v) {
       `<div><label for="bol-monto">Monto apostado${b.moneda ? " (" + esc(b.moneda) + ")" : ""}</label><input id="bol-monto" type="number" step="0.01" min="0" value="${b.monto ? esc(b.monto) : ""}"></div></div>` +
       `<div class="fila"><button id="bol-ok" class="btn primario" type="button">Analizar boleto</button><button id="bol-borrar" class="btn" type="button">Descartar</button></div><div id="bol-res">${b.resultado ? htmlBoletoResultado(b.resultado) : ""}</div></div>`;
     $$("[data-leg]", zona).forEach((e) => e.addEventListener("change", () => { b.legs[Number(e.dataset.leg)].incluir = e.checked; }));
-    $$("[data-sel]", zona).forEach((e) => e.addEventListener("change", () => { b.legs[Number(e.dataset.sel)].seleccion = e.value; }));
+    $$("[data-sel]", zona).forEach((e) => e.addEventListener("change", () => { b.legs[Number(e.dataset.sel)].seleccion = e.value || null; }));
+    $$("[data-opc]", zona).forEach((e) => e.addEventListener("change", () => {
+      const g = b.legs[Number(e.dataset.opc)], o = (g.opciones || []).find((x) => String(x.partido_id) === e.value);
+      if (!o) return;
+      Object.assign(g, { partido_id: o.partido_id, partido: o.partido, seleccion: g.seleccion_sugerida || null, estado: "ok", motivo: g.seleccion_sugerida ? "" : "No pude saber la selección.", entendido_como: "Elegiste tú este partido: " + o.partido });
+      pintar();
+    }));
     $$("[data-cuota]", zona).forEach((e) => e.addEventListener("change", () => { b.legs[Number(e.dataset.cuota)].cuota = Number(e.value) > 1 ? Number(e.value) : null; }));
     $("#bol-borrar", zona).addEventListener("click", () => { S.boleto = null; pintar(); });
     $("#bol-ok", zona).addEventListener("click", async () => {
@@ -566,6 +587,41 @@ const TIPOS = {
   recalcular: ["Recalcular con mis cuotas", "Recalcula picks y el ticket V3 con lo que ya tienes."],
 };
 
+/* Catálogo de equipos: búsqueda (todos) y alias manuales (solo administrador; la API rechaza al lector con 403). */
+function montarCatalogo(v) {
+  const q = $("#cat-q", v), res = $("#cat-res", v);
+  if (!q) return;
+  const pintar = (lista) => {
+    res.innerHTML = lista.length ? lista.map((e) => {
+      const alias = Object.entries(e.alias || {}).map(([f, n]) => `${esc(f)}: ${n.map(esc).join(", ")}`).join(" · ");
+      return `<div class="card"><b>${esc(e.nombre)}</b> <span class="meta">${esc(e.pais)}</span>` +
+        `<div class="chips">${(e.ligas || []).map((l) => `<span class="chip">${esc(LIGAS[l] || l)}</span>`).join("")}${(e.abreviaturas || []).map((a) => `<span class="chip ok">${esc(a)}</span>`).join("")}</div>` +
+        `<div class="meta">${alias || "Sin nombres de otras APIs registrados."}</div>` +
+        (S.rol === "admin" ? `<div class="fila"><input type="text" maxlength="60" placeholder="Agregar alias (p. ej. BHA)" data-alias-q="${esc(e.id)}" aria-label="Alias nuevo"><button class="btn mini" type="button" data-alias="${esc(e.id)}">Agregar</button></div><div class="meta" id="alias-m-${esc(e.id)}"></div>` : "") + `</div>`;
+    }).join("") : `<div class="card vacio">Ningún equipo coincide.</div>`;
+    $$("button[data-alias]", res).forEach((b) => b.addEventListener("click", async () => {
+      const id = b.dataset.alias, caja = $(`[data-alias-q="${id}"]`, res), m = $("#alias-m-" + id, res);
+      const r = await api("POST", "/catalogo/alias", { equipo_id: Number(id), alias: caja.value });
+      const msg = r.ok ? `<span class="ok">✅ ${r.data.nuevo ? "Alias agregado" : "Ya estaba"}: ${esc(r.data.alias)}</span>` : `<span class="error">${esc(r.error)}</span>`;
+      m.innerHTML = msg;
+      if (r.ok) {
+        await buscar();                                                      // vuelve a pintar la lista (ya con el alias nuevo)…
+        const m2 = $("#alias-m-" + id, res);
+        if (m2) m2.innerHTML = msg;                                          // …y el aviso de confirmación no se pierde
+      }
+    }));
+  };
+  let t = null, n = 0;
+  const buscar = async () => {
+    const texto = q.value.trim(), mio = ++n;
+    if (texto.length < 2) { res.innerHTML = ""; return; }
+    const r = await api("GET", "/catalogo/equipos?q=" + encodeURIComponent(texto) + "&limite=20");
+    if (mio !== n) return;                                                   // llegó una búsqueda más nueva: ignorar esta
+    if (r.ok) pintar(r.data); else res.innerHTML = `<p class="error">${esc(r.error)}</p>`;
+  };
+  q.addEventListener("input", () => { clearTimeout(t); t = setTimeout(buscar, 300); });
+}
+
 async function vDatos() {
   const r = await api("GET", "/estado");
   let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">05</b> Datos</h2>`;
@@ -592,12 +648,16 @@ async function vDatos() {
   if (e.modelo) h += `<h3>🧠 Modelo</h3><div class="card meta">Versión ${esc(e.modelo.version_id)} · ${esc(e.modelo.tipo)} · ${esc(e.modelo.creado)} · calibrado: ${e.modelo.calibrado ? "sí" : "no"}</div>`;
   h += `<h3>🌍 Cobertura por liga</h3><div class="card"><table class="t"><tr><th>Liga</th><th>Histórico</th><th>Próx. 3 días</th><th></th></tr>${(e.cobertura_ligas || []).map((c) =>
     `<tr><td>${esc(LIGAS[c.codigo] || c.codigo)}</td><td>${esc(c.finalizados)}</td><td>${esc(c.proximos)}</td><td>${c.problema ? "⚠" : "✅"}</td></tr>${c.problema ? `<tr><td colspan="4" class="meta">${esc(c.problema)}</td></tr>` : ""}`).join("")}</table></div>`;
+  h += `<h3>📚 Catálogo de equipos</h3><details id="cat"><summary>Buscar un equipo, sus nombres en cada API y sus abreviaturas</summary>` +
+    `<p class="meta">Las abreviaturas de 3 letras (CHE, MCI…) se derivan del nombre. Si tu casa usa una que no aparece (p. ej. «BHA» para Brighton), agrégala como alias: así tus capturas de boleto la entienden.</p>` +
+    `<input id="cat-q" type="text" placeholder="🔎 Equipo, alias o abreviatura (mín. 2 letras)" aria-label="Buscar equipo"><div id="cat-res"></div></details>`;
   h += `<h3>📝 Pendientes</h3><div class="card meta">Nombres de equipo por revisar: <b>${esc(e.alias_pendientes)}</b> · conflictos de datos abiertos: <b>${esc(e.conflictos_abiertos)}</b>. Se resuelven en la versión completa de escritorio (Streamlit, puerto 8501 en tu computadora); no afectan lo que ves aquí.</div>`;
   const u = e.ultima_ejecucion;
   if (u) h += `<h3>🧾 Última actualización</h3><div class="card meta">${esc(u.tipo)} · ${esc(u.estado)}${(u.etapas || []).map((x) => `<br>${x.estado === "ok" ? "✅" : x.estado === "error" ? "❌" : "•"} ${esc(x.etapa)}${x.error ? " — " + esc(x.error) : ""}`).join("")}</div>`;
   return {
     html: h,
     alMontar: (v) => {
+      montarCatalogo(v);
       if (S.rol !== "admin") return;
       Object.keys(TIPOS).forEach(async (k) => {
         const c = await api("GET", "/costo/" + k);

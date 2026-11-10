@@ -26,7 +26,7 @@ from golmodel.ingesta.pipeline import ETAPAS, Pipeline
 from golmodel.ingesta.proveedores.cadena import Interruptor
 from golmodel.ingesta.proveedores.registro import construir_cadenas, construir_presupuestos, construir_proveedores
 from golmodel.modelos.mercados import CONDICIONES
-from golmodel.servicios import boleto, captura, sugerencias, vistas
+from golmodel.servicios import boleto, captura, catalogo, sugerencias, vistas
 
 
 class Servicio:
@@ -351,6 +351,26 @@ class AnalizarBoleto(BaseModel):
     legs: list[LegBoleto] = Field(min_length=1, max_length=20)
     cuota_total: float | None = Field(default=None, gt=1.0, lt=100000)
     monto: float | None = Field(default=None, gt=0, lt=10_000_000)
+
+
+@app.get("/catalogo/equipos")
+def get_catalogo_equipos(q: str = "", limite: int = 60, conn=Depends(conexion)):
+    """Catálogo de equipos: nombre canónico, cómo lo llama cada API, ligas y abreviaturas de 3 letras derivadas (para capturas de boletos)."""
+    return catalogo.listar(conn, q=q, limite=limite)
+
+
+class AliasManual(BaseModel):
+    equipo_id: int
+    alias: str = Field(min_length=2, max_length=60)
+
+
+@app.post("/catalogo/alias")
+def post_catalogo_alias(a: AliasManual, conn=Depends(conexion)):
+    """Alias manual para un equipo (p. ej. la abreviatura exacta que usa tu casa, «BHA» → Brighton). Solo administrador (el lector no puede escribir)."""
+    try:
+        return catalogo.agregar_alias(conn, a.equipo_id, a.alias)
+    except catalogo.ErrorCatalogo as e:
+        raise HTTPException(e.codigo, str(e))
 
 
 @app.post("/boleto/leer")
