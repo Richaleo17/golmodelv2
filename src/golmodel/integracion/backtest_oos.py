@@ -55,6 +55,7 @@ class ResultadoFold:
     gate_detalle: str | None = None
     logloss_test: float | None = None
     omitido: str | None = None
+    confiabilidad: list | None = None     # tabla de diagnóstico por bucket de p_conservadora (NO decide nada; ver `tabla_confiabilidad`)
 
 
 @dataclass
@@ -102,6 +103,25 @@ def aplicar_minimos_del_gate(modo: str, aprobado: bool, bins: int, min_buckets: 
     if bins < min_buckets:
         return "no_evaluable", False, f"solo {bins} bucket(s) poblado(s) (mínimo {min_buckets}, >= gate_n_min_bin cestas cada uno): el gate no puede juzgar"
     return modo, aprobado, None
+
+
+def tabla_confiabilidad(p_media, p_cons, y, bins: int, n_min: int) -> list[dict]:
+    """DIAGNÓSTICO (no decide nada; no es parte de ningún gate). Agrupa las cestas del test en los MISMOS buckets de `p_conservadora` que el gate
+    (`gate_bins` de igual ancho) y, por bucket, da: n, tasa observada de 'ganan todas', P media (p_media) y p_conservadora media. Sirve para separar
+    «el modelo está mal calibrado» (obs ≠ P media) de «el gate es estructuralmente estricto» (obs ≈ P media pero > p_conservadora media):
+    el gate compara obs con la media de p_conservadora del bucket. `cuenta_en_gate` = el bucket tiene >= `gate_n_min_bin` cestas (solo esos cuentan)."""
+    p_media, p_cons, y = (np.asarray(a, float) for a in (p_media, p_cons, y))
+    idx = np.clip(np.digitize(p_cons, np.linspace(0, 1, bins + 1)) - 1, 0, bins - 1)
+    filas = []
+    for b in range(bins):
+        m = idx == b
+        n = int(m.sum())
+        if n == 0:
+            continue
+        obs, pm, pc = float(y[m].mean()), float(p_media[m].mean()), float(p_cons[m].mean())
+        filas.append({"bucket": [b / bins, (b + 1) / bins], "n": n, "cuenta_en_gate": n >= n_min, "tasa_observada": obs,
+                      "p_media": pm, "p_conservadora": pc, "supera_la_cota": obs >= pc})
+    return filas
 
 
 def decidir_calibrado_con(gates_ok: bool, datos_reales: bool) -> str:
@@ -247,7 +267,11 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
             rf.bins_poblados, rf.c_borde = int(g.bins), c_en_borde(rf.c_train)
             rf.gate_modo, rf.gate_aprobado, motivo_min = aplicar_minimos_del_gate(g.modo, bool(g.aprobado), int(g.bins), int(bo["min_buckets_poblados"]), rf.c_borde)
             rf.gate_cobertura, rf.gate_detalle = float(g.cobertura), motivo_min or g.detalle
-            rf.logloss_test = float(_logloss_por_cesta(ct._resultados(te, rf.c_train, cfg_s, semilla), te).mean())
+            res_te = ct._resultados(te, rf.c_train, cfg_s, semilla)
+            rf.logloss_test = float(_logloss_por_cesta(res_te, te).mean())
+            cc = cfg_s["calibracion_tickets"]
+            rf.confiabilidad = tabla_confiabilidad([r.p_media for r in res_te], [r.p_conservadora for r in res_te], [1.0 if k.gano else 0.0 for k in te],
+                                                   int(cc["gate_bins"]), int(cc["gate_n_min_bin"]))
         folds.append(rf)
     evaluados = [f for f in folds if f.omitido is None]
     gates_ok, motivo = decidir_gates(evaluados, int(bo["folds_min_validos"]))
@@ -330,6 +354,17 @@ def reporte_md(r: ResultadoBacktest, *, version_id: int | None, generado: dateti
         else:
             L.append(f"| {f.k} | {f.test_desde[:10]} → {f.test_hasta[:10]} | {f.n_train} | {f.n_test} | {f.c_train:.4f}{' ⚠borde' if f.c_borde else ''} | "
                      f"**{f.gate_modo}** | {f.bins_poblados} | {f.gate_cobertura:.2f} | {f.logloss_test:.4f} | {f.gate_detalle} |")
+    L += ["", "## Tabla de confiabilidad por bucket (DIAGNÓSTICO: no decide ningún gate)", "",
+          "Mismos buckets de `p_conservadora` que el gate. `obs − P media` ≈ 0 ⇒ la probabilidad central está calibrada; `P media − p_cons` es la holgura de la cota. "
+          "El gate compara `obs` con `p_cons` media por bucket. `*` = bucket con menos de `gate_n_min_bin` cestas (no cuenta en el gate).", ""]
+    for f in r.folds:
+        if f.omitido or not f.confiabilidad:
+            continue
+        L += [f"**Fold {f.k}** (c = {f.c_train:.4f})", "", "| bucket p_cons | n | obs | P media | p_cons media | obs − P media | obs ≥ p_cons |", "|---|---|---|---|---|---|---|"]
+        for t in f.confiabilidad:
+            L.append(f"| {t['bucket'][0]:.2f}–{t['bucket'][1]:.2f}{'' if t['cuenta_en_gate'] else ' *'} | {t['n']} | {t['tasa_observada']:.3f} | {t['p_media']:.3f} | "
+                     f"{t['p_conservadora']:.3f} | {t['tasa_observada'] - t['p_media']:+.3f} | {'sí' if t['supera_la_cota'] else 'no'} |")
+        L.append("")
     p = r.protocolo_sigma_g
     L += ["", "## Protocolo de σ_g (decisión 13)", ""]
     if not p.get("ejecutado"):

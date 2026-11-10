@@ -124,6 +124,15 @@ def test_mismo_rng_misma_muestra_y_otra_semilla_otra_muestra():
     assert clave(a) == clave(b) and clave(a) != clave(c)
 
 
+# ------------------------------------------------------------------ tamaños = los de PRODUCCIÓN
+def test_los_tamanos_del_backtest_son_los_de_produccion_5_a_8_y_nunca_los_reducidos():
+    cfg = cargar_v3()
+    assert chs._tamanos(cfg) == [5, 6, 7, 8]                                       # tickets.tamano_alta_min..max
+    assert cfg["tickets"]["tamano_reducido_min"] == 2                              # (existe, pero NO entra al backtest)
+    cfg2 = {"tickets": {**cfg["tickets"], "tamano_alta_min": 6, "tamano_alta_max": 7}}
+    assert chs._tamanos(cfg2) == [6, 7]                                            # sale de la config de tickets, no está duplicado
+
+
 # ------------------------------------------------------------------ parámetros de la config
 def test_los_parametros_provisionales_de_la_enmienda_estan_en_la_config():
     assert {"estratos_ancho", "sobremuestreo", "mezcla_alta_p", "exponente_alta_p"} <= set(CH)

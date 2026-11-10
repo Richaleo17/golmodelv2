@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.13
+- Versión: v0.13.1
 - Fecha: 2026-11-10
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -372,8 +372,8 @@ de pasar) **ni condena** (no cuenta como fallo) y **nunca** produce `calibrado_c
 **Por qué esto NO es una relajación (comprobable):**
 - Ningún umbral de aprobación bajó: `q = 0.25`, `δ = 0.10`, `gate_n_min_bin = 100`, `n_min` de segmento = 200, `folds_min_validos = 2`, ≥ 3000/≥ 2000 eventos, IC 99 %, Bonferroni: **intactos**.
 - Los dos valores del gate que cambian (`gate_bins` 8→20; mínimo de buckets 1→8) **suben** la exigencia y se alinean con la decisión 12 ya pre-registrada.
-- El cambio de muestreo no puede *aprobar* nada por sí mismo: solo hace que el gate vea el rango completo de probabilidades; los buckets de alta `p_conservadora` ahora tienen datos con los que el gate puede **fallar** más
-  fácilmente (cobertura insuficiente en la cola alta). Si el calibrador es malo, esta prueba lo mostrará; con el muestreo anterior no podía mostrar nada.
+- El cambio de muestreo no puede *aprobar* nada por sí mismo: solo hace que el gate vea más del rango de probabilidades. *(Corregido el 2026-11-10 tras la primera corrida real: esta enmienda decía aquí que el
+  gate «podría fallar más fácilmente en la cola alta». No fue así: los 4 folds dieron «ancho» —cobertura 1.00—, y los estratos altos quedaron casi vacíos; ver addendum.)*
 - El resultado de la corrida anterior (version id 1: `no_calibrado`, nunca cargada por la app) se conserva como registro y **no se reutiliza**.
 
 **Valores provisionales nuevos — origen, justificación y validación**
@@ -386,9 +386,8 @@ de pasar) **ni condena** (no cuenta como fallo) y **nunca** produce `calibrado_c
 | `calibracion_tickets.gate_bins = 20` | Decisión 12 (bins de 0.05) | v0.5 usaba 8 (más grueso que lo pre-registrado) | Verificado: la config real y la decisión 12 coinciden (test) |
 | `backtest_oos.min_buckets_poblados = 8` | Decisión 12 / §2.7 (≥ 8 buckets) | Un gate con un bucket no mide cobertura | Test de config: valor 8 y no menor |
 
-**Limitación declarada (importante).** El muestreo estratificado **sesga la distribución de tamaños de cesta hacia las pequeñas** (las cestas de 5 piernas alcanzan P nominal más alta que las de 8). Producción arma
-tickets de 5-8 piernas, así que el calibrador se evalúa en una mezcla de tamaños distinta de la de producción. El reporte incluye `cestas por tamaño` y `por estrato`; si el sesgo fuera material (p. ej. cestas de 8 piernas
-casi ausentes), hay que enmendar con un muestreo conjunto tamaño × estrato. Tampoco se verifica con esto el pooling por segmentos (σ_ℓ sigue sin ajustarse; ver §2.9 v0.12).
+**Limitación declarada (importante) — RESUELTA por el addendum de abajo.** El muestreo estratificado sesgaba la distribución de tamaños de cesta hacia las pequeñas. La primera corrida real lo confirmó y en mayor medida de lo
+supuesto (ver addendum): 91.7 % de las cestas tenía 2-4 piernas.
 
 **Ligas femeniles (Liga MX Femenil y UEFA Women's Champions League).** Entran por el mecanismo existente de competiciones **SOLO-MERCADO** (`config.competiciones_mercado.femeniles`, reglas de tokens sobre la clave de
 deporte de The Odds API; `v3_umbrales.ligas_femeniles` las declara con `modo: solo_mercado`, `techo_estado: CON_RESERVAS`, `entran_al_backtest: false`). **No se inventan datos:** (1) no se ha verificado ninguna fuente
@@ -399,6 +398,25 @@ ajuste será una enmienda explícita (nuevo `modo`), con su propia validación d
 
 **Qué se verificó y qué NO:** verificado con datos SINTÉTICOS y PostgreSQL real de pruebas (tests de muestreo con línea base uniforme, veredicto de 3 estados, `c` en el borde, exclusión de solo-mercado, reglas de selección;
 mutantes detectados con la base en verde). **NO se re-ejecutó el backtest con datos reales en esta sesión** (instrucción explícita); el nuevo veredicto con datos reales queda pendiente de que el responsable lo corra (README §6b).
+
+#### Addendum a la enmienda v0.13 (2026-11-10, DESPUÉS de ver la primera corrida real con el muestreo estratificado — se declara) — v0.13.1
+
+**Resultado observado (datos reales, 2024-08-01 → 2026-11-10, casa pinnacle, 10 665 cestas, n_draws = 1000; NO es una validación del calibrador):** los 4 folds tuvieron 8-9 buckets poblados, `c` entre 1.36 y 2.58
+(no en el borde), cobertura **1.00** contra un objetivo de 0.75 ±0.10 → `ancho` en los 4 → `no_superados`. Versión id 2 guardada como `no_calibrado` (nunca cargada por la app). σ_g no se ejecutó (530 días < 600).
+
+**Hallazgo 1 — el mix de tamaños no era el de producción.** `cestas_por_tamaño = {2: 6301, 3: 2478, 4: 999, 5: 437, 6: 226, 7: 135, 8: 89}`: el **91.7 %** de las cestas tenía 2-4 piernas y solo el 8.3 % tenía 5-8, que son los tickets
+que producción arma (`tickets.tamano_alta_min..max`). El muestreador tomaba `tamano_reducido_min..tamano_alta_max` (2-8) y el estratificado llenaba los estratos de P alta con cestas chicas. El examen medía lo que producción casi no hace.
+**Corrección (Opción B, aprobada por el responsable):** el backtest se limita **estrictamente a cestas de 5-8 piernas** (`_tamanos` = `tamano_alta_min..tamano_alta_max`). Si los estratos de P nominal alta quedan vacíos porque es
+matemáticamente imposible tener 5-8 selecciones con alta probabilidad conjunta, **es un dato realista**, no se fuerza. Esto reduce las cestas por día disponibles y puede dejar folds `no_evaluable`; no se relaja ningún mínimo por ello.
+
+**Hallazgo 2 — posible defecto estructural del gate bilateral de nivel bucket (hipótesis; NO se modifica el gate).** Simulación sintética (modelo perfectamente calibrado por construcción: verdad sorteada de la misma incertidumbre que
+declara `p_conservadora`; 2150 cestas; buckets ≥ 100; estratos reales; el propio `gate_cobertura_conservadora`): con incertidumbre de cesta `s` (log-sd) 0.05 → cobertura media 0.61, `ok` 39 %; 0.10 → 0.71, 52 %; 0.20 → 0.87, `ancho` 68 %; 0.40 → 0.97, `ancho` 99 %.
+El gate compara la tasa observada del bucket (promedio de cientos de cestas) con la media de `p_conservadora` del bucket, y ese promedio supera la cota casi siempre cuando hay incertidumbre real, aunque el modelo sea perfecto. Es una simulación con supuestos propios, **no
+una medición con datos reales**; no prueba que el calibrador esté bien ni mal. **Paso 3 (enmienda v0.14 del gate): APLAZADO** hasta ver la tabla de confiabilidad real; si procede, se diseñará basada en evidencia y validada con simulaciones (tamaño y potencia:
+pasar a un modelo calibrado, rechazar a uno sobreconfiado y a uno demasiado ancho), declarada como posterior al resultado. **No se modifica ningún umbral ni criterio del gate en este addendum.**
+
+**Diagnóstico añadido al reporte (no decide nada):** tabla de confiabilidad por bucket de `p_conservadora` y por fold — n, tasa observada, P media (`p_media`), `p_conservadora` media, `obs − P media` y si supera la cota. Permite separar «el modelo está mal calibrado»
+(`obs ≠ P media`) de «el gate es estructuralmente estricto» (`obs ≈ P media` pero `> p_cons`).
 
 ## 3. Alternativas descartadas
 
@@ -443,3 +461,4 @@ mutantes detectados con la base en verde). **NO se re-ejecutó el backtest con d
 | v0.11 | 2026-11-09 | §2.9: `casas_elegibles` suma `betway`, `interwetten`, `ladbrokes`, `vcbet` (decisión del responsable, robustez del consenso; `n_min = 3` intacto). §2.7: la calibración de tickets usa ahora la MISMA secuencia aleatoria que `tickets.py` (`probabilidad_conjunta` compone las primitivas de `dependencia.py`); igualdad bit a bit verificada. No cambia ningún umbral ni el estimador: cambia solo la realización de Monte Carlo de la ruta de calibración, por lo que los `c_seg` ajustados antes de esta fecha (ninguno real) quedan obsoletos. |
 | v0.12 | 2026-11-10 | §2.9: parámetros del orquestador del backtest OOS y de «Soñadoras» con origen/justificación/validación; §2.10 nuevo: semántica de «Soñadoras» y su hallazgo aritmético (p_conservadora > 0.75 ⇒ EV del modelo > 0 cuando existe). Fijado DESPUÉS de implementar. No cambia ningún umbral previo. |
 | v0.13 | 2026-11-10 | §2.11 ENMIENDA (corrección metodológica de la PRUEBA, **no** relajación de gates): el muestreo uniforme de cestas no cubría el rango de probabilidad (>85 % en el primer tramo; gate con 1 bucket poblado; `c` en el borde) → muestreo estratificado por P nominal (cuotas iguales, sin filtrar por aprobación); `gate_bins` 8→20 (bins de 0.05, decisión 12); veredicto de 3 estados con `no_evaluable` (< 8 buckets poblados o `c` en el borde; código de salida 4). Ligas femeniles (Liga MX Femenil, UEFA Women's Champions League) como competiciones SOLO-MERCADO: sin histórico ni modelo, sin picks/tickets V3, fuera de la calibración. Ningún umbral de aprobación cambia. |
+| v0.13.1 | 2026-11-10 | Addendum a §2.11, DESPUÉS de la primera corrida real (declarado): (1) backtest limitado a cestas de 5-8 piernas (91.7 % de las cestas muestreadas tenía 2-4); (2) tabla de confiabilidad por bucket en el reporte (diagnóstico); (3) corrige la frase de la enmienda sobre la «cola alta» (el gate falló por `ancho`, no por sub-cobertura en la cola); (4) hallazgo simulado sobre el gate bilateral por bucket: enmienda v0.14 APLAZADA. Ningún umbral ni criterio de gate cambia. |

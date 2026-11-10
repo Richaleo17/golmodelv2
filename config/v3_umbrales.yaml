@@ -100,7 +100,7 @@ calibracion_tickets:
   presupuesto_min_por_temporada_liga: 30
   calibrado_con: "no_calibrado"      # -> "sinteticos" | "oos_real"; solo oos_real desactiva modo_experimental
   # Construcción de cestas ex-post (integracion/cestas_historicas.py; diseño v3_incertidumbre dec. 5). Son parámetros de
-  # ESFUERZO de muestreo, no umbrales de calidad; provisionales. Los tamaños salen de tickets.tamano_* (no se duplican).
+  # ESFUERZO de muestreo, no umbrales de calidad; provisionales. Los tamaños salen de tickets.tamano_alta_min..max (5-8: los de PRODUCCIÓN; los reducidos 2-4 NO entran al backtest).
   cestas_historicas:
     paso_dias: 7                     # reajuste walk-forward del modelo (igual que la calibración semanal de V2)
     n_cestas_por_dia: 40             # combinaciones muestreadas por día de decisión

@@ -47,6 +47,50 @@ def test_decidir_gates_tabla_de_verdad(modos, minimo, esperado):
     assert ok is esperado and isinstance(motivo, str) and motivo
 
 
+# ------------------------------------------------------------------ tabla de confiabilidad (diagnóstico)
+def test_tabla_de_confiabilidad_coincide_con_un_calculo_manual():
+    p_cons = np.array([0.055, 0.06, 0.07, 0.32, 0.34, 0.97])
+    p_med = np.array([0.10, 0.12, 0.08, 0.40, 0.42, 0.98])
+    y = np.array([0, 1, 0, 1, 1, 1])
+    t = bo.tabla_confiabilidad(p_med, p_cons, y, bins=20, n_min=3)
+    assert [x["bucket"][0] for x in t] == pytest.approx([0.05, 0.30, 0.95]) and [x["n"] for x in t] == [3, 2, 1]      # buckets de 0.05 por p_cons; los vacíos no salen
+    b = t[0]
+    assert b["tasa_observada"] == pytest.approx(1 / 3) and b["p_media"] == pytest.approx(0.10) and b["p_conservadora"] == pytest.approx((0.055 + 0.06 + 0.07) / 3)
+    assert b["cuenta_en_gate"] is True and b["supera_la_cota"] is True                                              # 0.333 >= 0.06
+    assert t[1]["cuenta_en_gate"] is False and t[2]["cuenta_en_gate"] is False                                      # n < n_min
+    assert t[1]["tasa_observada"] == 1.0 and t[2]["p_conservadora"] == pytest.approx(0.97)
+
+
+def test_la_tabla_trata_la_igualdad_obs_igual_a_la_cota_como_el_gate_supera():
+    t = bo.tabla_confiabilidad([0.5, 0.5], [0.5, 0.5], [1.0, 0.0], bins=20, n_min=2)                                # obs = 0.5 = p_cons media
+    assert t[0]["tasa_observada"] == t[0]["p_conservadora"] == 0.5 and t[0]["supera_la_cota"] is True               # el gate usa >=
+
+
+def test_la_tabla_es_consistente_con_el_gate_de_incertidumbre():
+    """La tabla es solo diagnóstico, pero debe reproducir exactamente lo que el gate cuenta: buckets con n >= n_min y cuántos superan la cota."""
+    from golmodel.modelos.incertidumbre import gate_cobertura_conservadora as gate
+    rng = np.random.default_rng(3)
+    p_cons = rng.beta(1.2, 6, 3000)
+    y = (rng.random(3000) < np.clip(p_cons * 1.3, 0, 1)).astype(float)
+    cfg_g = {"incertidumbre": {"q": 0.25, "delta_cobertura": 0.10, "gate_bins": 20, "gate_n_min_bin": 100}}
+    g = gate(p_cons, y, cfg_g)
+    t = bo.tabla_confiabilidad(p_cons * 1.1, p_cons, y, 20, 100)
+    cuentan = [x for x in t if x["cuenta_en_gate"]]
+    assert len(cuentan) == g.bins and sum(x["supera_la_cota"] for x in cuentan) / len(cuentan) == pytest.approx(g.cobertura)
+    assert sum(x["n"] for x in t) == 3000                                                                          # ninguna cesta se pierde
+
+
+def test_la_corrida_incluye_la_tabla_en_los_folds_el_json_y_el_reporte(corrida):
+    evaluados = [f for f in corrida.folds if f.omitido is None]
+    assert evaluados and all(f.confiabilidad for f in evaluados)
+    for f in evaluados:
+        assert sum(x["n"] for x in f.confiabilidad) == f.n_test                                                     # toda cesta del test está en algún bucket
+        assert sum(x["cuenta_en_gate"] for x in f.confiabilidad) == f.bins_poblados                                  # y coincide con los buckets que cuenta el gate
+    assert corrida.resultado_json["folds"][0]["confiabilidad"] == corrida.folds[0].confiabilidad
+    md = bo.reporte_md(corrida, version_id=None)
+    assert "## Tabla de confiabilidad por bucket" in md and "obs − P media" in md and "no decide ningún gate" in md
+
+
 def test_el_motivo_cuenta_los_folds_no_evaluables():
     ok, motivo = bo.decidir_gates([F(1, "ok"), F(2, "ok"), F(3, "no_evaluable"), F(4, "insuficiente")], 2)
     assert ok is True and "2 no evaluable(s)" in motivo
@@ -204,7 +248,7 @@ def test_la_corrida_tiene_la_estructura_esperada(corrida, cfgs):
     assert r.dataset["cestas_resueltas"] > 0 and r.dataset["fraccion_excluida"] == 0.0 or r.dataset["fraccion_excluida"] is not None
     for f in r.folds:
         if f.omitido is None:
-            assert f.gate_modo in ("ok", "estrecho", "ancho", "insuficiente") and f.c_train > 0 and 0 <= f.gate_cobertura <= 1
+            assert f.gate_modo in ("ok", "estrecho", "ancho", "insuficiente", "no_evaluable") and f.c_train > 0 and 0 <= f.gate_cobertura <= 1
     assert r.gates_ok == bo.decidir_gates([f for f in r.folds if f.omitido is None], 1)[0]
     assert r.calibrado_con == bo.decidir_calibrado_con(r.gates_ok, False)
 
@@ -292,7 +336,8 @@ def test_reporte_incluye_veredicto_folds_exclusion_y_limitaciones(corrida):
     for pieza in ("## Veredicto", "## Datos", "## Folds walk-forward", "## Protocolo de σ_g", "## Qué NO cubre", "id 7", "`calibrado_con`",
                   "excluidas", "σ_ℓ", "NO se modifica aquí", "Cerebro 2 no interviene"):
         assert pieza in md, pieza
-    assert md.count("| 1 |") == 1 and md.count("| 3 |") == 1
+    filas = [l for l in md.splitlines() if l.startswith("| 1 | 20") or l.startswith("| 3 | 20")]
+    assert len(filas) == 2                                                          # una fila de fold por cada uno (la tabla de confiabilidad no cuenta)
     assert "NO guardada" in bo.reporte_md(corrida, version_id=None)
     assert ("SUPERADOS" in md) == corrida.gates_ok or "NO SUPERADOS" in md
 
@@ -333,6 +378,7 @@ def _ventana():
     ("estrecho", True, False, "no_calibrado", False)])   # gates fallan: se guarda el intento, NO se carga
 def test_ejecutar_guarda_la_version_y_solo_la_valida_se_carga(con, cfg, cfgs, monkeypatch, modo, reales, gates, cal, cargable):  # noqa: F811
     monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate(modo))
+    monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))                      # c identificado (con 5-8 piernas este mundo chico lo pega al borde: eso se prueba aparte)
     desde, hasta = _ventana()
     antes = al.cargar_ultima_valida(con)
     r, vid = bo.ejecutar(con, cfg, cfgs[1], desde=desde, hasta=hasta, casa="pinnacle", semilla=2, datos_reales=reales, guardar=True)

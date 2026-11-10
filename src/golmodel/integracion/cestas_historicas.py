@@ -115,8 +115,10 @@ def _inicio_dia(inicio: pd.Timestamp, tz: ZoneInfo) -> pd.Timestamp:
 
 
 def _tamanos(cfg_v3: dict) -> list[int]:
+    """Tamaños de cesta del backtest = los de los tickets de PRODUCCIÓN (`tickets.tamano_alta_min..tamano_alta_max`, 5-8). NO se incluyen los 'reducidos' (2-4):
+    la primera corrida real con 2-8 piernas resultó con 91.7 % de cestas de 2-4 piernas y evaluaba algo que producción casi nunca arma (pre-registro §2.11, addendum)."""
     t = cfg_v3["tickets"]
-    return list(range(int(t["tamano_reducido_min"]), int(t["tamano_alta_max"]) + 1))
+    return list(range(int(t["tamano_alta_min"]), int(t["tamano_alta_max"]) + 1))
 
 
 def _p_nominal(piernas) -> float:

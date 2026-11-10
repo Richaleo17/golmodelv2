@@ -98,8 +98,8 @@ def _acierta(sel: str, gl: int, gv: int) -> bool:
 def test_hay_cestas_y_cada_una_cumple_el_contrato(base, cfgs, mundo):
     v3 = cfgs[1]
     assert len(base.cestas) == len(base.meta) >= 120
-    tam = set(range(v3["tickets"]["tamano_reducido_min"], v3["tickets"]["tamano_alta_max"] + 1))
-    assert {m.n for m in base.meta} == tam                                         # aparecen todos los tamaños 2..8
+    tam = set(range(v3["tickets"]["tamano_alta_min"], v3["tickets"]["tamano_alta_max"] + 1))
+    assert tam == {5, 6, 7, 8} and {m.n for m in base.meta} == tam                  # solo los tamaños de producción (5-8); nunca 2-4
     for c, m in zip(base.cestas, base.meta):
         assert len(c.piernas) == m.n == len(m.piernas) and m.n in tam
         assert len({pm.partido_id for pm in m.piernas}) == m.n                      # partidos distintos: máx. 1 pierna/partido
@@ -261,8 +261,8 @@ def test_las_cestas_con_pierna_anulada_o_pendiente_se_excluyen_pero_se_cuentan(m
     d, pool, cu = mundo
     p2 = pool.copy()
     ids = sorted(p2["partido_id"])[:6]
-    p2.loc[p2["partido_id"].isin(ids[:3]), ["estado", "goles_local", "goles_visitante"]] = ["cancelado", np.nan, np.nan]
-    p2.loc[p2["partido_id"].isin(ids[3:]), ["estado", "goles_local", "goles_visitante"]] = ["programado", np.nan, np.nan]
+    p2.loc[p2["partido_id"].isin(ids[:5]), ["estado", "goles_local", "goles_visitante"]] = ["cancelado", np.nan, np.nan]
+    p2.loc[p2["partido_id"].isin(ids[5:]), ["estado", "goles_local", "goles_visitante"]] = ["programado", np.nan, np.nan]   # (pendiente tiene prioridad sobre anulada)
     r = _run(mundo, cfgs, pool=p2)
     assert r.excluidas and {m.resultado for m in r.excluidas} == {"anulada", "pendiente"}
     assert len(r.cestas) == len(r.meta) and all(m.resultado in ("gano", "perdio") for m in r.meta)
@@ -399,7 +399,7 @@ def test_los_dias_no_comparten_el_mismo_patron_de_muestreo(base, mundo):
 def test_sin_cestas_repetidas_aunque_el_espacio_de_combinaciones_sea_chico(mundo, cfgs):
     v2, v3 = cfgs
     v3 = copy.deepcopy(v3)
-    v3["tickets"]["tamano_alta_max"] = 2                                            # solo pares
+    v3["tickets"]["tamano_alta_min"] = v3["tickets"]["tamano_alta_max"] = 2          # solo pares
     v3["calibracion_tickets"]["cestas_historicas"]["n_cestas_por_dia"] = 140          # ≈ el espacio total de un día chico
     d, pool, cu = mundo
     dia = pool["inicio"].dt.tz_convert("America/Mexico_City").dt.strftime("%Y-%m-%d").iloc[0]
