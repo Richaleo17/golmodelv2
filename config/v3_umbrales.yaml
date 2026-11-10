@@ -10,13 +10,13 @@
 
 modo_experimental: true          # q y σ_g sin validar → auditor topa en CON_RESERVAS
 
-# --- Modo «Operativo (Beta)» (v0.15+; integracion/beta.py) — INTERRUPTOR MANUAL, apagado por defecto ---
+# --- Modo «Operativo (Beta)» (v0.15+; integracion/beta.py) — INTERRUPTOR MANUAL. ENCENDIDO el 2026-11-10 por decisión del responsable (en el código viene apagado) ---
 # Al poner `activo: true`, la decisión de tickets se toma SIN el techo CON_RESERVAS (el auditor puede emitir APROBADO), pero solo si hay una calibración
 # `oos_real` vigente con gates superados (si no, no surte efecto: fail-closed). NO cambia `modo_experimental` de arriba (que sigue siendo la protección por
 # defecto; el responsable decide cuándo cambiarlo). El stake usa Kelly FRACCIONAL (`kelly_fraccion_parlay`, como máximo) sobre p_conservadora, con el tope
 # `bankroll.stake_max_parlay_u`. Cada decisión Beta lleva el sello BETA y el banner en `auditoria_decisiones`, y la UI muestra el banner en rojo.
 modo_operativo_beta:
-  activo: false
+  activo: true                   # ← interruptor: true = Beta encendido (efectivo solo con calibración oos_real vigente); false = apagado
   kelly_fraccion_parlay: 0.10    # tope de la fracción de Kelly en modo Beta (si bankroll.kelly_fraccion_parlay es menor, se usa esa)
   sello: BETA
   banner: "⚠️ MODO BETA. La probabilidad central pasó la prueba de calibración y no se detectó sobredispersión por liga y día, pero la incertidumbre de cada partido (τ) NO está validada y la prueba solo descarta sesgos grandes. Kelly conservador; apuestas con sello BETA. Úsalo bajo tu propio riesgo."

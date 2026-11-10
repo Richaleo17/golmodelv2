@@ -1,6 +1,8 @@
 """Almacén de VersionCalibradorTickets (migración 005) sobre PostgreSQL real, y su uso en la ruta en vivo (benchmark)."""
 from __future__ import annotations
 
+import copy
+
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -85,7 +87,14 @@ def test_benchmark_usa_la_version_valida_guardada_y_si_no_hay_la_provisional(con
     al.guardar_version(con, v, gates_ok=True, resultado={}, creado_en=AHORA_BD - timedelta(days=1))
     d = bm.generar_decision_v3(con, dia, AHORA_BD, cfg, v3)
     assert d.salida.auditoria.calibrado_con == "oos_real" and d.salida.auditoria.c_seg["c_global"] == 0.9
-    assert d.salida.auditoria.modo_experimental is True                                         # la bandera sigue viniendo de la config
+    sin_beta = copy.deepcopy(v3)
+    sin_beta["modo_operativo_beta"]["activo"] = False
+    d_off = bm.generar_decision_v3(con, dia, AHORA_BD, cfg, sin_beta)
+    assert d_off.salida.auditoria.modo_experimental is True and d_off.beta == {"solicitado": False, "efectivo": False}   # sin Beta: la bandera viene de la config
+    assert d_off.salida.auditoria.calibrado_con == "oos_real"                                    # (una versión oos_real SOLA no apaga el techo)
+    if v3["modo_operativo_beta"]["activo"]:                                                     # con el Beta encendido en la config del repositorio (v0.15.2)
+        assert d.beta["efectivo"] is True and d.salida.auditoria.modo_experimental is False and d.salida.auditoria.techo_estado == "SIN_TOPE"
+        assert v3["modo_experimental"] is True                                                  # y la config de modo_experimental sigue intacta
     # as-of: una versión creada DESPUÉS de `ahora` no existe todavía para esa decisión
     futura = _v(c=0.123, con_="oos_real")
     al.guardar_version(con, futura, gates_ok=True, resultado={}, creado_en=AHORA_BD + timedelta(days=1))

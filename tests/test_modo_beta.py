@@ -33,15 +33,22 @@ def _cfg_beta(activo=True, **kw):
     return c
 
 
+def _cfg_off():
+    """La política real con el interruptor Beta APAGADO (el repositorio lo trae encendido desde el 2026-11-10: estos tests prueban el comportamiento sin él)."""
+    c = _cfg()
+    c["modo_operativo_beta"]["activo"] = False
+    return c
+
+
 def _decidir(cfg, con_cal="oos_real"):
     return bm.decidir(_pool(), {}, _version(con=con_cal), cfg, semilla=11, ahora=AHORA)
 
 
 # ------------------------------------------------------------------ config
-def test_la_config_real_trae_el_modo_beta_apagado_con_el_texto_aprobado_y_modo_experimental_sigue_true():
+def test_la_config_real_trae_el_modo_beta_con_el_texto_aprobado_y_modo_experimental_sigue_true():
     cfg = cargar_v3()
     b = cfg["modo_operativo_beta"]
-    assert b["activo"] is False and b["kelly_fraccion_parlay"] == 0.10 and b["sello"] == "BETA" and b["banner"] == BANNER
+    assert isinstance(b["activo"], bool) and b["kelly_fraccion_parlay"] == 0.10 and b["sello"] == "BETA" and b["banner"] == BANNER
     assert cfg["modo_experimental"] is True                                    # la protección por defecto no se toca
     assert cfg["bankroll"]["stake_max_parlay_u"] == 0.5
 
@@ -57,6 +64,14 @@ def test_la_config_beta_se_valida_estricto(tmp_path, cambio):
         cargar_v3(ruta)
 
 
+def test_la_config_del_repositorio_tiene_el_beta_encendido_por_decision_del_responsable_y_sigue_siendo_fail_closed():
+    cfg = cargar_v3()
+    assert cfg["modo_operativo_beta"]["activo"] is True and cfg["modo_experimental"] is True                   # estado documentado (pre-registro §2.14, v0.15.2)
+    assert beta.resolver(cfg, _version(con="no_calibrado"))[0] is True                                         # sin oos_real: no surte efecto
+    assert beta.resolver(cfg, _version(con="sinteticos"))[2]["efectivo"] is False
+    assert beta.resolver(cfg, _version(con="oos_real"))[2]["efectivo"] is True
+
+
 def test_la_seccion_beta_es_opcional_y_ausente_equivale_a_apagado(tmp_path):
     cfg = yaml.safe_load(RUTA_V3.read_text(encoding="utf-8"))
     del cfg["modo_operativo_beta"]
@@ -68,7 +83,7 @@ def test_la_seccion_beta_es_opcional_y_ausente_equivale_a_apagado(tmp_path):
 
 # ------------------------------------------------------------------ resolver (puro)
 def test_apagado_no_cambia_nada_ni_con_calibracion_oos_real():
-    cfg = _cfg()
+    cfg = _cfg_off()
     modo, cfg2, info = beta.resolver(cfg, _version(con="oos_real"))
     assert modo is True and cfg2 is cfg and info == {"solicitado": False, "efectivo": False}
     c = _cfg_beta(activo=False)
@@ -109,7 +124,7 @@ def test_la_fraccion_de_kelly_nunca_supera_la_de_beta_y_respeta_una_mas_conserva
 
 # ------------------------------------------------------------------ decisión (tickets.py + Cerebro 2, sin tocarlos)
 def test_sin_el_interruptor_la_decision_es_identica_aunque_haya_calibracion_oos_real():
-    cfg = _cfg()
+    cfg = _cfg_off()
     cfg_sin = copy.deepcopy(cfg)
     cfg_sin.pop("modo_operativo_beta", None)
     a, va, _ = _decidir(cfg)
@@ -183,7 +198,7 @@ def test_persistir_guarda_el_sello_y_el_banner_y_la_vista_los_devuelve(con):
 
 def test_sin_beta_el_payload_no_lleva_sello_y_la_vista_sigue_con_la_advertencia_provisional(con):
     dia = _d(2026, 11, 9)
-    d = _decision(con, dia, _cfg(), con_cal="sinteticos")
+    d = _decision(con, dia, _cfg_off(), con_cal="sinteticos")
     ids = bm.persistir(con, d)
     assert "beta" not in con.execute("SELECT payload FROM auditoria_decisiones WHERE id = %s", (ids["tickets"],)).fetchone()["payload"]
     dec = vistas.decision_v3(con, dia)
@@ -211,7 +226,7 @@ def test_apuesta_del_dia_solo_con_sello_beta_aprobado_por_el_auditor_y_promovibl
 
 def test_un_ticket_con_modo_experimental_jamas_es_apuesta_del_dia(con):
     dia = _d(2026, 11, 9)
-    bm.persistir(con, _decision(con, dia, _cfg(), con_cal="sinteticos"))
+    bm.persistir(con, _decision(con, dia, _cfg_off(), con_cal="sinteticos"))
     dec = {**vistas.decision_v3(con, dia), "estado": "APROBADO"}                                         # aunque alguien forzara el estado
     assert vistas._ticket_v3_como_parlay(con, dec)["es_apuesta_del_dia"] is False
 
@@ -236,7 +251,7 @@ def test_la_ui_muestra_el_banner_beta_completo_en_rojo_y_el_sello_en_las_dos_pan
 
 def test_la_ui_sin_beta_no_muestra_banner_rojo_ni_sello(entorno, bd):  # noqa: F811
     with db.conectar(bd) as c:
-        bm.persistir(c, _decision(c, _dia(c), _cfg(), con_cal="sinteticos"))
+        bm.persistir(c, _decision(c, _dia(c), _cfg_off(), con_cal="sinteticos"))
     at = _ir_a_parlay(AppTest.from_file(APP, default_timeout=60))
     assert not at.exception, [e.value for e in at.exception]
     assert not any("#b00020" in m.value for m in at.markdown) and any("PROVISIONAL" in w.value for w in at.warning)
