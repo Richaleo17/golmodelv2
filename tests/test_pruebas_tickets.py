@@ -35,6 +35,7 @@ SIM = _sim()
 def test_los_umbrales_de_a_y_b_son_los_pre_registrados():
     assert (CA["n_grupos"], CA["min_cestas_por_grupo"], CA["nivel_intervalo"], CA["min_grupos_dentro"], CA["z_grosero"]) == (5, 200, 0.95, 3, 4.0)
     assert CA["min_eventos_esperados_por_grupo"] == 20
+    assert CA["p_media_minima"] == 0.01 and CA["control_negativo_factores"] == [1.5, 0.6667]               # v0.15
     assert (CB["min_partidos_por_grupo"], CB["min_grupos"], CB["alfa"], CB["r_latente_objetivo"], CB["potencia_min"]) == (4, 100, 0.05, 0.10, 0.80)
 
 
@@ -144,14 +145,14 @@ def test_a_reglas_de_decision_exactas(monkeypatch, grupos, glob, cfg_extra, modo
 # ------------------------------------------------------------------ A: propiedades estadísticas (simulación, semillas fijas)
 def test_a_tamano_un_modelo_perfecto_pasa_casi_siempre_con_estructura_de_clusters():
     rng = np.random.default_rng(20261110)
-    pasa = sum(pt.evaluar_calibracion_media(*SIM.mundo_a(rng), CA)["modo"] == "ok" for _ in range(80))
-    assert pasa / 80 >= 0.85                                                                  # medido: 93 % (400 repeticiones); piso con holgura de simulación
+    pasa = sum(SIM.evaluar_a(*SIM.mundo_a(rng), CA)[0]["modo"] == "ok" for _ in range(80))
+    assert pasa / 80 >= 0.85                                                                  # medido: 93.8 % (400 repeticiones, v0.15); piso con holgura de simulación
 
 
 def test_a_potencia_un_modelo_sobreestimado_50_por_ciento_falla_casi_siempre():
     rng = np.random.default_rng(20261110)
-    falla = sum(pt.evaluar_calibracion_media(*SIM.mundo_a(rng, sesgo=1.5), CA)["modo"] == "descalibrado" for _ in range(60))
-    assert falla / 60 >= 0.88                                                                 # medido: 97 %
+    falla = sum(SIM.evaluar_a(*SIM.mundo_a(rng, sesgo=1.5), CA)[0]["modo"] == "descalibrado" for _ in range(60))
+    assert falla / 60 >= 0.88                                                                 # medido: 98 % (400 repeticiones)
 
 
 def test_a_el_intervalo_binomial_ingenuo_daria_falsos_fallos_el_robusto_no():
@@ -164,6 +165,99 @@ def test_a_el_intervalo_binomial_ingenuo_daria_falsos_fallos_el_robusto_no():
         ingenuo += abs(z_ing) > 1.96
         robusto += abs(pt._z_robusto(Y, P, D)[2]) > 1.96
     assert ingenuo / 80 > 0.25 and robusto / 80 < 0.15
+
+
+# ------------------------------------------------------------------ v0.15: agrupación por eventos esperados, filtro, MDE y control negativo
+def _grupos_por_conteo(p, k=5):
+    """La agrupación de la v0.14 (igual número de cestas), solo para demostrar el problema que corrige la v0.15."""
+    return np.array_split(np.argsort(p, kind="stable"), k)
+
+
+def test_v015_los_grupos_tienen_igual_numero_de_eventos_esperados_y_cubren_todas_las_cestas():
+    P, Y, D = _mundo_a()
+    grupos = pt._grupos_por_eventos_esperados(P, 5)
+    esperados = [P[g].sum() for g in grupos]
+    assert sorted(np.concatenate(grupos).tolist()) == list(range(len(P)))                                # cada cesta en exactamente un grupo
+    assert max(esperados) - min(esperados) <= P.max() + 1e-9 and np.mean(esperados) == pytest.approx(P.sum() / 5)   # reparto igual de Σp (salvo una cesta)
+    medias = [P[g].mean() for g in grupos]
+    assert medias == sorted(medias)                                                                      # ordenados por p_media
+    assert len({len(g) for g in grupos}) > 1                                                             # (y por eso NO tienen igual número de cestas)
+
+
+def test_v015_corrige_el_problema_real_con_igual_conteo_el_grupo_bajo_es_inevaluable_con_eventos_el_grupo_bajo_es_evaluable():
+    P, Y, D = _mundo_a()                                                                                  # mundo con la cola baja de p de los datos reales (≈14 % con p < 1 %)
+    por_conteo = _grupos_por_conteo(P)
+    assert P[por_conteo[0]].sum() < CA["min_eventos_esperados_por_grupo"]                                 # v0.14: el quintil bajo tiene < 20 eventos esperados → no_evaluable
+    r = pt.evaluar_calibracion_media(P, Y, D, CA)
+    assert r["agrupacion"] == "eventos_esperados" and all(g["esperados"] >= CA["min_eventos_esperados_por_grupo"] for g in r["grupos"])
+    assert r["modo"] in ("ok", "descalibrado")                                                            # v0.15: ya se puede evaluar
+
+
+def test_v015_la_agrupacion_es_estable_con_empates_y_degenera_sin_eventos():
+    p = np.full(1000, 0.05)
+    g = pt._grupos_por_eventos_esperados(p, 5)
+    assert [len(x) for x in g] == [200] * 5
+    assert all(len(x) == 0 for x in pt._grupos_por_eventos_esperados(np.zeros(100), 5))
+    r = pt.evaluar_calibracion_media(np.zeros(1000), np.zeros(1000), np.arange(1000) % 50, CA)
+    assert r["modo"] == "no_evaluable"                                                                    # nada que evaluar: nunca 'ok'
+
+
+def test_v015_un_grupo_con_menos_cestas_que_el_minimo_no_es_evaluable():
+    rng = np.random.default_rng(0)
+    p = np.concatenate([np.full(1500, 0.02), np.full(30, 0.9)])                                          # el grupo alto cabe en < 200 cestas
+    y = (rng.random(len(p)) < p).astype(float)
+    r = pt.evaluar_calibracion_media(p, y, np.arange(len(p)) % 60, {**CA, "min_eventos_esperados_por_grupo": 0})
+    assert r["modo"] == "no_evaluable" and "con < 200 cestas" in r["motivo"]
+
+
+def test_v015_filtro_de_relevancia_es_inclusivo_por_la_prediccion_y_reporta_lo_descartado():
+    p = [0.005, 0.01, 0.2, 0.0099, 0.5]
+    y = [1, 0, 1, 1, 0]
+    f = pt.filtrar_por_p_minima(p, [0.001] * 5, y, list("abcde"), 0.01)
+    assert f["p_media"].tolist() == [0.01, 0.2, 0.5] and f["y"].tolist() == [0, 1, 0] and f["dia"].tolist() == ["b", "c", "e"]     # p == 0.01 se conserva
+    r = f["resumen"]
+    assert (r["n_total"], r["n_conservadas"], r["n_descartadas"]) == (5, 3, 2)
+    assert r["descartadas_eventos_esperados"] == pytest.approx(0.005 + 0.0099) and r["descartadas_eventos_observados"] == 2.0
+    assert r["conservadas_eventos_esperados"] == pytest.approx(0.71) and r["conservadas_eventos_observados"] == 1.0
+    y2 = [0, 1, 0, 0, 1]                                                                                  # cambiar los RESULTADOS no cambia qué cestas se conservan
+    assert pt.filtrar_por_p_minima(p, [0.001] * 5, y2, list("abcde"), 0.01)["dia"].tolist() == ["b", "c", "e"]
+
+
+def test_v015_sesgo_minimo_detectable_coincide_con_su_formula():
+    P, Y, D = _mundo_a()
+    r = pt.evaluar_calibracion_media(P, Y, D, CA)
+    R, V, _ = pt._z_robusto(Y, P, D)
+    assert r["mde_relativo_80"] == pytest.approx((1.959964 + 0.841621) * np.sqrt(V) / P.sum(), rel=1e-5)
+    assert 0.1 < r["mde_relativo_80"] < 1.0
+    assert pt.evaluar_calibracion_media(P[:100], Y[:100], D[:100], CA)["mde_relativo_80"] is None          # no evaluable: no se inventa
+
+
+def test_v015_control_negativo_detecta_el_sesgo_perturbado_en_un_modelo_perfecto():
+    P, Y, D = _mundo_a(semilla=21)
+    f = pt.filtrar_por_p_minima(P, P, Y, D, CA["p_media_minima"])
+    base = pt.evaluar_calibracion_media(f["p_media"], f["y"], f["dia"], CA)
+    assert base["modo"] == "ok"                                                                           # el modelo perfecto pasa...
+    c = pt.control_negativo(f["p_media"], f["y"], f["dia"], CA)
+    assert [x["factor"] for x in c] == [1.5, 0.6667] and all(x["detectado"] == (x["modo"] == "descalibrado") for x in c)
+    assert c[0]["detectado"] and c[0]["z_global"] < 0                                                     # ...y ×1.5 se detecta como sobreestimación
+    assert pt.control_negativo(f["p_media"], f["y"], f["dia"], {**CA, "control_negativo_factores": []}) == []
+
+
+def test_v015_control_negativo_es_honesto_cuando_los_datos_no_dan_potencia():
+    P, Y, D = SIM.mundo_a(np.random.default_rng(4), n_dias=60)                                           # pocos días: la prueba no puede discriminar
+    f = pt.filtrar_por_p_minima(P, P, Y, D, CA["p_media_minima"])
+    c = pt.control_negativo(f["p_media"], f["y"], f["dia"], {**CA, "control_negativo_factores": [1.1]})   # un 10 % no se detecta
+    assert c[0]["factor"] == 1.1 and c[0]["detectado"] is False
+
+
+def test_v015_potencia_simulada_del_control_negativo_x1_5():
+    rng = np.random.default_rng(31)
+    det = 0
+    for _ in range(60):
+        P, Y, D = SIM.mundo_a(rng)
+        f = pt.filtrar_por_p_minima(P, P, Y, D, CA["p_media_minima"])
+        det += pt.control_negativo(f["p_media"], f["y"], f["dia"], {**CA, "control_negativo_factores": [1.5]})[0]["detectado"]
+    assert det / 60 >= 0.88                                                                               # medido: 97.3 % (150 repeticiones)
 
 
 # ------------------------------------------------------------------ B: aritmética

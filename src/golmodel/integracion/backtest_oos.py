@@ -29,7 +29,8 @@ from golmodel.backtest import calibracion_tickets as ct
 from golmodel.config import hash_config
 from golmodel.integracion import almacen_calibradores as almacen
 from golmodel.integracion.cestas_historicas import ResultadoCestas, construir_cestas_historicas
-from golmodel.integracion.pruebas_tickets import decidir_veredicto, evaluar_calibracion_media, evaluar_sobredispersion
+from golmodel.integracion.pruebas_tickets import (control_negativo, decidir_veredicto, evaluar_calibracion_media, evaluar_sobredispersion,
+                                                  filtrar_por_p_minima)
 
 EPS = 1e-12
 # Intervalo de búsqueda de `c` en calibracion_tickets.ajustar (np.log(0.1), np.log(5.0)). Si el óptimo cae en el borde, el ajuste NO está identificado.
@@ -265,7 +266,8 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
         folds.append(rf)
     evaluados = [f for f in folds if f.omitido is None]
 
-    # veredicto: SOLO las pruebas A y B (enmienda v0.14). El gate por buckets de cada fold es informativo.
+    # veredicto: SOLO las pruebas A y B (enmienda v0.14). A se evalúa sobre las cestas RELEVANTES (p_media >= p_media_minima, v0.15).
+    filtro = None
     if not evaluados:
         prueba_a = {"modo": "no_evaluable", "motivo": ("ningún fold evaluable: " + "; ".join(f"fold {f.k}: {f.omitido}" for f in folds)) if folds else "sin folds (muy pocos días)",
                     "grupos": [], "global": None, "n": 0}
@@ -273,7 +275,11 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
         prueba_a = {"modo": "no_evaluable", "motivo": f"c en el borde del intervalo de búsqueda [{C_MIN}, {C_MAX}] en fold(s) {[f.k for f in evaluados if f.c_borde]}: ajuste no identificado",
                     "grupos": [], "global": None, "n": 0}
     else:
-        prueba_a = evaluar_calibracion_media(agg["p_media"], agg["y"], agg["dia"], bo["prueba_calibracion_media"])
+        cfg_a = bo["prueba_calibracion_media"]
+        filtro = filtrar_por_p_minima(agg["p_media"], agg["p_cons"], agg["y"], agg["dia"], cfg_a["p_media_minima"])
+        prueba_a = evaluar_calibracion_media(filtro["p_media"], filtro["y"], filtro["dia"], cfg_a)
+        prueba_a["filtro"] = filtro["resumen"]
+        prueba_a["control_negativo"] = control_negativo(filtro["p_media"], filtro["y"], filtro["dia"], cfg_a)
     cc_s = cfg_s["calibracion_tickets"]
     pd_ = res.piernas_dia
     prueba_b = evaluar_sobredispersion([x.dia for x in pd_], [x.liga for x in pd_], [x.p_modelo for x in pd_], [1.0 if x.gano else 0.0 for x in pd_],
@@ -281,9 +287,11 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
     veredicto = decidir_veredicto(prueba_a["modo"], prueba_b["modo"])
     gates_ok = veredicto == "superados"
     motivo = f"A (calibración de p_media): {prueba_a['modo']} — {prueba_a['motivo']} | B (sobredispersión día×liga): {prueba_b['modo']} — {prueba_b['motivo']}"
-    pm_tot = float(np.mean(agg["p_media"])) if agg["p_media"] else None
-    cota = {"n_cestas": len(agg["p_media"]), "p_media_media": pm_tot, "p_conservadora_media": float(np.mean(agg["p_cons"])) if agg["p_cons"] else None,
-            "razon": (float(np.mean(agg["p_cons"])) / pm_tot) if pm_tot else None,
+    base_pm, base_pc = (list(filtro["p_media"]), list(filtro["p_cons"])) if filtro else (agg["p_media"], agg["p_cons"])     # la advertencia se refiere a las cestas relevantes
+    pm_tot = float(np.mean(base_pm)) if len(base_pm) else None
+    cota = {"n_cestas": len(base_pm), "n_cestas_totales": len(agg["p_media"]), "p_media_media": pm_tot,
+            "p_conservadora_media": float(np.mean(base_pc)) if len(base_pc) else None,
+            "razon": (float(np.mean(base_pc)) / pm_tot) if pm_tot else None,
             "validada": False}                              # la cota NO está validada por A ni por B (B solo descarta incertidumbre COMPARTIDA no modelada)
 
     # 3) versión final: c sobre TODAS las cestas (la que se desplegaría) — su validez OOS es la de los folds de arriba
@@ -336,7 +344,7 @@ def _aviso_cota(cota: dict) -> list[str]:
     if not cota or cota.get("razon") is None:
         return []
     razon = cota["razon"]
-    return [f"- ⚠️ **`p_conservadora` es una cota {'MUY ' if razon < 0.7 else ''}conservadora: en las {cota['n_cestas']} cestas de test vale ≈ {100 * razon:.0f} % de `p_media` "
+    return [f"- ⚠️ **`p_conservadora` es una cota {'MUY ' if razon < 0.7 else ''}conservadora: en las {cota['n_cestas']} cestas de test relevantes vale ≈ {100 * razon:.0f} % de `p_media` "
             f"(media {cota['p_conservadora_media']:.3f} frente a {cota['p_media_media']:.3f}).** Los tickets que superen el EV exigido con la cota serán RAROS. "
             "La cota NO está validada (ni por A ni por B): es una honestidad estadística, no un defecto a «arreglar» bajando umbrales."]
 
@@ -345,6 +353,12 @@ def _seccion_pruebas(r: ResultadoBacktest) -> list[str]:
     a, b = r.prueba_a, r.prueba_b
     L = ["## Prueba A — calibración de `p_media` (decide; cestas de todos los folds OOS agregadas)", "",
          f"- Resultado: **{a.get('modo')}** — {a.get('motivo')}"]
+    f = a.get("filtro")
+    if f:
+        L += [f"- **Filtro de relevancia (v0.15): se descartan las cestas con `p_media` < {f['p_media_minima']:g}** (la app no recomendaría un ticket con ~1 % de probabilidad; se filtra por la "
+              f"predicción, no por el resultado). Conservadas {f['n_conservadas']} de {f['n_total']}; descartadas {f['n_descartadas']} "
+              f"(eventos esperados {f['descartadas_eventos_esperados']:.1f}, observados {f['descartadas_eventos_observados']:.0f}: lo descartado queda a la vista). "
+              f"Los {f['n_conservadas']} restantes se agrupan en {5} grupos de IGUAL número de eventos esperados."]
     if a.get("global"):
         g = a["global"]
         L += [f"- Intervalo bilateral {a['z_intervalo']:.2f}σ (grosero {a['z_grosero']:.2f}σ), varianza robusta por día (las cestas de un día comparten partidos). "
@@ -353,6 +367,16 @@ def _seccion_pruebas(r: ResultadoBacktest) -> list[str]:
         for x in a["grupos"]:
             L.append(f"| {x['grupo']} | {x['n']} | {x['p_media']:.4f} | {x['obs']:.4f} | {x['esperados']:.1f} | {x['eventos']:.0f} | {x['z']:+.2f} | {'sí' if x['dentro'] else 'NO'} |")
         L.append(f"| **global** | {g['n']} | {g['p_media']:.4f} | {g['obs']:.4f} | {g['esperados']:.1f} | {g['eventos']:.0f} | {g['z']:+.2f} | {'sí' if g['dentro'] else 'NO'} |")
+        if a.get("mde_relativo_80") is not None:
+            L.append(f"- **Sesgo relativo mínimo detectable (80 % de potencia, con la varianza REAL de estos datos): ≈ {100 * a['mde_relativo_80']:.0f} %.** "
+                     "Un `ok` solo descarta sesgos mayores que eso, no una calibración fina.")
+    if a.get("control_negativo"):
+        L += ["", "**Control negativo** (la misma prueba, mismos datos, con `p_media` perturbada: DEBE marcarla `descalibrado`):", "",
+              "| `p_media` × | resultado | z global | ¿detectado? |", "|---|---|---|---|"]
+        for c in a["control_negativo"]:
+            L.append(f"| {c['factor']:g} | {c['modo']} | {'n/d' if c['z_global'] is None else format(c['z_global'], '+.2f')} | {'sí' if c['detectado'] else '**NO**'} |")
+        if not all(c["detectado"] for c in a["control_negativo"]):
+            L.append("- ⚠️ **La prueba NO detectó alguna perturbación en estos datos: un `ok` de A no es evidencia para errores de esa magnitud.**")
     L += ["", "## Prueba B — sobredispersión de piernas por grupos día × liga (decide)", "",
           f"- Resultado: **{b.get('modo')}** — {b.get('motivo')}"]
     if b.get("T_obs") is not None:

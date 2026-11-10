@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-# ----------------------------------------------------------------------------- A: calibración de p_media
+# ----------------------------------------------------------------------------- A: calibración de p_media (agrupación por eventos esperados desde v0.15)
 
 
 def _z_robusto(y, p, cluster) -> tuple[float, float, float]:
@@ -33,21 +33,53 @@ def _z_robusto(y, p, cluster) -> tuple[float, float, float]:
     return R, V, (R / np.sqrt(V) if V > 0 else float("nan"))
 
 
+def _grupos_por_eventos_esperados(p: np.ndarray, k: int) -> list[np.ndarray]:
+    """ENMIENDA v0.15: `k` grupos con IGUAL número de eventos esperados (Σ p_media ≈ total/k), no igual número de cestas. Las cestas se ordenan por p_media (estable) y
+    cada una se asigna por el punto medio de su suma acumulada. Con igual conteo, la cola baja de probabilidad (cestas de p ≈ 0.3 %) forma un grupo sin eventos
+    suficientes para una aproximación normal: inevaluable por construcción. Devuelve índices; un grupo puede quedar vacío solo si hay casi nada que repartir."""
+    orden = np.argsort(p, kind="stable")
+    cum = np.cumsum(p[orden])
+    total = float(cum[-1]) if len(cum) else 0.0
+    if total <= 0:
+        return [np.array([], int) for _ in range(k)]
+    medio = cum - p[orden] / 2.0
+    g = np.minimum((medio / (total / k)).astype(int), k - 1)
+    return [orden[g == j] for j in range(k)]
+
+
+def filtrar_por_p_minima(p_media, p_cons, y, dia, p_min: float) -> dict:
+    """FILTRO DE RELEVANCIA (v0.15): la evaluación solo usa cestas con p_media >= p_min (la app nunca recomendaría un ticket con ~1 % de probabilidad). Se filtra por
+    la PREDICCIÓN (no por el resultado), así que no introduce sesgo de selección sobre `y`. Para no esconder nada, devuelve también lo descartado: cuántas cestas,
+    eventos esperados y eventos observados."""
+    p, c, y, dia = np.asarray(p_media, float), np.asarray(p_cons, float), np.asarray(y, float), np.asarray(dia)
+    m = p >= float(p_min)
+    return {"p_media": p[m], "p_cons": c[m], "y": y[m], "dia": dia[m],
+            "resumen": {"p_media_minima": float(p_min), "n_total": int(len(p)), "n_conservadas": int(m.sum()), "n_descartadas": int((~m).sum()),
+                        "descartadas_eventos_esperados": float(p[~m].sum()), "descartadas_eventos_observados": float(y[~m].sum()),
+                        "conservadas_eventos_esperados": float(p[m].sum()), "conservadas_eventos_observados": float(y[m].sum())}}
+
+
 def evaluar_calibracion_media(p_media, y, dia, cfg_a: dict) -> dict:
-    """Prueba A. `modo`: 'ok' | 'descalibrado' | 'no_evaluable'. Criterios (pre-registro §2.12): los `n_grupos` grupos por cuantiles de p_media tienen que
-    ser evaluables (>= min_cestas_por_grupo cestas y >= min_eventos_esperados_por_grupo eventos esperados) y se aprueba solo si (i) el total (calibración
-    global) cae dentro del intervalo bilateral `nivel_intervalo`, (ii) >= `min_grupos_dentro` grupos caen dentro de ese intervalo, (iii) ningún grupo cae
-    con |z| > `z_grosero`. La dirección del sesgo se reporta (obs < esperado ⇒ la probabilidad SOBREESTIMA)."""
+    """Prueba A. `modo`: 'ok' | 'descalibrado' | 'no_evaluable'. Criterios (pre-registro §2.12, agrupación de la v0.15 en §2.13): `n_grupos` grupos de igual número de
+    EVENTOS ESPERADOS por p_media; deben ser evaluables (>= min_cestas_por_grupo cestas, >= min_eventos_esperados_por_grupo eventos esperados, >= 2 días) y se aprueba
+    solo si (i) el total (calibración global) cae dentro del intervalo bilateral `nivel_intervalo`, (ii) >= `min_grupos_dentro` grupos caen dentro de ese intervalo,
+    (iii) ningún grupo cae con |z| > `z_grosero`. La dirección del sesgo se reporta (obs < esperado ⇒ la probabilidad SOBREESTIMA). Informa además el sesgo relativo
+    mínimo detectable con 80 % de potencia con la varianza REAL de los datos (`mde_relativo_80`)."""
     p, y, dia = np.asarray(p_media, float), np.asarray(y, float), np.asarray(dia)
     k, minimo, min_ev = int(cfg_a["n_grupos"]), int(cfg_a["min_cestas_por_grupo"]), float(cfg_a["min_eventos_esperados_por_grupo"])
     z95 = float(norm.ppf(0.5 + float(cfg_a["nivel_intervalo"]) / 2))
     zgr = float(cfg_a["z_grosero"])
-    out = {"modo": "no_evaluable", "motivo": "", "n": int(len(p)), "grupos": [], "global": None, "z_intervalo": z95, "z_grosero": zgr, "direccion": None}
+    out = {"modo": "no_evaluable", "motivo": "", "n": int(len(p)), "grupos": [], "global": None, "z_intervalo": z95, "z_grosero": zgr, "direccion": None,
+           "agrupacion": "eventos_esperados", "mde_relativo_80": None}
     if len(p) < k * minimo:
         out["motivo"] = f"{len(p)} cestas (mínimo {k * minimo} = {k} grupos × {minimo})"
         return out
-    orden = np.argsort(p, kind="stable")                                       # cuantiles: grupos de igual tamaño (±1), reproducible
-    for i, idx in enumerate(np.array_split(orden, k)):
+    grupos = _grupos_por_eventos_esperados(p, k)
+    for i, idx in enumerate(grupos):
+        if len(idx) == 0:
+            out["grupos"].append({"grupo": i + 1, "n": 0, "p_media": float("nan"), "obs": float("nan"), "esperados": 0.0, "eventos": 0.0, "z": float("nan"),
+                                  "dentro": False, "dentro_grosero": False})
+            continue
         R, V, z = _z_robusto(y[idx], p[idx], dia[idx])
         out["grupos"].append({"grupo": i + 1, "n": int(len(idx)), "p_media": float(p[idx].mean()), "obs": float(y[idx].mean()), "esperados": float(p[idx].sum()),
                               "eventos": float(y[idx].sum()), "z": z, "dentro": bool(abs(z) <= z95) if z == z else False, "dentro_grosero": bool(abs(z) <= zgr) if z == z else False})
@@ -55,6 +87,12 @@ def evaluar_calibracion_media(p_media, y, dia, cfg_a: dict) -> dict:
     out["global"] = {"n": int(len(p)), "p_media": float(p.mean()), "obs": float(y.mean()), "esperados": float(p.sum()), "eventos": float(y.sum()), "z": z,
                      "dentro": bool(abs(z) <= z95) if z == z else False}
     out["direccion"] = "sobreestima" if R < 0 else "subestima" if R > 0 else "neutral"
+    if V > 0 and p.sum() > 0:
+        out["mde_relativo_80"] = float((norm.ppf(0.5 + float(cfg_a["nivel_intervalo"]) / 2) + norm.ppf(0.80)) * np.sqrt(V) / p.sum())
+    pocas = [g["grupo"] for g in out["grupos"] if g["n"] < minimo]
+    if pocas:
+        out["motivo"] = f"grupo(s) {pocas} con < {minimo} cestas"
+        return out
     malos = [g for g in out["grupos"] if g["esperados"] < min_ev]
     if malos:
         out["motivo"] = f"grupo(s) {[g['grupo'] for g in malos]} con < {min_ev:g} eventos esperados: la aproximación normal no es fiable"
@@ -74,6 +112,19 @@ def evaluar_calibracion_media(p_media, y, dia, cfg_a: dict) -> dict:
     out["modo"] = "descalibrado" if fallos else "ok"
     out["motivo"] = "; ".join(fallos) if fallos else f"global dentro (z = {z:+.2f}), {dentro} de {k} grupos dentro, ninguno con |z| > {zgr:g}"
     return out
+
+
+def control_negativo(p_media, y, dia, cfg_a: dict) -> list[dict]:
+    """CONTROL NEGATIVO (v0.15): re-evalúa A sobre los MISMOS datos con p_media perturbada por cada factor de `control_negativo_factores` (p. ej. ×1.5: sobreestima 50 %;
+    ×0.667: subestima 33 %). Una prueba con potencia suficiente DEBE marcarlos `descalibrado`; si alguno sale 'ok' o no evaluable, un `ok` de A no es evidencia sobre
+    errores de esa magnitud en estos datos."""
+    p = np.asarray(p_media, float)
+    res = []
+    for f in cfg_a.get("control_negativo_factores", []):
+        r = evaluar_calibracion_media(np.minimum(1.0, p * float(f)), y, dia, cfg_a)
+        res.append({"factor": float(f), "modo": r["modo"], "z_global": r["global"]["z"] if r["global"] else None, "detectado": r["modo"] == "descalibrado",
+                    "motivo": r["motivo"]})
+    return res
 
 
 # ----------------------------------------------------------------------------- B: sobredispersión día × liga

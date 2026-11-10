@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.14
+- Versión: v0.15
 - Fecha: 2026-11-10
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -493,6 +493,34 @@ Cestas de test de **todos los folds OOS evaluados**, agregadas; `p_media` = la p
 
 **Qué se verificó y qué NO:** verificado con datos sintéticos (tests con mutantes, simulaciones de tamaño y potencia). **No** se ejecutó el backtest con datos reales después de esta enmienda: A y B están pendientes de correr en el Mac del responsable. Riesgo anticipado: A puede salir `no_evaluable` si el grupo de `p_media` más baja tiene < 20 eventos esperados.
 
+### 2.13 ENMIENDA v0.15 (2026-11-10) — agrupación de la prueba A por eventos esperados y filtro de relevancia; **corrección POSTERIOR al resultado real, declarada como tal**
+
+**Resultado real que la motiva (corrida con datos reales tras la v0.14; versión 4 en `versiones_calibrador_tickets`, `no_calibrado`):** 7 680 cestas de 5-8 piernas, 6 120 en el test OOS. Prueba **A `no_evaluable`**: el grupo 1 (quintil de menor `p_media`, `p_media` media 0.0035) tenía **4.3 eventos esperados** frente al mínimo pre-registrado de 20. Prueba **B `ok`** (p = 0.087 sin rechazo; potencia 0.97 para r = 0.10; 2 503 piernas en 535 grupos día × liga). `p_conservadora` ≈ 52 % de `p_media`. Veredicto: `no_evaluable`; `modo_experimental` y el techo `CON_RESERVAS` sin cambios.
+
+**Declaración de transparencia (obligatoria):** esta enmienda se hace **después de ver** la tabla de A con datos reales (todos los |z| < 1.7; global z = +0.36). Eso la expone a parecer un ajuste para que «pase». Por eso: (1) la justificación es **a priori**: el defecto es estructural y ya estaba anticipado en §2.12 («A puede salir `no_evaluable` si el grupo de `p_media` más baja tiene < 20 eventos esperados»); con grupos de igual número de cestas, una distribución con cola baja larga produce un grupo sin eventos suficientes para una aproximación normal **con cualquier cantidad de datos** (duplicar los datos daría ≈ 8.6 eventos); (2) se **validó por simulación antes** de aplicarla a los datos reales; (3) las **reglas de decisión no cambian** (global en el 95 %, ≥ 3 de 5 grupos dentro, ningún |z| > 4); (4) se añade un **control negativo** sobre los propios datos reales; (5) el reporte muestra lo descartado por el filtro y el sesgo mínimo detectable; (6) el resultado previo (`no_evaluable`) queda registrado en este documento.
+
+**Cambios:**
+1. **Agrupación por igual número de EVENTOS ESPERADOS** (5 grupos con Σ `p_media` ≈ total/5, ≈ 80 con los datos reales) en lugar de igual número de cestas. Las cestas se ordenan por `p_media` (estable) y se asignan por el punto medio de su suma acumulada. Siguen exigiéndose ≥ 200 cestas y ≥ 20 eventos esperados por grupo.
+2. **Filtro de relevancia (instrucción del responsable): se descartan las cestas con `p_media` < 0.01** antes de evaluar A y de calcular la razón `p_cons / p_media`. Razón: la app nunca recomendaría un ticket con ~1 % de probabilidad; esas cestas no son el uso del modelo. Se filtra por la **predicción, no por el resultado** (no introduce sesgo de selección sobre `y`). **Alcance declarado:** (a) el veredicto de A no dice nada sobre cestas con `p_media` < 1 %; (b) el filtro **no** se aplica a la prueba B (nivel pierna), al gate informativo por buckets, a su tabla ni al ajuste de `c` (que entrena con todas las cestas): el dominio de evaluación es más estrecho que el de entrenamiento; (c) el reporte imprime cuántas cestas se descartan y sus eventos esperados y observados, para que nada quede escondido. Valor: `backtest_oos.prueba_calibracion_media.p_media_minima = 0.01` (provisional).
+3. **Sesgo relativo mínimo detectable** (80 % de potencia) con la varianza **real** de los datos: `(1.96 + 0.84) · √V / Σp`. Un `ok` solo descarta sesgos mayores que eso.
+4. **Control negativo** en cada reporte: A se re-evalúa sobre los mismos datos con `p_media` × 1.5 y × 0.6667 y **debe** marcarlo `descalibrado`; si no, el reporte advierte que un `ok` no es evidencia para errores de esa magnitud en esos datos.
+
+**Validación por simulación (A, v0.15)** — `scripts/validar_pruebas_v014.py`, 400 repeticiones, 320 días × 19 cestas, mundo con la cola baja de `p` de los datos reales (14 % de las cestas con p < 1 %; quintiles de `p` ≈ 0.007, 0.027, 0.053, 0.088, 0.165 frente a 0.0035, 0.032, 0.059, 0.090, 0.142 reales), filtro < 0.01 aplicado sobre la `p` reportada:
+| El modelo reporta… | pasa | falla (`descalibrado`) | no evaluable |
+|---|---|---|---|
+| p verdadera (PERFECTO) | **93.8 %** | 6.2 % | 0 % |
+| p × 1.10 | 79.0 % | 21.0 % | 0 % |
+| p × 1.25 | 38.8 % | 61.3 % | 0 % |
+| p × 1.50 | 2.0 % | **98.0 %** | 0 % |
+| p × 0.80 | 68.0 % | 32.0 % | 0 % |
+| p^0.85 (pendiente) | 8.2 % | **91.8 %** | 0 % |
+Control negativo sobre un modelo perfecto (150 repeticiones): × 1.5 detectado 97.3 %; × 0.6667 detectado 84.0 %. Sesgo mínimo detectable (80 % de potencia), mediana: **32 %**. La prueba B no cambia (§2.12: tamaño 5.0 %, potencia 96-100 %).
+**Limitación que se mantiene:** A detecta con alta probabilidad sesgos relativos ≳ 40-50 % y solo parcialmente los de 25 %; un sesgo de 10 % pasa desapercibido. Lo que A y B no validan (incertidumbre idiosincrática τ) sigue sin validarse.
+
+**Qué NO se hace en esta enmienda:** el modo «Operativo (Beta)» (forzar `modo_experimental = False` con banner y Kelly conservador) que el responsable pidió para el caso de que A y B pasen **no se implementa**: está condicionado a un resultado que aún no existe, y choca con la regla pre-registrada de que solo una calibración `oos_real` con las pruebas superadas **y una decisión humana** apaga `modo_experimental`. Además el texto propuesto del banner afirma «calibrado en media y dispersión», lo que A (potencia limitada) y B (solo σ = 0) no establecen. Se diseñará, si procede, **cuando A y B pasen con datos reales**, con un texto que diga lo que realmente se verificó.
+
+**Qué se verificó y qué NO:** verificado con datos sintéticos (tests con mutantes, simulaciones). **No** se ejecutó con datos reales el backtest con esta enmienda: pendiente en el Mac del responsable.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -538,3 +566,4 @@ Cestas de test de **todos los folds OOS evaluados**, agregadas; `p_media` = la p
 | v0.13 | 2026-11-10 | §2.11 ENMIENDA (corrección metodológica de la PRUEBA, **no** relajación de gates): el muestreo uniforme de cestas no cubría el rango de probabilidad (>85 % en el primer tramo; gate con 1 bucket poblado; `c` en el borde) → muestreo estratificado por P nominal (cuotas iguales, sin filtrar por aprobación); `gate_bins` 8→20 (bins de 0.05, decisión 12); veredicto de 3 estados con `no_evaluable` (< 8 buckets poblados o `c` en el borde; código de salida 4). Ligas femeniles (Liga MX Femenil, UEFA Women's Champions League) como competiciones SOLO-MERCADO: sin histórico ni modelo, sin picks/tickets V3, fuera de la calibración. Ningún umbral de aprobación cambia. |
 | v0.13.1 | 2026-11-10 | Addendum a §2.11, DESPUÉS de la primera corrida real (declarado): (1) backtest limitado a cestas de 5-8 piernas (91.7 % de las cestas muestreadas tenía 2-4); (2) tabla de confiabilidad por bucket en el reporte (diagnóstico); (3) corrige la frase de la enmienda sobre la «cola alta» (el gate falló por `ancho`, no por sub-cobertura en la cola); (4) hallazgo simulado sobre el gate bilateral por bucket: enmienda v0.14 APLAZADA. Ningún umbral ni criterio de gate cambia. |
 | v0.14 | 2026-11-10 | §2.12 ENMIENDA tras la corrida real con 5-8 piernas (declarado: posterior al resultado, fijada con simulaciones, sin datos reales de A/B): el gate de cobertura por buckets se declara INVÁLIDO para la cota de un ticket (identificabilidad; rango ≤ 0.25 vs ≥ 8 buckets de 0.05) y pasa a INFORMATIVO; el veredicto sale de la prueba A (calibración de `p_media`, 5 cuantiles, 95 %, varianza robusta por día porque las cestas de un día comparten partidos) y la prueba B (sobredispersión día × liga, una pierna por partido, nulo por simulación, potencia exigida). Umbrales fijados y validados por simulación; iteración 1 → 2 documentada. Techo `CON_RESERVAS` y `modo_experimental` sin cambios; advertencia obligatoria sobre `p_cons ≈ 50 % de p_media`. |
+| v0.15 | 2026-11-10 | §2.13 ENMIENDA POSTERIOR al resultado real (declarada): la prueba A agrupa por igual número de EVENTOS ESPERADOS (≈ 80 por grupo) en lugar de igual número de cestas (el grupo bajo tenía 4.3 eventos esperados → `no_evaluable`); filtro de relevancia `p_media` ≥ 0.01 (instrucción del responsable; por predicción, no por resultado; lo descartado se reporta); sesgo mínimo detectable y control negativo (× 1.5, × 0.6667) en cada reporte. Reglas de decisión de A y prueba B sin cambios. Validado por simulación. El modo «Operativo (Beta)» queda NO implementado (condicionado y en conflicto con la regla de decisión humana; ver §2.13). |

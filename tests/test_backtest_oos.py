@@ -442,12 +442,46 @@ def test_la_prueba_a_recibe_las_cestas_de_test_de_todos_los_folds_y_la_b_las_pie
     r = _correr(con, cfg, cfgs)
     evaluados = [f for f in r.folds if f.omitido is None]
     p, y, dia, cfg_a = cap["a"]
-    assert len(p) == len(y) == len(dia) == sum(f.n_test for f in evaluados) > 0                          # agregadas, solo del TEST de cada fold
+    f = r.prueba_a["filtro"]
+    total = sum(fo.n_test for fo in evaluados)
+    assert f["n_total"] == total > 0 and f["n_conservadas"] + f["n_descartadas"] == total                  # agregadas, solo del TEST de cada fold
+    assert len(p) == len(y) == len(dia) == f["n_conservadas"]                                              # y A recibe SOLO las conservadas
     assert cfg_a == cfgs[1]["backtest_oos"]["prueba_calibracion_media"] and all(isinstance(d, str) and len(d) == 10 for d in dia)
-    assert all(0 < x < 1 for x in p) and set(y) <= {0.0, 1.0}
+    assert all(0.01 <= x < 1 for x in p) and set(y) <= {0.0, 1.0}                                         # filtro de relevancia: p_media >= 1 %
     dia_b, liga_b, p_b, y_b, cfg_b, kw = cap["b"]
     assert len(dia_b) == len(liga_b) == len(p_b) == len(y_b) > 0 and set(y_b) <= {0.0, 1.0}
     assert cfg_b == cfgs[1]["backtest_oos"]["prueba_sobredispersion"] and kw["sigma_liga"] == 0.1 and kw["sigma_g"] == 0.0 and kw["semilla"] == 2   # σ vigentes
+
+
+@pytest.mark.parametrize("minimo,todas,ninguna", [(0.0, True, False), (0.999, False, True)])
+def test_el_filtro_de_relevancia_es_configurable_y_se_reporta_lo_descartado(con, cfg, cfgs, monkeypatch, minimo, todas, ninguna):  # noqa: F811
+    cap = {}
+    _pruebas(monkeypatch, capturas=cap)
+    monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
+    v3 = copy.deepcopy(cfgs[1])
+    v3["backtest_oos"]["prueba_calibracion_media"]["p_media_minima"] = minimo
+    desde, hasta = _ventana()
+    r = bo.ejecutar(con, cfg, v3, desde=desde, hasta=hasta, casa="pinnacle", semilla=2, guardar=False)[0]
+    f = r.prueba_a["filtro"]
+    assert (f["n_descartadas"] == 0) == todas and (f["n_conservadas"] == 0) == ninguna and f["p_media_minima"] == minimo
+    assert f["descartadas_eventos_esperados"] >= 0 and f["descartadas_eventos_observados"] >= 0
+    assert r.cota["n_cestas_totales"] == f["n_total"] and r.cota["n_cestas"] == f["n_conservadas"]
+
+
+def test_el_reporte_muestra_filtro_agrupacion_sesgo_minimo_detectable_y_control_negativo(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    _pruebas(monkeypatch)
+    grupos = [{"grupo": i + 1, "n": 1000, "p_media": 0.02 * (i + 1), "obs": 0.02 * (i + 1), "esperados": 80.0, "eventos": 80.0, "z": 0.1, "dentro": True,
+               "dentro_grosero": True} for i in range(5)]
+    glob = {"n": 5000, "p_media": 0.06, "obs": 0.06, "esperados": 400.0, "eventos": 400.0, "z": 0.1, "dentro": True}
+    monkeypatch.setattr(bo, "evaluar_calibracion_media", lambda *a, **k: {"modo": "ok", "motivo": "x", "grupos": grupos, "global": glob, "n": 5000, "z_intervalo": 1.96,
+                                                                         "z_grosero": 4.0, "direccion": "neutral", "mde_relativo_80": 0.37})
+    monkeypatch.setattr(bo, "control_negativo", lambda *a, **k: [{"factor": 1.5, "modo": "descalibrado", "z_global": -3.1, "detectado": True, "motivo": ""},
+                                                                  {"factor": 0.6667, "modo": "ok", "z_global": 1.0, "detectado": False, "motivo": ""}])
+    monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
+    md = bo.reporte_md(_correr(con, cfg, cfgs), version_id=None)
+    for pieza in ("Filtro de relevancia (v0.15)", "`p_media` < 0.01", "lo descartado queda a la vista", "IGUAL número de eventos esperados", "Sesgo relativo mínimo detectable",
+                  "≈ 37 %", "Control negativo", "| 1.5 | descalibrado | -3.10 | sí |", "| 0.6667 | ok | +1.00 | **NO** |", "NO detectó alguna perturbación"):
+        assert pieza in md, pieza
 
 
 def test_c_en_el_borde_de_un_fold_hace_la_prueba_a_no_evaluable_sin_llamarla(con, cfg, cfgs, monkeypatch):  # noqa: F811

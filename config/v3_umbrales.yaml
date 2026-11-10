@@ -155,11 +155,13 @@ backtest_oos:
   # --- ENMIENDA v0.14 (2026-11-10): las dos pruebas que DECIDEN el veredicto. Umbrales fijados ANTES de implementarlas y de validarlas con simulaciones
   #     (pre-registro §2.12). Provisionales; cambiarlos es nueva versión. ---
   prueba_calibracion_media:          # A: calibración de p_media, cestas de TODOS los folds OOS agregadas
-    n_grupos: 5                      # grupos por cuantiles de p_media (igual número de cestas)
+    p_media_minima: 0.01             # [v0.15] filtro de relevancia: solo se evalúan cestas con p_media >= 1 % (la app no recomendaría un ticket de ~1 %); filtra por la predicción, no por el resultado
+    n_grupos: 5                      # [v0.15] grupos de IGUAL número de EVENTOS ESPERADOS (Σ p_media ≈ total/5, ≈ 80 con los datos reales), no de igual número de cestas
     min_cestas_por_grupo: 200
     min_eventos_esperados_por_grupo: 20   # Σ p_media del grupo; menos => no_evaluable (aproximación normal no fiable)
     nivel_intervalo: 0.95            # intervalo bilateral por grupo y global (varianza robusta por día: las cestas de un día comparten partidos)
     min_grupos_dentro: 3             # de 5 grupos, al menos 3 dentro del intervalo 95 %   [iteración 2: la v1 pedía 4 de 5; ver pre-registro §2.12 (tamaño 13-14 % > 10 % en simulación)]
+    control_negativo_factores: [1.5, 0.6667]   # [v0.15] control negativo: A se re-evalúa con p_media × f sobre los mismos datos y DEBE marcarlo descalibrado
     z_grosero: 4.0                   # ningún grupo con |z| > 4.0 [iteración 2: la v1 usaba 3.29 (IC 99.9 %); el estadístico robusto por día tiene colas más pesadas que la normal]
   prueba_sobredispersion:            # B: sobredispersión de piernas por grupos de factores compartidos (día × liga)
     min_partidos_por_grupo: 4

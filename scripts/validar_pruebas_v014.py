@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validación por SIMULACIÓN de las pruebas A y B de la enmienda v0.14 (pre-registro §2.12). Determinista (semillas fijas). Datos SINTÉTICOS.
+"""Validación por SIMULACIÓN de las pruebas A y B de las enmiendas v0.14/v0.15 (pre-registro §2.12 y §2.13). Determinista (semillas fijas). Datos SINTÉTICOS.
 
 Mide el TAMAÑO (un modelo perfecto debe pasar) y la POTENCIA (un modelo sesgado / con factores compartidos debe fallar) de las pruebas con la estructura de datos
 que tiene el backtest real: A con cestas agrupadas por día que comparten partidos (¡no independientes!), B con grupos día × liga de piernas.
@@ -20,13 +20,16 @@ from golmodel.config import cargar_v3  # noqa: E402
 from golmodel.integracion import pruebas_tickets as pt  # noqa: E402
 
 
-def mundo_a(rng, sesgo=1.0, pendiente=1.0, n_dias=320, cestas_dia=19):
+def mundo_a(rng, sesgo=1.0, pendiente=1.0, n_dias=320, cestas_dia=19, largos=0.04):
     """Cestas de 5-8 piernas sobre los partidos de cada día (las cestas de un día COMPARTEN partidos). Verdad: los resultados de las piernas se sortean con q_m.
-    `sesgo`: el modelo reporta p = sesgo × p_verdadera (sesgo > 1 sobreestima). `pendiente`: p_rep = p_verdadera ** pendiente (miscalibración dependiente de p)."""
+    `sesgo`: el modelo reporta p = sesgo × p_verdadera (sesgo > 1 sobreestima). `pendiente`: p_rep = p_verdadera ** pendiente (miscalibración dependiente de p).
+    `largos`: fracción de partidos con una pierna improbable (q ~ U(0.03, 0.2)); da la cola baja de p que tienen los datos reales (≈14 % de cestas con p < 1 %;
+    quintiles de p ≈ 0.007, 0.027, 0.053, 0.088, 0.165 frente a 0.0035, 0.032, 0.059, 0.090, 0.142 reales)."""
     P, Y, D = [], [], []
     for d in range(n_dias):
         K = int(rng.integers(8, 14))
-        q = 0.38 + 0.55 * rng.beta(1.6, 1.6, K)
+        q = 0.40 + 0.55 * rng.beta(1.6, 1.6, K)
+        q = np.where(rng.random(K) < largos, rng.uniform(0.03, 0.2, K), q)
         w = rng.random(K) < q
         for _ in range(cestas_dia):
             n = int(rng.integers(5, 9))
@@ -55,6 +58,12 @@ def mundo_b(rng, r_lat=0.0, n_dias=320, n_ligas=8, lam=4.5):
     return np.array(dias), np.array(ligas), np.array(ps), np.array(ys)
 
 
+def evaluar_a(P, Y, D, ca):
+    """Igual que el orquestador: filtro de relevancia (p_media >= p_media_minima, sobre la p REPORTADA) y luego la prueba A."""
+    f = pt.filtrar_por_p_minima(P, P, Y, D, ca["p_media_minima"])
+    return pt.evaluar_calibracion_media(f["p_media"], f["y"], f["dia"], ca), f
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--reps-a", type=int, default=400)
@@ -72,13 +81,31 @@ def main(argv=None) -> int:
         c = {"ok": 0, "descalibrado": 0, "no_evaluable": 0}
         for _ in range(a.reps_a):
             P, Y, D = mundo_a(rng, sesgo, pend)
-            c[pt.evaluar_calibracion_media(P, Y, D, ca)["modo"]] += 1
+            c[evaluar_a(P, Y, D, ca)[0]["modo"]] += 1
         n = a.reps_a
         print(f"| {nombre} | {c['ok'] / n:.1%} | {c['descalibrado'] / n:.1%} | {c['no_evaluable'] / n:.1%} |")
     rng = np.random.default_rng(1)
     P, Y, D = mundo_a(rng)
     qs = np.quantile(P, [0.2, 0.5, 0.8])
-    print(f"\n(Un mundo simulado: n = {len(P)}, p_media media {P.mean():.3f}, cuantiles 20/50/80 % = {qs.round(3).tolist()}, eventos {int(Y.sum())})")
+    print(f"\n(Un mundo simulado: n = {len(P)}, p_media media {P.mean():.3f}, cuantiles 20/50/80 % = {qs.round(3).tolist()}, eventos {int(Y.sum())}; "
+          f"{(P < ca['p_media_minima']).mean():.1%} de las cestas con p < {ca['p_media_minima']:g}, descartadas por el filtro)")
+
+    print("\n### Control negativo y sesgo mínimo detectable (sobre un modelo PERFECTO, mismos datos con p perturbada)\n")
+    rng = np.random.default_rng(31)
+    det = {f: 0 for f in ca["control_negativo_factores"]}
+    mdes = []
+    for _ in range(min(a.reps_a, 150)):
+        P, Y, D = mundo_a(rng)
+        r, f = evaluar_a(P, Y, D, ca)
+        if r["mde_relativo_80"] is not None:
+            mdes.append(r["mde_relativo_80"])
+        for x in pt.control_negativo(f["p_media"], f["y"], f["dia"], ca):
+            det[x["factor"]] += x["detectado"]
+    n = min(a.reps_a, 150)
+    print("| p_media × | detectado como descalibrado |\n|---|---|")
+    for fac, k in det.items():
+        print(f"| {fac:g} | {k / n:.1%} |")
+    print(f"\nSesgo relativo mínimo detectable (80 % de potencia), mediana en las simulaciones: {np.median(mdes):.0%}")
 
     print("\n## Prueba B — tamaño y potencia (grupos día × liga, una pierna por partido)\n")
     print("| escenario (correlación latente r) | sobredispersión detectada | ok | no evaluable | potencia estimada media |\n|---|---|---|---|---|")
