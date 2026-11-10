@@ -53,7 +53,7 @@ class Servicio:
         for prov, c in repo.consumo_actual(conn).items():
             p = getattr(self, "presupuestos", {}).get(prov)
             if p:
-                p.usado = int(c["hoy_utc"] if p.periodo == "dia" else c["mes_utc"] or 0)
+                p.usado = int((c["hoy_utc"] if p.periodo == "dia" else c["mes_utc"]) or 0)      # NULL (sin consumo hoy/este mes) = 0; antes `or 0` solo cubría el mes
                 p.restante_reportado = c["restante_reportado"]
 
 
