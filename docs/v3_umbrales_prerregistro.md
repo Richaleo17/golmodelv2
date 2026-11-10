@@ -1,8 +1,8 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.12
-- Fecha: 2026-11-09
+- Versión: v0.13
+- Fecha: 2026-11-10
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
 - Afecta a: todos los módulos V3 (los umbrales viven en `config` versionado, no en código)
@@ -340,6 +340,66 @@ Módulo SEPARADO (`motor/sonadoras.py` + `integracion/sonadoras.py`); no toca `t
 alcanzable se muestran; no se relaja ningún umbral); (2) cuando existe, es porque el modelo cree ver valor donde casi siempre hay error del modelo (la propia config marca los EV grandes como sospechosos); la UI lo advierte.
 El rótulo «EV Negativo» del título se refiere a la realidad del mercado (ventaja de la casa), no al cálculo del modelo.
 
+### 2.11 ENMIENDA v0.13 (2026-11-10) — corrección metodológica de la PRUEBA (backtest OOS); **NO es una relajación de ningún gate**
+
+> **Resumen en una línea:** el muestreo UNIFORME de cestas con el que se corrió la primera prueba con datos reales **no cubría el rango de probabilidad de las cestas**; se sustituye por un
+> muestreo ESTRATIFICADO y se endurece el veredicto del orquestador (un fold sin evidencia suficiente es `no_evaluable`, nunca «pasó» ni «falló»). Ningún umbral de cobertura (`q`, `δ`, `gate_n_min_bin`,
+> `n_min` de segmento, `folds_min_validos`, mínimos de la decisión 12/13) se bajó; los dos únicos números del gate que se tocaron van **hacia lo ya pre-registrado en la decisión 12 (más estricto)**.
+
+**Qué se observó (primera corrida con datos reales, 2026-11-10; SIN interpretar como evidencia sobre el calibrador).** Los folds salían «ancho/estrecho» alternados y `c_global = 0.1000` (el piso del intervalo
+de búsqueda de `calibracion_tickets.ajustar`, `[0.1, 5.0]`). Diagnóstico: con el muestreo uniforme (combinaciones al azar de 5-8 piernas) **más del 85 % de las cestas caían en el primer tramo de `p_conservadora`**
+(la probabilidad de que ganen TODAS las piernas de una cesta aleatoria es minúscula), de modo que el gate de `incertidumbre` quedaba con **un solo bucket poblado**: la «cobertura» de un solo bucket es 0 ó 1
+por construcción y el veredicto «estrecho/ancho» no mide nada. Además `c` pegado al borde indica que el ajuste no estaba identificado. Conclusión: la **prueba** (no el calibrador) era inválida; el resultado
+«no superado» de esa corrida no es un fallo del calibrador ni un éxito: es **no evaluable**.
+
+**Qué cambia (cuatro cosas, todas en la prueba):**
+
+1. **Muestreo estratificado en el adaptador histórico** (`integracion/cestas_historicas.muestrear_dia`). Por cada día de decisión se generan `n_cestas_por_dia × sobremuestreo` candidatas con una mezcla de dos
+   propuestas (uniforme + sesgada a selecciones probables, peso ∝ pᵏ) y se retienen **cuotas iguales por estrato de probabilidad nominal** (Π `p_modelo`, estratos de 0.05 = el ancho de bin de la decisión 12), con
+   llenado por escasez (un estrato con pocas candidatas aporta las que tiene; el resto se reparte entre los demás; un estrato sin candidatas queda vacío: **no se fuerza**). **No filtra por aprobación** (ni EV, ni `p` mínima,
+   ni CRS): solo cambia CÓMO se reparten las cestas por el rango de probabilidad; la decisión 5 (cestas ex-post sin filtrar por aprobación, cubriendo todo el rango) queda **cumplida**, no modificada. Sigue sin leakage
+   (las probabilidades usan solo datos anteriores al día) y el `rng` de cada día depende solo de la semilla y de la fecha.
+2. **`gate_bins` 8 → 20** (`calibracion_tickets.gate_bins`): bins de **0.05** como exige la decisión 12 («bins de 0.05, ≥ 8 buckets poblados»). Con 8 bins el gate era *más grueso* que lo pre-registrado.
+   Cambia a lo pre-registrado; `gate_n_min_bin = 100` (≥ 100 cestas por bucket) no se tocó.
+3. **Mínimo de buckets poblados en el orquestador** (`backtest_oos.min_buckets_poblados = 8`, = decisión 12 y §2.7 «≥ 8 buckets»). El gate de `incertidumbre` solo devolvía `insuficiente` con 0 buckets; ahora un fold con
+   **< 8 buckets poblados es `no_evaluable`** (con el motivo explícito en el reporte y en `resultado_json`), aunque el gate haya dicho «ancho/estrecho»/«ok». Nunca queda `aprobado`.
+4. **`c` en el borde del intervalo de búsqueda → `no_evaluable`** (tolerancia relativa 1e-3). Un `c` pegado a 0.1 ó 5.0 es un óptimo no identificado; no se evalúa ni se despliega (también si lo es el `c` del ajuste final con todas las cestas).
+
+**Veredicto del orquestador (tres estados):** `superados` (≥ `folds_min_validos` folds `ok` y ninguno estrecho/ancho) · `no_superados` (algún fold estrecho/ancho **con evidencia suficiente**) · `no_evaluable` (no hay
+evidencia suficiente: pocos buckets, muestra chica, `c` en el borde, sin folds). Códigos de salida de `scripts/backtest_oos.py`: 0 / 3 / 4 (y 2 = error de uso/datos). Un `no_evaluable` **no rescata** (no suma a favor
+de pasar) **ni condena** (no cuenta como fallo) y **nunca** produce `calibrado_con = 'oos_real'`.
+
+**Por qué esto NO es una relajación (comprobable):**
+- Ningún umbral de aprobación bajó: `q = 0.25`, `δ = 0.10`, `gate_n_min_bin = 100`, `n_min` de segmento = 200, `folds_min_validos = 2`, ≥ 3000/≥ 2000 eventos, IC 99 %, Bonferroni: **intactos**.
+- Los dos valores del gate que cambian (`gate_bins` 8→20; mínimo de buckets 1→8) **suben** la exigencia y se alinean con la decisión 12 ya pre-registrada.
+- El cambio de muestreo no puede *aprobar* nada por sí mismo: solo hace que el gate vea el rango completo de probabilidades; los buckets de alta `p_conservadora` ahora tienen datos con los que el gate puede **fallar** más
+  fácilmente (cobertura insuficiente en la cola alta). Si el calibrador es malo, esta prueba lo mostrará; con el muestreo anterior no podía mostrar nada.
+- El resultado de la corrida anterior (version id 1: `no_calibrado`, nunca cargada por la app) se conserva como registro y **no se reutiliza**.
+
+**Valores provisionales nuevos — origen, justificación y validación**
+
+| Valor (clave de config) | (a) Origen | (b) Justificación | (c) Procedimiento de validación |
+|---|---|---|---|
+| `calibracion_tickets.cestas_historicas.estratos_ancho = 0.05` | = ancho de bin de la decisión 12 (no es un valor nuevo) | Que cada estrato de muestreo coincida con un bucket del gate | Cambiarlo requiere nueva versión; ver `cestas_por_estrato` del reporte |
+| `...sobremuestreo = 30` | Desarrollador, 2026-11-10 (provisional; parámetro de ESFUERZO) | Con 40 cestas/día y 20 estratos hacen falta muchas candidatas para que los estratos de cola (P muy alta o muy baja) tengan al menos algunas | Reporte: nº de estratos poblados y cestas por estrato; si algún estrato esperado queda vacío, subirlo (no afecta la exigencia del gate) |
+| `...mezcla_alta_p = 0.5`, `...exponente_alta_p = 4.0` | Desarrollador (provisional; esfuerzo) | Mitad de las candidatas sesgadas a selecciones probables (peso ∝ p⁴) para alcanzar los estratos de P nominal alta, que el muestreo uniforme casi nunca produce | Idem; comparar con la línea base uniforme (`sobremuestreo = 1, mezcla = 0, estratos_ancho = 1.0`): los tests lo hacen con un mundo sintético |
+| `calibracion_tickets.gate_bins = 20` | Decisión 12 (bins de 0.05) | v0.5 usaba 8 (más grueso que lo pre-registrado) | Verificado: la config real y la decisión 12 coinciden (test) |
+| `backtest_oos.min_buckets_poblados = 8` | Decisión 12 / §2.7 (≥ 8 buckets) | Un gate con un bucket no mide cobertura | Test de config: valor 8 y no menor |
+
+**Limitación declarada (importante).** El muestreo estratificado **sesga la distribución de tamaños de cesta hacia las pequeñas** (las cestas de 5 piernas alcanzan P nominal más alta que las de 8). Producción arma
+tickets de 5-8 piernas, así que el calibrador se evalúa en una mezcla de tamaños distinta de la de producción. El reporte incluye `cestas por tamaño` y `por estrato`; si el sesgo fuera material (p. ej. cestas de 8 piernas
+casi ausentes), hay que enmendar con un muestreo conjunto tamaño × estrato. Tampoco se verifica con esto el pooling por segmentos (σ_ℓ sigue sin ajustarse; ver §2.9 v0.12).
+
+**Ligas femeniles (Liga MX Femenil y UEFA Women's Champions League).** Entran por el mecanismo existente de competiciones **SOLO-MERCADO** (`config.competiciones_mercado.femeniles`, reglas de tokens sobre la clave de
+deporte de The Odds API; `v3_umbrales.ligas_femeniles` las declara con `modo: solo_mercado`, `techo_estado: CON_RESERVAS`, `entran_al_backtest: false`). **No se inventan datos:** (1) no se ha verificado ninguna fuente
+histórica de cuotas de ≥ 3 casas para estas ligas (no se asume que football-data.co.uk las publique: esta sesión no pudo consultarlo), así que **no hay histórico ni modelo propio**: el sistema muestra sus partidos/cuotas en la ruta en vivo con la etiqueta «solo mercado», **no genera picks
+ni tickets V3** (omisión explícita `liga_solo_mercado`) y **queda fuera del ajuste de calibración y del backtest** (`leer_historico` excluye `solo_mercado`); (2) las claves exactas de The Odds API **no están verificadas**
+(esta sesión no tiene acceso a `GET /v4/sports`): si la API no ofrece la competición, simplemente no aparece (probado), sin partidos ni cuotas inventadas; (3) si en el futuro se carga un histórico real de ≥ 3 casas, entrar al
+ajuste será una enmienda explícita (nuevo `modo`), con su propia validación de cobertura por temporada.
+
+**Qué se verificó y qué NO:** verificado con datos SINTÉTICOS y PostgreSQL real de pruebas (tests de muestreo con línea base uniforme, veredicto de 3 estados, `c` en el borde, exclusión de solo-mercado, reglas de selección;
+mutantes detectados con la base en verde). **NO se re-ejecutó el backtest con datos reales en esta sesión** (instrucción explícita); el nuevo veredicto con datos reales queda pendiente de que el responsable lo corra (README §6b).
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -382,3 +442,4 @@ El rótulo «EV Negativo» del título se refiere a la realidad del mercado (ven
 | v0.10 | 2026-11-09 | §2.9: `casas_elegibles` revisada con datos de la BD real (clave `marathonbet`; añade `nordicbet`, `tipico_de`, `onexbet`, `unibet_se`, `leovegas_se`; bet365 se mantiene) y el cargador histórico (`football_data_csv.CASAS`) amplía a B365/BW/IW/LB/PS/WH/VC. Cambio de datos/configuración, no de umbrales: `n_min = 3` y la regla fail-closed no se tocan. Se declara que (1) la reingesta con datos reales NO se ejecutó en esta sesión y (2) que el gate ≥ 3 casas es condición necesaria, no suficiente, de la ruta `APROBADO`. |
 | v0.11 | 2026-11-09 | §2.9: `casas_elegibles` suma `betway`, `interwetten`, `ladbrokes`, `vcbet` (decisión del responsable, robustez del consenso; `n_min = 3` intacto). §2.7: la calibración de tickets usa ahora la MISMA secuencia aleatoria que `tickets.py` (`probabilidad_conjunta` compone las primitivas de `dependencia.py`); igualdad bit a bit verificada. No cambia ningún umbral ni el estimador: cambia solo la realización de Monte Carlo de la ruta de calibración, por lo que los `c_seg` ajustados antes de esta fecha (ninguno real) quedan obsoletos. |
 | v0.12 | 2026-11-10 | §2.9: parámetros del orquestador del backtest OOS y de «Soñadoras» con origen/justificación/validación; §2.10 nuevo: semántica de «Soñadoras» y su hallazgo aritmético (p_conservadora > 0.75 ⇒ EV del modelo > 0 cuando existe). Fijado DESPUÉS de implementar. No cambia ningún umbral previo. |
+| v0.13 | 2026-11-10 | §2.11 ENMIENDA (corrección metodológica de la PRUEBA, **no** relajación de gates): el muestreo uniforme de cestas no cubría el rango de probabilidad (>85 % en el primer tramo; gate con 1 bucket poblado; `c` en el borde) → muestreo estratificado por P nominal (cuotas iguales, sin filtrar por aprobación); `gate_bins` 8→20 (bins de 0.05, decisión 12); veredicto de 3 estados con `no_evaluable` (< 8 buckets poblados o `c` en el borde; código de salida 4). Ligas femeniles (Liga MX Femenil, UEFA Women's Champions League) como competiciones SOLO-MERCADO: sin histórico ni modelo, sin picks/tickets V3, fuera de la calibración. Ningún umbral de aprobación cambia. |

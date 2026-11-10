@@ -52,7 +52,7 @@ def _mundo():
 def cfgs():
     v2 = cargar()
     v3 = _cfg()
-    v3["calibracion_tickets"]["cestas_historicas"] = {"paso_dias": 7, "n_cestas_por_dia": 40}
+    v3["calibracion_tickets"]["cestas_historicas"].update({"paso_dias": 7, "n_cestas_por_dia": 40})
     return v2, v3
 
 
@@ -352,15 +352,17 @@ def test_dentro_de_un_dia_no_hay_cestas_repetidas(base):
 def test_se_usa_la_ultima_cuota_capturada_antes_de_decidir_no_la_primera(mundo, base, cfgs):
     d, pool, cu = mundo
     t_dia = {m.dia: pd.Timestamp(m.t_dia) for m in base.meta}
-    r0 = pool.iloc[0]
-    dia = r0["inicio"].tz_convert("America/Mexico_City").strftime("%Y-%m-%d")
-    previas = cu[(cu["partido_id"] == r0["partido_id"]) & (cu["seleccion"] == "1X2:1")]
-    nueva = {"partido_id": r0["partido_id"], "seleccion": "1X2:1", "cuota": 6.66,
-             "capturada_en": t_dia[dia] - pd.Timedelta(hours=1), "id": 20_000_000}      # más reciente que la previa, aún antes de decidir
-    assert (previas["capturada_en"] < nueva["capturada_en"]).all()
-    cu2 = pd.concat([cu, pd.DataFrame([nueva])], ignore_index=True)
+    nuevas = []
+    for k, r in enumerate(pool.itertuples()):                                      # TODOS los partidos: el muestreo no garantiza una pierna concreta
+        dia = r.inicio.tz_convert("America/Mexico_City").strftime("%Y-%m-%d")
+        if dia in t_dia:
+            nuevas.append({"partido_id": r.partido_id, "seleccion": "1X2:1", "cuota": 6.66,
+                           "capturada_en": t_dia[dia] - pd.Timedelta(hours=1), "id": 20_000_000 + k})   # más reciente que la previa, aún antes de decidir
+    previa = cu[cu["seleccion"] == "1X2:1"].set_index("partido_id")["capturada_en"]
+    assert nuevas and all(previa[n["partido_id"]] < n["capturada_en"] for n in nuevas)        # cada nueva es posterior a la previa de SU partido
+    cu2 = pd.concat([cu, pd.DataFrame(nuevas)], ignore_index=True)
     r = _run(mundo, cfgs, cu=cu2)
-    usadas = [pm.cuota for m in r.meta for pm in m.piernas if pm.partido_id == r0["partido_id"] and pm.selecciones == ("1X2:1",)]
+    usadas = [pm.cuota for m in r.meta for pm in m.piernas if pm.selecciones == ("1X2:1",)]
     assert usadas and set(usadas) == {6.66}
 
 

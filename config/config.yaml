@@ -157,6 +157,12 @@ competiciones_mercado:
              efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan,
              libertadores, sudamericana, concacaf, copa]
   excluir: [winner, outright, women, womens]
+  # Femeniles INCLUIDAS por decisión del responsable (2026-11-10) aunque `excluir` tenga women/womens. Reglas de TOKENS sobre la clave del deporte de
+  # The Odds API (cada grupo = alternativas; deben aparecer los 3 grupos/2 grupos). Las claves exactas NO están verificadas (sin acceso a GET /v4/sports):
+  # si la API no ofrece la competición, no aparece. Sin histórico ni modelo: solo mercado, sin picks ni tickets V3, fuera de la calibración.
+  femeniles:
+    - {nombre: "Liga MX Femenil", todos: [[ligamx, liga_mx], [women, womens, femenil]]}
+    - {nombre: "UEFA Women's Champions League", todos: [[uefa], [champs], [women, womens]]}
 
 valor:
   umbral_edge: 0.04

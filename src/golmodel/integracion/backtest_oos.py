@@ -29,6 +29,14 @@ from golmodel.integracion import almacen_calibradores as almacen
 from golmodel.integracion.cestas_historicas import ResultadoCestas, construir_cestas_historicas
 
 EPS = 1e-12
+# Intervalo de búsqueda de `c` en calibracion_tickets.ajustar (np.log(0.1), np.log(5.0)). Si el óptimo cae en el borde, el ajuste NO está identificado.
+C_MIN, C_MAX = 0.1, 5.0
+TOL_BORDE = 1e-3
+NO_EVALUABLES = ("insuficiente", "no_evaluable")
+
+
+def c_en_borde(c: float | None) -> bool:
+    return c is not None and (c <= C_MIN * (1 + TOL_BORDE) or c >= C_MAX * (1 - TOL_BORDE))
 
 
 @dataclass
@@ -39,7 +47,9 @@ class ResultadoFold:
     n_train: int
     n_test: int
     c_train: float | None = None
-    gate_modo: str | None = None          # ok | estrecho | ancho | insuficiente | None (fold omitido)
+    gate_modo: str | None = None          # ok | estrecho | ancho | no_evaluable (| insuficiente) | None (fold omitido)
+    bins_poblados: int | None = None      # buckets con >= gate_n_min_bin cestas (el gate exige min_buckets_poblados)
+    c_borde: bool | None = None           # c en el borde del intervalo de búsqueda: ajuste no identificado
     gate_aprobado: bool | None = None
     gate_cobertura: float | None = None
     gate_detalle: str | None = None
@@ -51,6 +61,7 @@ class ResultadoFold:
 class ResultadoBacktest:
     version: ct.VersionCalibradorTickets
     gates_ok: bool
+    veredicto: str                        # 'superados' | 'no_superados' | 'no_evaluable'
     calibrado_con: str
     motivo: str
     folds: list[ResultadoFold]
@@ -64,16 +75,33 @@ class ResultadoBacktest:
 # ----------------------------------------------------------------------------- decisiones puras (probadas por separado)
 
 def decidir_gates(folds: list[ResultadoFold], folds_min_validos: int) -> tuple[bool, str]:
-    """gates_ok = al menos `folds_min_validos` folds en 'ok' Y NINGÚN fold estrecho/ancho. Los 'insuficiente' no cuentan ni a favor ni en contra
-    (no hay muestra para juzgar), pero tampoco rescatan: si no hay suficientes 'ok', no pasa."""
+    """gates_ok = al menos `folds_min_validos` folds en 'ok' Y NINGÚN fold estrecho/ancho. Los 'no_evaluable'/'insuficiente' no cuentan ni a favor ni en
+    contra (no hay muestra o buckets para juzgar), pero tampoco rescatan: si no hay suficientes 'ok', no pasa."""
     ok = sum(1 for f in folds if f.gate_modo == "ok")
     malos = [f for f in folds if f.gate_modo in ("estrecho", "ancho")]
-    insuf = sum(1 for f in folds if f.gate_modo == "insuficiente")
+    insuf = sum(1 for f in folds if f.gate_modo in NO_EVALUABLES)
     if malos:
         return False, "gate de cobertura FALLA en fold(s) " + ", ".join(f"{f.k} ({f.gate_modo})" for f in malos)
     if ok < folds_min_validos:
-        return False, f"solo {ok} fold(s) con gate 'ok' (mínimo {folds_min_validos}); {insuf} sin muestra suficiente"
-    return True, f"{ok} fold(s) con gate 'ok', ninguno estrecho/ancho ({insuf} sin muestra suficiente)"
+        return False, f"solo {ok} fold(s) con gate 'ok' (mínimo {folds_min_validos}); {insuf} no evaluable(s) (buckets o muestra insuficientes)"
+    return True, f"{ok} fold(s) con gate 'ok', ninguno estrecho/ancho ({insuf} no evaluable(s))"
+
+
+def decidir_veredicto(folds: list[ResultadoFold], folds_min_validos: int) -> str:
+    """'superados' | 'no_superados' (algún fold estrecho/ancho) | 'no_evaluable' (no hay evidencia suficiente para juzgar: NO es un fallo del calibrador)."""
+    if any(f.gate_modo in ("estrecho", "ancho") for f in folds):
+        return "no_superados"
+    return "superados" if decidir_gates(folds, folds_min_validos)[0] else "no_evaluable"
+
+
+def aplicar_minimos_del_gate(modo: str, aprobado: bool, bins: int, min_buckets: int, c_borde: bool) -> tuple[str, bool, str | None]:
+    """El gate de `incertidumbre` devuelve ancho/estrecho aunque haya UN solo bucket poblado (cobertura 0 ó 1 por construcción). La decisión 12 exige >= 8 buckets
+    poblados: por debajo, el veredicto es 'no_evaluable' (no es un fallo del calibrador). Un `c` en el borde del intervalo de búsqueda tampoco se evalúa."""
+    if c_borde:
+        return "no_evaluable", False, f"c en el borde del intervalo de búsqueda [{C_MIN}, {C_MAX}]: el ajuste no está identificado"
+    if bins < min_buckets:
+        return "no_evaluable", False, f"solo {bins} bucket(s) poblado(s) (mínimo {min_buckets}, >= gate_n_min_bin cestas cada uno): el gate no puede juzgar"
+    return modo, aprobado, None
 
 
 def decidir_calibrado_con(gates_ok: bool, datos_reales: bool) -> str:
@@ -163,6 +191,8 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
                "omisiones": dict(res.omisiones), "cestas_entre_ligas": len(entre), "dias_cobertura": dias_cob,
                "ligas": sorted({p.liga for c in cestas for p in c.piernas}),
                "tasa_gano": float(np.mean([c.gano for c in cestas])) if cestas else None,
+               "cestas_por_tamano": {str(n): sum(1 for m in res.meta if m.n == n) for n in sorted({m.n for m in res.meta})},
+               "cestas_por_estrato": {str(e): sum(1 for m in res.meta if m.estrato == e) for e in sorted({m.estrato for m in res.meta})},
                "excluidas_por_tipo": {k: sum(1 for m in res.excluidas if m.resultado == k) for k in ("anulada", "pendiente")}}
 
     # 1) σ_g: protocolo pre-registrado (solo si hay evidencia suficiente; si no, σ_g = 0 y se dice por qué)
@@ -214,15 +244,23 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
             progreso(f"fold {f['k']}: ajustando c con {len(tr)} cestas, probando en {len(te)}")
             rf.c_train = float(ct.ajustar(tr, cfg_s, semilla).c_global)
             g = ct.gate_cobertura_tickets(te, rf.c_train, cfg_s, semilla)
-            rf.gate_modo, rf.gate_aprobado, rf.gate_cobertura, rf.gate_detalle = g.modo, bool(g.aprobado), float(g.cobertura), g.detalle
+            rf.bins_poblados, rf.c_borde = int(g.bins), c_en_borde(rf.c_train)
+            rf.gate_modo, rf.gate_aprobado, motivo_min = aplicar_minimos_del_gate(g.modo, bool(g.aprobado), int(g.bins), int(bo["min_buckets_poblados"]), rf.c_borde)
+            rf.gate_cobertura, rf.gate_detalle = float(g.cobertura), motivo_min or g.detalle
             rf.logloss_test = float(_logloss_por_cesta(ct._resultados(te, rf.c_train, cfg_s, semilla), te).mean())
         folds.append(rf)
-    gates_ok, motivo = decidir_gates([f for f in folds if f.omitido is None], int(bo["folds_min_validos"]))
-    if not [f for f in folds if f.omitido is None]:
-        gates_ok, motivo = False, "ningún fold evaluable: " + "; ".join(f"fold {f.k}: {f.omitido}" for f in folds) if folds else "sin folds (muy pocos días)"
+    evaluados = [f for f in folds if f.omitido is None]
+    gates_ok, motivo = decidir_gates(evaluados, int(bo["folds_min_validos"]))
+    veredicto = decidir_veredicto(evaluados, int(bo["folds_min_validos"]))
+    if not evaluados:
+        gates_ok, veredicto = False, "no_evaluable"
+        motivo = "ningún fold evaluable: " + "; ".join(f"fold {f.k}: {f.omitido}" for f in folds) if folds else "sin folds (muy pocos días)"
 
     # 3) versión final: c sobre TODAS las cestas (la que se desplegaría) — su validez OOS es la de los folds de arriba
     final = ct.ajustar(cestas, cfg_s, semilla) if cestas else None
+    if final is not None and c_en_borde(final.c_global):                     # un c sin identificar no se despliega aunque los folds pasen
+        gates_ok, veredicto = False, ("no_evaluable" if veredicto != "no_superados" else veredicto)
+        motivo += f" | c final = {final.c_global:.4f} en el borde del intervalo de búsqueda [{C_MIN}, {C_MAX}]: ajuste no identificado"
     cal = decidir_calibrado_con(gates_ok, datos_reales)
     cfg_ct = cfg_s["calibracion_tickets"]
     version = ct.VersionCalibradorTickets(
@@ -232,13 +270,13 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
         segmentos_calibrados=final.segmentos_calibrados if final else [], segmentos_fallback=final.segmentos_fallback if final else [],
         c_global=float(final.c_global) if final else float("nan"), sigma_liga=cfg_ct.get("sigma_liga", 0.0), sigma_g=float(sigma_g),
         calibrado_con=cal)
-    out = ResultadoBacktest(version, gates_ok, cal, motivo, folds, float(sigma_g), proto_res, dataset,
+    out = ResultadoBacktest(version, gates_ok, veredicto, cal, motivo, folds, float(sigma_g), proto_res, dataset,
                             {"c_global": version.c_global, "coste": final.coste if final else None,
                              "n_segmentos_calibrados": len(version.segmentos_calibrados),
                              "n_segmentos_fallback": len(version.segmentos_fallback),
                              "sigma_liga": "NO ajustado (extensión de calibracion_tickets pendiente): valor de la config"})
     out.resultado_json = {"desde": desde.isoformat(), "hasta": hasta.isoformat(), "datos_reales_declarado": bool(datos_reales),
-                          "motivo": motivo, "folds": [asdict(f) for f in folds], "protocolo_sigma_g": proto_res,
+                          "motivo": motivo, "veredicto": veredicto, "folds": [asdict(f) for f in folds], "protocolo_sigma_g": proto_res,
                           "dataset": dataset, "ajuste_final": out.ajuste_final, "backtest_oos": bo}
     return out
 
@@ -259,6 +297,9 @@ def ejecutar(conn, cfg_v2: dict, cfg_v3: dict, *, desde: datetime, hasta: dateti
 
 # ----------------------------------------------------------------------------- reporte
 
+ETIQUETA_VEREDICTO = {"superados": "SUPERADOS", "no_superados": "NO SUPERADOS", "no_evaluable": "NO EVALUABLE"}
+
+
 def reporte_md(r: ResultadoBacktest, *, version_id: int | None, generado: datetime | None = None) -> str:
     d, v = r.dataset, r.version
     L = ["# Backtest OOS · calibración de tickets", "",
@@ -266,7 +307,9 @@ def reporte_md(r: ResultadoBacktest, *, version_id: int | None, generado: dateti
          f"- Datos hasta: {v.datos_hasta.isoformat()} · semilla {v.semilla} · n_draws {v.n_draws} · config_hash `{v.config_hash}`",
          f"- Versión guardada: {'id ' + str(version_id) if version_id else '**NO guardada** (--sin-guardar)'}", "",
          "## Veredicto", "",
-         f"- **Gates de cobertura bilateral: {'SUPERADOS' if r.gates_ok else 'NO SUPERADOS'}** — {r.motivo}",
+         f"- **Gates de cobertura bilateral: {ETIQUETA_VEREDICTO[r.veredicto]}** — {r.motivo}",
+         *(["- ℹ️ «NO EVALUABLE» significa que NO hay evidencia suficiente para juzgar (pocos buckets poblados, muestra chica o `c` sin identificar); "
+            "NO es un fallo del calibrador ni una aprobación."] if r.veredicto == "no_evaluable" else []),
          f"- `calibrado_con`: **{r.calibrado_con}**" + ("" if r.calibrado_con != "sinteticos" else
                                                    " (gates OK pero NO se declararon datos reales: no sirve para apagar `modo_experimental`)"),
          f"- `c_global` = **{v.c_global:.4f}** · σ_g = **{v.sigma_g}** · σ_ℓ = {v.sigma_liga} (NO ajustado)",
@@ -278,14 +321,15 @@ def reporte_md(r: ResultadoBacktest, *, version_id: int | None, generado: dateti
          f"- Entre-ligas: {d['cestas_entre_ligas']} · cobertura {d['dias_cobertura']} días · ligas: {', '.join(d['ligas']) or '—'}",
          f"- Tasa de 'ganan todas' observada: {'n/d' if d['tasa_gano'] is None else f'{d['tasa_gano']:.3%}'}",
          f"- Partidos/días no usados: {d['omisiones'] or 'ninguno'}", "",
+         f"- Cestas por tamaño: {d['cestas_por_tamano']} · por estrato de P nominal (0.05): {d['cestas_por_estrato']}", "",
          "## Folds walk-forward (ajuste SOLO en train; gate en test)", "",
-         "| fold | test | n_train | n_test | c (train) | gate | cobertura | log-loss test | nota |", "|---|---|---|---|---|---|---|---|---|"]
+         "| fold | test | n_train | n_test | c (train) | gate | buckets | cobertura | log-loss test | nota |", "|---|---|---|---|---|---|---|---|---|---|"]
     for f in r.folds:
         if f.omitido:
-            L.append(f"| {f.k} | {f.test_desde[:10]} → {f.test_hasta[:10]} | {f.n_train} | {f.n_test} | — | — | — | — | omitido: {f.omitido} |")
+            L.append(f"| {f.k} | {f.test_desde[:10]} → {f.test_hasta[:10]} | {f.n_train} | {f.n_test} | — | — | — | — | — | omitido: {f.omitido} |")
         else:
-            L.append(f"| {f.k} | {f.test_desde[:10]} → {f.test_hasta[:10]} | {f.n_train} | {f.n_test} | {f.c_train:.4f} | **{f.gate_modo}** | "
-                     f"{f.gate_cobertura:.2f} | {f.logloss_test:.4f} | {f.gate_detalle} |")
+            L.append(f"| {f.k} | {f.test_desde[:10]} → {f.test_hasta[:10]} | {f.n_train} | {f.n_test} | {f.c_train:.4f}{' ⚠borde' if f.c_borde else ''} | "
+                     f"**{f.gate_modo}** | {f.bins_poblados} | {f.gate_cobertura:.2f} | {f.logloss_test:.4f} | {f.gate_detalle} |")
     p = r.protocolo_sigma_g
     L += ["", "## Protocolo de σ_g (decisión 13)", ""]
     if not p.get("ejecutado"):

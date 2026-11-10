@@ -10,8 +10,9 @@ Garantías (cada una con test y mutante):
   con aserción `datos_hasta <= t`); las cuotas usadas son las capturadas `<= t_dia` (inicio del día local de decisión,
   `t_dia >= t`); los partidos de la ventana empiezan `>= t`. Los RESULTADOS solo se usan para `gano`, nunca para λ/ρ/pesos.
 * **Reproducible.** La muestra de cada día sale de `default_rng([semilla, día])`: no depende del resto de días.
-* **Cobertura.** El muestreo es uniforme sobre partidos y sobre selecciones disponibles ⇒ cubre todo el rango de
-  probabilidades, cuotas y mezclas de mercado.
+* **Cobertura (enmienda v0.13).** El muestreo es ESTRATIFICADO por probabilidad nominal de la cesta (`muestrear_dia`): el uniforme original cubría el
+  rango de las PIERNAS pero no el de las CESTAS (>85 % caía en el primer tramo de `p_conservadora`), y el gate de cobertura no tenía buckets que evaluar.
+  Sigue sin filtrar por aprobación; solo reparte las cestas por el rango de probabilidad.
 * **Anuladas/pendientes NO se descartan en silencio:** `CestaHistorica` solo representa `gano: bool`, así que una cesta con
   pierna anulada o sin resolver queda en `excluidas` (con su meta) y se cuenta. Desviación documentada de "incluidas anuladas".
 
@@ -58,6 +59,8 @@ class MetaCesta:
     n: int
     piernas: tuple[PiernaMeta, ...]
     resultado: str                     # uno de RESULTADOS
+    p_nominal: float = 0.0             # Π p_modelo de las piernas (independencia): solo para estratificar y auditar
+    estrato: int = 0                   # índice del estrato de P nominal (ancho `estratos_ancho`)
 
 
 @dataclass(frozen=True)
@@ -77,7 +80,8 @@ def leer_historico(conn, desde: datetime, hasta: datetime, casa: str) -> tuple[p
     filas = conn.execute("""
         SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.local_id::text AS local, p.visitante_id::text AS visitante,
                p.estado, p.goles_local, p.goles_visitante
-        FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE p.inicio >= %s AND p.inicio < %s ORDER BY p.inicio, p.id""",
+        FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE p.inicio >= %s AND p.inicio < %s
+          AND NOT l.solo_mercado ORDER BY p.inicio, p.id""",           # las competiciones SOLO-MERCADO (sin histórico ni modelo) no entran al ajuste
                          (desde, hasta)).fetchall()
     pool = pd.DataFrame(filas, columns=["partido_id", "inicio", "liga", "local", "visitante", "estado",
                                         "goles_local", "goles_visitante"])
@@ -113,6 +117,54 @@ def _inicio_dia(inicio: pd.Timestamp, tz: ZoneInfo) -> pd.Timestamp:
 def _tamanos(cfg_v3: dict) -> list[int]:
     t = cfg_v3["tickets"]
     return list(range(int(t["tamano_reducido_min"]), int(t["tamano_alta_max"]) + 1))
+
+
+def _p_nominal(piernas) -> float:
+    return float(np.prod([pm.p_modelo for _, pm in piernas]))
+
+
+def muestrear_dia(info: dict, pids: list[int], rng: np.random.Generator, tamanos: list[int], n_dia: int, ch: dict) -> list[tuple]:
+    """Cestas de UN día con muestreo ESTRATIFICADO por probabilidad nominal (enmienda v0.13; ver docstring del módulo).
+    Devuelve [(piernas, n, P_nominal, estrato)] sin repetidos. NO filtra por aprobación: solo reparte las cestas por el rango de probabilidad.
+    1) Candidatas: `n_dia × sobremuestreo` combinaciones de N piernas (≤ 1 por partido) con una mezcla de dos propuestas: uniforme y sesgada a
+       selecciones probables (peso ∝ p^k, tanto para elegir partidos como la selección de cada uno).
+    2) Estratos de P nominal de ancho `estratos_ancho`; cuotas IGUALES por estrato (llenado por escasez: los estratos con pocas candidatas aportan
+       todas las suyas y el resto se reparte entre los demás). Si un estrato no tiene candidatas queda vacío: no se fuerza."""
+    ancho, sobre = float(ch["estratos_ancho"]), int(ch["sobremuestreo"])
+    mezcla, k = float(ch["mezcla_alta_p"]), float(ch["exponente_alta_p"])
+    tam = [x for x in tamanos if x <= len(pids)]
+    pmax = np.array([max(pm.p_modelo for _, pm in info[p]) for p in pids]) ** k
+    w_partido = pmax / pmax.sum()
+    candidatos: dict = {}
+    for _ in range(n_dia * sobre):
+        n = int(rng.choice(tam))
+        alta = bool(rng.random() < mezcla)
+        idx = sorted(rng.choice(len(pids), size=n, replace=False, p=w_partido if alta else None).tolist())
+        piernas = []
+        for i in idx:
+            opciones = info[pids[i]]
+            if alta:
+                w = np.array([pm.p_modelo for _, pm in opciones]) ** k
+                piernas.append(opciones[int(rng.choice(len(opciones), p=w / w.sum()))])
+            else:
+                piernas.append(opciones[int(rng.integers(len(opciones)))])
+        piernas = tuple(piernas)
+        clave = tuple((pm.partido_id, pm.selecciones) for _, pm in piernas)
+        if clave not in candidatos:
+            candidatos[clave] = (piernas, n)
+    n_estratos = int(np.ceil(1.0 / ancho))
+    por_estrato: dict[int, list] = {}
+    for piernas, n in candidatos.values():
+        P = _p_nominal(piernas)
+        e = min(int(P / ancho), n_estratos - 1)
+        por_estrato.setdefault(e, []).append((piernas, n, P, e))
+    salida, restante = [], n_dia
+    orden = sorted(por_estrato, key=lambda e: (len(por_estrato[e]), e))                         # los más escasos primero
+    for pos, e in enumerate(orden):
+        cuota = min(len(por_estrato[e]), -(-restante // (len(orden) - pos)))                  # techo de restante / estratos que faltan
+        salida.extend(por_estrato[e][:cuota])
+        restante -= cuota
+    return sorted(salida, key=lambda x: (x[3], tuple((pm.partido_id, pm.selecciones) for _, pm in x[0])))
 
 
 def construir_cestas(df_modelo: pd.DataFrame, pool: pd.DataFrame, cuotas: pd.DataFrame, cfg_v2: dict, cfg_v3: dict, *,
@@ -183,24 +235,14 @@ def construir_cestas(df_modelo: pd.DataFrame, pool: pd.DataFrame, cuotas: pd.Dat
                 _om("dia_con_partidos_insuficientes")
                 continue
             rng = np.random.default_rng([int(semilla), int(dia.value // 86_400_000_000_000)])
-            vistos: set = set()
-            intentos = 0
-            while len(vistos) < n_dia and intentos < n_dia * 20:
-                intentos += 1
-                n = int(rng.choice([k for k in tamanos if k <= len(pids)]))
-                elegidos = sorted(rng.choice(len(pids), size=n, replace=False).tolist())
-                piernas = tuple(info[pids[i]][int(rng.integers(len(info[pids[i]])))] for i in elegidos)
-                clave = tuple((pm.partido_id, pm.selecciones) for _, pm in piernas)
-                if clave in vistos:
-                    continue
-                vistos.add(clave)
+            for piernas, n, p_nom, estrato in muestrear_dia(info, pids, rng, tamanos, n_dia, ch):
                 resumen = {"piernas": [{"partido_id": pm.partido_id, "selecciones": list(pm.selecciones)} for _, pm in piernas]}
                 gano = resolver_ticket(resumen, resultados)
                 estado = "pendiente" if gano is None and any(
                     resultados[pm.partido_id][0] in ("programado", "en_juego") for _, pm in piernas) \
                     else ("anulada" if gano is None else ("gano" if gano else "perdio"))
                 meta = MetaCesta(t.to_pydatetime(), t_dia.to_pydatetime(), str(dia.date()), n,
-                                 tuple(pm for _, pm in piernas), estado)
+                                 tuple(pm for _, pm in piernas), estado, p_nom, estrato)
                 if gano is None:
                     excluidas.append(meta)
                 else:

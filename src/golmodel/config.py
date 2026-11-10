@@ -12,7 +12,7 @@ import yaml
 RUTA_DEFECTO = Path(__file__).resolve().parents[2] / "config" / "config.yaml"
 RUTA_V3 = Path(__file__).resolve().parents[2] / "config" / "v3_umbrales.yaml"
 SECCIONES_V3 = ("modo_experimental", "cerebro2", "umbrales_provisionales", "tickets", "dependencia", "calibracion_tickets",
-                "calibracion_mercado")
+                "calibracion_mercado")      # (ligas_femeniles/backtest_oos/sonadoras: documentadas y probadas, pero opcionales para cargar)
 
 SECCIONES = ("zona_horaria", "ligas_activas", "fuentes", "cadenas", "frescura", "cierre", "modelo",
              "contexto", "mercado", "crs", "sugerencias", "valor", "parlays", "bankroll", "operacion")

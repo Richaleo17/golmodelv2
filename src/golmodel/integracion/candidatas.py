@@ -18,7 +18,8 @@ Decisiones de traducción (todas documentadas, ninguna es una regla de modelo):
 * Cuota de ejecución: `prediccion.cuotas_ejecucion` (fuente única con V2); para SGP, misma semántica as-of.
 * Solo selecciones en `APTAS_PARLAY` (el mismo catálogo que `tickets.py` aplica; las que empujan no son evaluables).
 
-Sin dato suficiente el partido NO produce candidatas y queda en `omisiones` con un motivo explícito.
+Sin dato suficiente el partido NO produce candidatas y queda en `omisiones` con un motivo explícito. Las competiciones SOLO-MERCADO
+(sin histórico ni modelo: Champions, femeniles…) se omiten de forma EXPLÍCITA (`liga_solo_mercado`), no por accidente del peso efectivo.
 """
 from __future__ import annotations
 
@@ -34,7 +35,7 @@ from golmodel.modelos.mercados import APTAS_PARLAY, probabilidad
 from golmodel.motor.tickets import Candidata
 from golmodel.servicios.prediccion import cuotas_ejecucion, vigente
 
-MOTIVOS = ("ya_inicio", "sin_prediccion", "sin_peso_efectivo", "sin_cuotas_vigentes")
+MOTIVOS = ("liga_solo_mercado", "ya_inicio", "sin_prediccion", "sin_peso_efectivo", "sin_cuotas_vigentes")
 
 
 @dataclass(frozen=True)
@@ -111,6 +112,9 @@ def construir_candidatas(conn, dia: date, ahora: datetime, cfg_v2: dict, cfg_v3:
 
     for partido in repo.partidos_de_dias(conn, [dia]):
         pid, liga = partido["id"], partido["liga"]
+        if partido.get("solo_mercado"):                  # sin histórico ni modelo (p. ej. Champions, femeniles): V3 NO arma tickets (decisión 2026-11-10)
+            omisiones.append(Omision(pid, liga, "liga_solo_mercado", "competición sin histórico ni modelo propio: solo mercado"))
+            continue
         if partido["inicio"] <= ahora:
             omisiones.append(Omision(pid, liga, "ya_inicio", partido["inicio"].isoformat()))
             continue

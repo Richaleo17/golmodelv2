@@ -318,8 +318,25 @@ usa esa versión si existe y, si no, la provisional (`no_calibrado`). Una versi�
 verificado alterando resultados) → `ajustar` en train / gate de cobertura bilateral en test → protocolo de σ_g (decisión 13; solo si hay ≥ 2000 cestas entre-ligas y ≥ 600 días; si no, σ_g = 0 con el motivo)
 → versión final + almacén + `reports/backtest_oos_resultado.md`. **Alcance real:** `calibracion_tickets` v1 ajusta UN `c` global y marca segmentos calibrado/fallback; **σ_ℓ NO se ajusta** (se conserva el de la config) y el
 reporte lo dice. `calibrado_con='oos_real'` solo con gates superados Y `--datos-reales`; con gates OK sin esa declaración queda `sinteticos` (no sirve para apagar `modo_experimental`). El script **nunca**
-modifica `modo_experimental` ni la config. Códigos de salida: 0 gates superados · 3 gates NO superados (la versión queda registrada, no se usa) · 2 error de uso/datos.
+modifica `modo_experimental` ni la config. Códigos de salida: 0 gates superados · 3 gates NO superados (algún fold estrecho/ancho con evidencia suficiente) · **4 NO EVALUABLE** (sin evidencia: < 8 buckets poblados, muestra chica o `c` en el borde del intervalo de búsqueda; no es un fallo del calibrador) · 2 error de uso/datos. En 3 y 4 la versión queda registrada y no se usa.
 Lento por diseño (Monte Carlo sobre miles de cestas; presupuesto §2.7): `--n-draws` baja la precisión para una prueba rápida.
+
+**Corrección del backtest y ligas femeniles (enmienda v0.13, 2026-11-10; pre-registro §2.11):** el muestreo uniforme de cestas dejaba >85 % en el primer tramo de `p_conservadora` (gate con 1 bucket; `c` en el borde 0.1),
+así que la primera corrida real **no era interpretable**. Ahora: **muestreo estratificado** por probabilidad nominal (cuotas iguales por estrato de 0.05, sin filtrar por aprobación), `gate_bins = 20` (decisión 12) y veredicto de
+tres estados (`superados` / `no_superados` / `no_evaluable`). Es una corrección metodológica de la PRUEBA, **no** una relajación de gates (ningún umbral de aprobación bajó). Limitación: el estratificado inclina los tamaños de cesta
+hacia las pequeñas (el reporte muestra `cestas por tamaño` y `por estrato`). **Ligas femeniles** (Liga MX Femenil, UEFA Women's Champions League): competiciones SOLO-MERCADO (sin histórico ni modelo → sin picks/tickets V3, fuera del
+ajuste de calibración; aparecen en la ruta en vivo con su aviso «solo mercado»). Las claves de The Odds API no están verificadas: si la API no las ofrece, no se crea nada.
+
+**Cómo volver a correr el backtest con datos reales (en tu Mac, desde `~/golmodelv2`; no hace falta reingestar):**
+```bash
+git pull origin v3 && docker compose build api
+# 1) prueba corta, sin guardar (minutos):
+caffeinate -i docker compose run --rm api python scripts/backtest_oos.py --datos-reales --sin-guardar --n-draws 300 --desde 2025-06-01 2>&1 | tee reports/backtest_oos_prueba.log
+# 2) corrida de lectura (guarda la versión; tarda más):
+caffeinate -i docker compose run --rm api python scripts/backtest_oos.py --datos-reales --n-draws 1000 --desde 2024-08-01 2>&1 | tee reports/backtest_oos_consola.log
+cat reports/backtest_oos_resultado.md
+```
+La corrida definitiva (sorteos por defecto, `calibracion_tickets.n_draws`) es la que cuenta para decidir sobre `modo_experimental`; las de arriba son de lectura.
 
 **«Soñadoras»** (`motor/sonadoras.py` + `integracion/sonadoras.py`, `/sonadoras/{fecha}`, sección «🚨 Soñadoras (Alto Riesgo / EV Negativo)» del panel): ver pre-registro §2.10. Módulo separado; no altera el ticket del día;
 Cerebro 2 la audita con tope `CON_RESERVAS`; no se persiste. **Hallazgo:** con los umbrales pedidos casi nunca existe (p > 0.75 ⇒ cuota justa de 15 piernas < 75x), y cuando existe su EV según el modelo es positivo (error del modelo, no valor).

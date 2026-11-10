@@ -5,6 +5,7 @@ Lo estadístico se prueba con decisiones PURAS (tablas de verdad, pérdidas cons
 from __future__ import annotations
 
 import copy
+import dataclasses
 import importlib.util
 import sys
 from datetime import datetime, timedelta, timezone
@@ -29,7 +30,7 @@ PROTO = {"grid": [0.1, 0.2], "min_cestas_entre_ligas": 10, "min_dias_cobertura":
 
 
 def F(k, modo=None, omitido=None):
-    return bo.ResultadoFold(k, "2026-01-01", "2026-01-02", 100, 50, 0.5 if modo else None, modo,
+    return bo.ResultadoFold(k, "2026-01-01", "2026-01-02", 100, 50, 0.5 if modo else None, modo, 10 if modo else None, False if modo else None,
                             None if modo is None else modo == "ok", 0.8 if modo else None, "d", 0.3 if modo else None, omitido)
 
 
@@ -38,10 +39,59 @@ def F(k, modo=None, omitido=None):
     (["ok", "ok", "ok"], 2, True), (["ok", "ok"], 2, True), (["ok"], 2, False),                       # pocos 'ok'
     (["ok", "ok", "estrecho"], 2, False), (["ok", "ok", "ancho"], 2, False),                          # cualquier fold malo invalida
     (["ok", "ok", "insuficiente"], 2, True), (["ok", "insuficiente", "insuficiente"], 2, False),      # insuficiente no rescata ni condena
+    (["ok", "ok", "no_evaluable"], 2, True), (["ok", "no_evaluable", "no_evaluable"], 2, False),      # no_evaluable: igual
+    (["no_evaluable", "no_evaluable"], 1, False),
     ([], 2, False), (["insuficiente"], 1, False)])
 def test_decidir_gates_tabla_de_verdad(modos, minimo, esperado):
     ok, motivo = bo.decidir_gates([F(i + 1, m) for i, m in enumerate(modos)], minimo)
     assert ok is esperado and isinstance(motivo, str) and motivo
+
+
+def test_el_motivo_cuenta_los_folds_no_evaluables():
+    ok, motivo = bo.decidir_gates([F(1, "ok"), F(2, "ok"), F(3, "no_evaluable"), F(4, "insuficiente")], 2)
+    assert ok is True and "2 no evaluable(s)" in motivo
+    ok, motivo = bo.decidir_gates([F(1, "ok"), F(2, "no_evaluable")], 2)
+    assert ok is False and "1 no evaluable(s)" in motivo and "solo 1 fold(s)" in motivo
+
+
+@pytest.mark.parametrize("modos,minimo,esperado", [
+    (["ok", "ok", "ok"], 2, "superados"), (["ok", "ok", "no_evaluable"], 2, "superados"),
+    (["ok", "estrecho"], 1, "no_superados"), (["ancho", "no_evaluable"], 1, "no_superados"),           # un fold malo es 'no_superados' aunque haya no_evaluables
+    (["no_evaluable", "no_evaluable", "no_evaluable"], 1, "no_evaluable"), (["ok"], 2, "no_evaluable"),  # sin evidencia: NO es un fallo del calibrador
+    (["insuficiente", "insuficiente"], 1, "no_evaluable"), ([], 1, "no_evaluable")])
+def test_veredicto_distingue_no_superados_de_no_evaluable(modos, minimo, esperado):
+    assert bo.decidir_veredicto([F(i + 1, m) for i, m in enumerate(modos)], minimo) == esperado
+
+
+@pytest.mark.parametrize("modo,aprobado,bins,minimo,borde,esperado", [
+    ("ancho", False, 1, 8, False, "no_evaluable"), ("estrecho", False, 7, 8, False, "no_evaluable"),     # < 8 buckets: no juzga (aunque diga ancho/estrecho)
+    ("ok", True, 7, 8, False, "no_evaluable"),                                                          # ni siquiera un 'ok' con 7 buckets es evidencia
+    ("ok", True, 8, 8, False, "ok"), ("ancho", False, 8, 8, False, "ancho"), ("estrecho", False, 20, 8, False, "estrecho"),   # con >= 8 se respeta el gate
+    ("ok", True, 20, 8, True, "no_evaluable"), ("ancho", False, 20, 8, True, "no_evaluable")])          # c en el borde: no identificado
+def test_minimos_del_gate_buckets_y_borde(modo, aprobado, bins, minimo, borde, esperado):
+    m, ap, motivo = bo.aplicar_minimos_del_gate(modo, aprobado, bins, minimo, borde)
+    assert m == esperado
+    assert (motivo is None) == (esperado == modo) and (esperado != "no_evaluable" or ap is False)       # no_evaluable jamás 'aprobado'
+    if esperado == "no_evaluable":
+        assert ("borde" in motivo) if borde else (f"{bins} bucket" in motivo and str(minimo) in motivo)
+
+
+def test_el_minimo_de_buckets_es_el_de_la_config_y_es_8():
+    import yaml
+    v3 = yaml.safe_load((RAIZ / "config" / "v3_umbrales.yaml").read_text(encoding="utf-8"))
+    assert v3["backtest_oos"]["min_buckets_poblados"] == 8                 # decisión 12: nunca más laxo
+    assert v3["calibracion_tickets"]["gate_bins"] == 20                    # bins de 0.05 (decisión 12)
+
+
+@pytest.mark.parametrize("c,esperado", [(0.1, True), (0.10009, True), (0.1004, False), (0.11, False), (1.0, False), (4.99, False), (5.0, True), (4.9999, True), (None, False)])
+def test_c_en_borde(c, esperado):
+    assert bo.c_en_borde(c) is esperado
+
+
+def test_los_limites_de_c_coinciden_con_el_intervalo_de_busqueda_de_ajustar():
+    import inspect
+    src = inspect.getsource(ct.ajustar)
+    assert f"np.log({bo.C_MIN}), np.log({bo.C_MAX})" in src or f"np.log({bo.C_MIN!r}), np.log({bo.C_MAX!r})" in src   # si cambia ajustar(), esto avisa
 
 
 @pytest.mark.parametrize("gates,reales,esperado", [(True, True, "oos_real"), (True, False, "sinteticos"),
@@ -120,8 +170,8 @@ def cfgs():
     from golmodel.config import cargar
     v3 = _cfg()
     v3["calibracion_tickets"].update({"n_draws": 200, "gate_n_min_bin": 5, "gate_bins": 4, "sigma_liga": 0.1})
-    v3["calibracion_tickets"]["cestas_historicas"] = {"paso_dias": 7, "n_cestas_por_dia": 15}
-    v3["backtest_oos"].update({"n_folds": 3, "min_cestas_entrenamiento": 40, "folds_min_validos": 1})
+    v3["calibracion_tickets"]["cestas_historicas"].update({"paso_dias": 7, "n_cestas_por_dia": 15})
+    v3["backtest_oos"].update({"n_folds": 3, "min_cestas_entrenamiento": 40, "folds_min_validos": 1, "min_buckets_poblados": 1})   # mundo chico: la config real exige 8
     v3["backtest_oos"]["protocolo_sigma_g"] = copy.deepcopy(PROTO)
     return cargar(), v3
 
@@ -260,8 +310,16 @@ def con(dsn, cargado):  # noqa: F811
     c.close()
 
 
-def _gate(modo):
-    return lambda cestas, c, cfg_, semilla: ResultadoGateIncert(modo == "ok", modo, 0.75, 0.75, 4, f"forzado {modo}")
+def _gate(modo, bins=12):
+    return lambda cestas, c, cfg_, semilla: ResultadoGateIncert(modo == "ok", modo, 0.75, 0.75, bins, f"forzado {modo}")
+
+
+def _ajuste(c):
+    real = ct.ajustar
+
+    def f(cestas, cfg_, semilla):
+        return dataclasses.replace(real(cestas, cfg_, semilla), c_global=c)
+    return f
 
 
 def _ventana():
@@ -293,6 +351,86 @@ def test_sin_guardar_no_escribe_nada(con, cfg, cfgs, monkeypatch):  # noqa: F811
     assert vid is None and con.execute("SELECT count(*) AS n FROM versiones_calibrador_tickets").fetchone()["n"] == n0
 
 
+def _correr(con, cfg, cfgs, *, minimo=8, **kw):  # noqa: F811
+    v3 = copy.deepcopy(cfgs[1])
+    v3["backtest_oos"]["min_buckets_poblados"] = minimo
+    desde, hasta = _ventana()
+    return bo.ejecutar(con, cfg, v3, desde=desde, hasta=hasta, casa="pinnacle", semilla=2, guardar=False, **kw)[0]
+
+
+def test_menos_de_8_buckets_es_no_evaluable_con_motivo_explicito_aunque_el_gate_diga_estrecho(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("estrecho", bins=3))
+    monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
+    r = _correr(con, cfg, cfgs, datos_reales=True)
+    evaluados = [f for f in r.folds if f.omitido is None]
+    assert evaluados and all(f.gate_modo == "no_evaluable" and f.bins_poblados == 3 and f.gate_aprobado is False for f in evaluados)
+    assert all("3 bucket" in f.gate_detalle and "mínimo 8" in f.gate_detalle for f in evaluados)
+    assert r.veredicto == "no_evaluable" and r.gates_ok is False and r.calibrado_con == "no_calibrado"        # nunca oos_real con evidencia insuficiente
+    assert r.resultado_json["veredicto"] == "no_evaluable"
+    md = bo.reporte_md(r, version_id=None)
+    assert "NO EVALUABLE" in md and "NO es un fallo del calibrador" in md and "| 3 |" in md
+
+
+def test_con_8_o_mas_buckets_el_gate_si_juzga(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("estrecho", bins=8))
+    r = _correr(con, cfg, cfgs)
+    assert r.veredicto == "no_superados" and r.gates_ok is False and "FALLA" in r.motivo
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=8))
+    r = _correr(con, cfg, cfgs, datos_reales=True)
+    assert r.veredicto == "superados" and r.gates_ok is True and r.calibrado_con == "oos_real"
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=7))                                    # un bucket menos y ya no hay evidencia
+    r = _correr(con, cfg, cfgs, datos_reales=True)
+    assert r.veredicto == "no_evaluable" and r.calibrado_con == "no_calibrado"
+
+
+@pytest.mark.parametrize("c", [0.1, 5.0])
+def test_c_en_el_borde_no_es_evaluable_ni_se_despliega_aunque_el_gate_diga_ok(con, cfg, cfgs, monkeypatch, c):  # noqa: F811
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=12))
+    monkeypatch.setattr(ct, "ajustar", _ajuste(c))
+    r = _correr(con, cfg, cfgs, datos_reales=True)
+    evaluados = [f for f in r.folds if f.omitido is None]
+    assert evaluados and all(f.c_borde and f.gate_modo == "no_evaluable" and "borde" in f.gate_detalle for f in evaluados)
+    assert r.veredicto == "no_evaluable" and r.gates_ok is False and r.calibrado_con == "no_calibrado"
+    assert "borde" in r.motivo and "⚠borde" in bo.reporte_md(r, version_id=None)
+
+
+def test_c_final_en_el_borde_bloquea_aunque_los_folds_pasen(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    """Los folds ajustan con sus trains (c identificado); solo el ajuste FINAL (todas las cestas) cae en el borde: no se despliega."""
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=12))
+    real = ct.ajustar
+    n = {"i": 0}
+
+    def ajustar(cestas, cfg_, semilla):
+        n["i"] += 1
+        return dataclasses.replace(real(cestas, cfg_, semilla), c_global=1.0)
+    monkeypatch.setattr(ct, "ajustar", ajustar)
+    todos = _correr(con, cfg, cfgs, datos_reales=True)                                                       # control: sin borde, pasa
+    assert todos.veredicto == "superados" and todos.calibrado_con == "oos_real"
+    ultimo = {"k": 0}
+
+    def ajustar2(cestas, cfg_, semilla):
+        ultimo["k"] += 1
+        c = 1.0 if ultimo["k"] <= len([f for f in todos.folds if f.omitido is None]) else 5.0               # los K ajustes de fold, luego el final
+        return dataclasses.replace(real(cestas, cfg_, semilla), c_global=c)
+    monkeypatch.setattr(ct, "ajustar", ajustar2)
+    r = _correr(con, cfg, cfgs, datos_reales=True)
+    assert r.veredicto == "no_evaluable" and r.gates_ok is False and r.calibrado_con == "no_calibrado" and "borde" in r.motivo
+
+
+def test_un_fold_estrecho_con_evidencia_suficiente_sigue_siendo_no_superados_aunque_otro_fold_sea_no_evaluable(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
+    llamadas = {"i": 0}
+
+    def gate(cestas, c, cfg_, semilla):
+        llamadas["i"] += 1
+        return ResultadoGateIncert(False, "estrecho", 0.5, 0.5, 12 if llamadas["i"] == 1 else 2, "x")
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", gate)
+    r = _correr(con, cfg, cfgs)
+    modos = [f.gate_modo for f in r.folds if f.omitido is None]
+    assert modos[0] == "estrecho" and set(modos[1:]) <= {"no_evaluable"} and r.veredicto == "no_superados"
+
+
 def _script():
     spec = importlib.util.spec_from_file_location("backtest_oos_script", RAIZ / "scripts" / "backtest_oos.py")
     m = importlib.util.module_from_spec(spec)
@@ -301,18 +439,34 @@ def _script():
     return m
 
 
-def test_script_corre_escribe_el_reporte_y_devuelve_3_si_los_gates_no_pasan(dsn, cargado, tmp_path, monkeypatch, capsys):  # noqa: F811
+def test_script_con_la_config_real_y_un_historico_chico_es_no_evaluable_rc4_y_registra_la_version(dsn, cargado, tmp_path, monkeypatch, capsys):  # noqa: F811
     monkeypatch.setenv("DATABASE_URL", dsn)
     desde, hasta = _ventana()
     rep = tmp_path / "r" / "informe.md"
     rc = _script().main(["--desde", desde.date().isoformat(), "--hasta", hasta.date().isoformat(), "--casa", "pinnacle",
                          "--n-draws", "100", "--reporte", str(rep)])
-    assert rc == 3                                                       # con la config real (500 cestas mín.) este histórico chico no pasa
-    assert rep.exists() and "## Veredicto" in rep.read_text(encoding="utf-8") and "NO SUPERADOS" in rep.read_text(encoding="utf-8")
+    assert rc == 4                                                       # config real (8 buckets, 500 cestas mín.): este histórico chico NO ES EVALUABLE (no un fallo)
+    assert rep.exists() and "## Veredicto" in rep.read_text(encoding="utf-8") and "NO EVALUABLE" in rep.read_text(encoding="utf-8")
     with db.conectar(dsn) as c:
         f = c.execute("SELECT gates_ok, calibrado_con FROM versiones_calibrador_tickets ORDER BY id DESC LIMIT 1").fetchone()
     assert (f["gates_ok"], f["calibrado_con"]) == (False, "no_calibrado")
-    assert "NO superados" in capsys.readouterr().out
+    assert "NO EVALUABLE" in capsys.readouterr().out
+
+
+def test_script_devuelve_4_si_no_es_evaluable_0_si_superados_3_si_no_superados(dsn, cargado, cfgs, tmp_path, monkeypatch, capsys):  # noqa: F811
+    monkeypatch.setenv("DATABASE_URL", dsn)
+    v3 = copy.deepcopy(cfgs[1])
+    v3["backtest_oos"]["min_buckets_poblados"] = 8                       # el valor real; solo se bajan los mínimos de TAMAÑO del mundo sintético
+    monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
+    desde, hasta = _ventana()
+    argv = ["--desde", desde.date().isoformat(), "--hasta", hasta.date().isoformat(), "--casa", "pinnacle", "--n-draws", "100", "--sin-guardar"]
+    s = _script()
+    monkeypatch.setattr(s, "cargar_v3", lambda: v3)
+    for modo, bins, rc, texto in (("ok", 20, 0, "SUPERADOS"), ("estrecho", 20, 3, "NO SUPERADOS"), ("estrecho", 2, 4, "NO EVALUABLE")):
+        monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate(modo, bins=bins))
+        rep = tmp_path / f"{modo}{bins}.md"
+        assert s.main(argv + ["--reporte", str(rep)]) == rc, (modo, bins)
+        assert texto in rep.read_text(encoding="utf-8") and texto in capsys.readouterr().out
 
 
 def test_script_errores_de_uso_devuelven_2_y_no_escriben(dsn, cargado, tmp_path, monkeypatch, capsys):  # noqa: F811

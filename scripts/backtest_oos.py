@@ -5,8 +5,8 @@
 Lee cestas ex-post del histórico, ajusta `c` en walk-forward estricto, corre los gates de cobertura BILATERAL en cada fold OOS, aplica el
 protocolo de σ_g, guarda la versión en `versiones_calibrador_tickets` (migración 005; también si los gates fallan) y escribe el reporte.
 
-Códigos de salida: 0 = corrió y los gates PASARON · 3 = corrió pero los gates NO pasaron (la versión queda registrada, no se usa en producción)
-· 2 = error de uso/datos. NO apaga `modo_experimental`: eso es una decisión humana sobre el reporte.
+Códigos de salida: 0 = corrió y los gates PASARON · 3 = los gates NO pasaron (algún fold estrecho/ancho) · 4 = NO EVALUABLE (sin evidencia suficiente: pocos
+buckets poblados, muestra chica o `c` sin identificar; no es un fallo del calibrador) · 2 = error de uso/datos. En 3 y 4 la versión queda registrada y no se usa. NO apaga `modo_experimental`: eso es una decisión humana sobre el reporte.
 `--datos-reales`: declaración explícita de que la BD contiene datos reales. Sin ella, aun con gates OK la versión queda como 'sinteticos'
 (que NO sirve para apagar `modo_experimental`).
 Lento por diseño (Monte Carlo sobre miles de cestas, ver presupuesto del pre-registro §2.7): `--n-draws` reduce la precisión para una prueba rápida.
@@ -59,10 +59,10 @@ def main(argv: list[str] | None = None) -> int:
     ruta = Path(a.reporte)
     ruta.parent.mkdir(parents=True, exist_ok=True)
     ruta.write_text(bo.reporte_md(r, version_id=vid), encoding="utf-8")
-    print(f"{'✓' if r.gates_ok else '✗'} gates {'SUPERADOS' if r.gates_ok else 'NO superados'} · calibrado_con={r.calibrado_con} · "
+    print(f"{'✓' if r.gates_ok else '✗'} gates {bo.ETIQUETA_VEREDICTO[r.veredicto]} · calibrado_con={r.calibrado_con} · "
           f"c_global={r.version.c_global:.4f} · σ_g={r.sigma_g} · versión {vid if vid else 'no guardada'}")
     print(f"  motivo: {r.motivo}\n  reporte: {ruta}")
-    return 0 if r.gates_ok else 3
+    return {"superados": 0, "no_superados": 3, "no_evaluable": 4}[r.veredicto]
 
 
 if __name__ == "__main__":
