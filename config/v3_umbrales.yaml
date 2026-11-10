@@ -149,9 +149,26 @@ backtest_oos:
   n_folds: 4                         # bloques de test consecutivos (expanding window); el primer bloque solo entrena
   embargo_dias: 1                    # una cesta entrena solo si su día de decisión es <= inicio_del_test - embargo (ya resuelta)
   min_cestas_entrenamiento: 500      # menos => el fold se omite (no se ajusta con muestra chica)
-  folds_min_validos: 2               # folds con gate 'ok' necesarios; CUALQUIER fold estrecho/ancho invalida el conjunto
+  folds_min_validos: 2               # (v0.14: el gate de cobertura por buckets pasó a INFORMATIVO; ya no decide el veredicto, ver pruebas A y B)
   casa: pinnacle                     # casa de cuotas del histórico (parámetro explícito; sin respaldo a otra)
-  min_buckets_poblados: 8            # [pre-registrado, decisión 12] fold con menos buckets poblados => veredicto "no_evaluable" (no ancho/estrecho)
+  min_buckets_poblados: 8            # [decisión 12] solo para el gate de cobertura por buckets, que desde v0.14 es INFORMATIVO (inválido para la cota de un ticket de 5-8 piernas)
+  # --- ENMIENDA v0.14 (2026-11-10): las dos pruebas que DECIDEN el veredicto. Umbrales fijados ANTES de implementarlas y de validarlas con simulaciones
+  #     (pre-registro §2.12). Provisionales; cambiarlos es nueva versión. ---
+  prueba_calibracion_media:          # A: calibración de p_media, cestas de TODOS los folds OOS agregadas
+    n_grupos: 5                      # grupos por cuantiles de p_media (igual número de cestas)
+    min_cestas_por_grupo: 200
+    min_eventos_esperados_por_grupo: 20   # Σ p_media del grupo; menos => no_evaluable (aproximación normal no fiable)
+    nivel_intervalo: 0.95            # intervalo bilateral por grupo y global (varianza robusta por día: las cestas de un día comparten partidos)
+    min_grupos_dentro: 3             # de 5 grupos, al menos 3 dentro del intervalo 95 %   [iteración 2: la v1 pedía 4 de 5; ver pre-registro §2.12 (tamaño 13-14 % > 10 % en simulación)]
+    z_grosero: 4.0                   # ningún grupo con |z| > 4.0 [iteración 2: la v1 usaba 3.29 (IC 99.9 %); el estadístico robusto por día tiene colas más pesadas que la normal]
+  prueba_sobredispersion:            # B: sobredispersión de piernas por grupos de factores compartidos (día × liga)
+    min_partidos_por_grupo: 4
+    min_grupos: 100
+    alfa: 0.05                       # p-valor unilateral (sobredispersión) por simulación bajo independencia
+    n_simulaciones_nulo: 4000
+    r_latente_objetivo: 0.10         # correlación latente (cópula gaussiana) intra día×liga que la prueba DEBE poder detectar
+    potencia_min: 0.80               # si la potencia para r_latente_objetivo es menor => no_evaluable (que no pase por falta de potencia)
+    n_simulaciones_potencia: 300
   protocolo_sigma_g:
     grid: [0.05, 0.10]               # niveles de σ_g a probar (provisional: la decisión 13 no fijó los niveles)
     min_cestas_entre_ligas: 2000     # [pre-registrado]

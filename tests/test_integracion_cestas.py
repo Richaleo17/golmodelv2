@@ -154,6 +154,45 @@ def test_los_resultados_solo_afectan_a_gano_no_a_las_piernas(mundo, base, cfgs):
     assert [c.gano for c in r2.cestas] != [c.gano for c in base.cestas]                 # sensibilidad: gano SÍ cambia
 
 
+def test_piernas_dia_una_por_partido_resuelto_con_la_mejor_pierna_y_el_resultado_correcto(base, mundo):
+    """Insumo de la prueba B (v0.14): una pierna por partido, la de mayor p_modelo, con su resultado calculado a mano."""
+    _, pool, _ = mundo
+    assert len(base.piernas_dia) >= 20
+    ids = [x.partido_id for x in base.piernas_dia]
+    assert len(ids) == len(set(ids))                                                          # una por partido
+    res = {int(r.partido_id): r for r in pool.itertuples()}
+    for x in base.piernas_dia:
+        r = res[x.partido_id]
+        assert len(x.selecciones) == 1 and x.gano == _acierta(x.selecciones[0], int(r.goles_local), int(r.goles_visitante))
+        assert 0.0 < x.p_modelo < 1.0 and x.liga == r.liga and len(x.dia) == 10
+    # es la de MAYOR p_modelo del partido entre las que se ofrecieron a las cestas
+    maximo = {}
+    for m in base.meta + base.excluidas:
+        for pm in m.piernas:
+            maximo[pm.partido_id] = max(maximo.get(pm.partido_id, 0.0), pm.p_modelo)
+    assert all(x.p_modelo >= maximo[x.partido_id] - 1e-12 for x in base.piernas_dia if x.partido_id in maximo)
+
+
+def test_piernas_dia_cambiar_los_resultados_cambia_gano_pero_no_la_pierna_ni_su_p(mundo, base, cfgs):
+    _, pool, _ = mundo
+    p2 = pool.copy()
+    p2["goles_local"] = 0
+    p2["goles_visitante"] = 0
+    r2 = _run(mundo, cfgs, pool=p2)
+    clave = lambda r: [(x.partido_id, x.selecciones, x.p_modelo) for x in r.piernas_dia]      # noqa: E731
+    assert clave(r2) == clave(base)                                                           # la elección de la pierna y su p NO miran resultados (sin fuga)
+    assert [x.gano for x in r2.piernas_dia] != [x.gano for x in base.piernas_dia]             # sensibilidad: gano SÍ cambia
+
+
+def test_piernas_dia_no_incluye_partidos_sin_resolver(mundo, cfgs):
+    _, pool, _ = mundo
+    p2 = pool.copy()
+    ids = set(sorted(p2["partido_id"])[:5])
+    p2.loc[p2["partido_id"].isin(ids), ["estado", "goles_local", "goles_visitante"]] = ["programado", np.nan, np.nan]
+    r = _run(mundo, cfgs, pool=p2)
+    assert not ids & {x.partido_id for x in r.piernas_dia}
+
+
 def test_cambiar_el_pasado_si_cambia_las_piernas_el_test_no_es_vacuo(mundo, base, cfgs):
     d, _, _ = mundo
     d2 = d.copy()

@@ -1,8 +1,10 @@
 """Orquestador del backtest OOS de `calibracion_tickets` (integración: encadena módulos existentes; NO contiene lógica de modelo).
 
 Encadena: cestas ex-post (`cestas_historicas`) -> walk-forward estricto por folds -> ajuste de `c` en el tramo de ENTRENAMIENTO
-(`calibracion_tickets.ajustar`) -> gate de cobertura BILATERAL en el tramo de TEST (`gate_cobertura_tickets`) -> protocolo de σ_g
-pre-registrado (decisión 13) -> versión final + almacén (`versiones_calibrador_tickets`) -> reporte.
+(`calibracion_tickets.ajustar`) -> en el tramo de TEST: prueba A (calibración de `p_media`, cestas de todos los folds agregadas) y, sobre las piernas
+del período, prueba B (sobredispersión día × liga) — ENMIENDA v0.14, ver `pruebas_tickets.py` y pre-registro §2.12 — -> protocolo de σ_g pre-registrado
+(decisión 13) -> versión final + almacén (`versiones_calibrador_tickets`) -> reporte. El veredicto sale SOLO de A y B; el gate de cobertura por buckets
+(`gate_cobertura_tickets`) se sigue calculando pero es INFORMATIVO (declarado inválido para la cota de un ticket de 5-8 piernas).
 
 Alcance REAL (v1 de `calibracion_tickets`, sin cambiarlo): se ajusta UN `c` global y se marca cada segmento como calibrado o fallback; σ_ℓ NO se
 ajusta (se conserva el valor de la config, documentado como extensión pendiente); σ_g se mantiene en 0 salvo que el protocolo de la decisión 13
@@ -27,12 +29,12 @@ from golmodel.backtest import calibracion_tickets as ct
 from golmodel.config import hash_config
 from golmodel.integracion import almacen_calibradores as almacen
 from golmodel.integracion.cestas_historicas import ResultadoCestas, construir_cestas_historicas
+from golmodel.integracion.pruebas_tickets import decidir_veredicto, evaluar_calibracion_media, evaluar_sobredispersion
 
 EPS = 1e-12
 # Intervalo de búsqueda de `c` en calibracion_tickets.ajustar (np.log(0.1), np.log(5.0)). Si el óptimo cae en el borde, el ajuste NO está identificado.
 C_MIN, C_MAX = 0.1, 5.0
 TOL_BORDE = 1e-3
-NO_EVALUABLES = ("insuficiente", "no_evaluable")
 
 
 def c_en_borde(c: float | None) -> bool:
@@ -70,33 +72,16 @@ class ResultadoBacktest:
     protocolo_sigma_g: dict
     dataset: dict
     ajuste_final: dict
+    prueba_a: dict = field(default_factory=dict)     # calibración de p_media (decide)
+    prueba_b: dict = field(default_factory=dict)     # sobredispersión día × liga (decide)
+    cota: dict = field(default_factory=dict)         # advertencia: p_conservadora / p_media
     resultado_json: dict = field(default_factory=dict)
 
 
 # ----------------------------------------------------------------------------- decisiones puras (probadas por separado)
 
-def decidir_gates(folds: list[ResultadoFold], folds_min_validos: int) -> tuple[bool, str]:
-    """gates_ok = al menos `folds_min_validos` folds en 'ok' Y NINGÚN fold estrecho/ancho. Los 'no_evaluable'/'insuficiente' no cuentan ni a favor ni en
-    contra (no hay muestra o buckets para juzgar), pero tampoco rescatan: si no hay suficientes 'ok', no pasa."""
-    ok = sum(1 for f in folds if f.gate_modo == "ok")
-    malos = [f for f in folds if f.gate_modo in ("estrecho", "ancho")]
-    insuf = sum(1 for f in folds if f.gate_modo in NO_EVALUABLES)
-    if malos:
-        return False, "gate de cobertura FALLA en fold(s) " + ", ".join(f"{f.k} ({f.gate_modo})" for f in malos)
-    if ok < folds_min_validos:
-        return False, f"solo {ok} fold(s) con gate 'ok' (mínimo {folds_min_validos}); {insuf} no evaluable(s) (buckets o muestra insuficientes)"
-    return True, f"{ok} fold(s) con gate 'ok', ninguno estrecho/ancho ({insuf} no evaluable(s))"
-
-
-def decidir_veredicto(folds: list[ResultadoFold], folds_min_validos: int) -> str:
-    """'superados' | 'no_superados' (algún fold estrecho/ancho) | 'no_evaluable' (no hay evidencia suficiente para juzgar: NO es un fallo del calibrador)."""
-    if any(f.gate_modo in ("estrecho", "ancho") for f in folds):
-        return "no_superados"
-    return "superados" if decidir_gates(folds, folds_min_validos)[0] else "no_evaluable"
-
-
 def aplicar_minimos_del_gate(modo: str, aprobado: bool, bins: int, min_buckets: int, c_borde: bool) -> tuple[str, bool, str | None]:
-    """El gate de `incertidumbre` devuelve ancho/estrecho aunque haya UN solo bucket poblado (cobertura 0 ó 1 por construcción). La decisión 12 exige >= 8 buckets
+    """(INFORMATIVO desde v0.14) El gate de `incertidumbre` devuelve ancho/estrecho aunque haya UN solo bucket poblado (cobertura 0 ó 1 por construcción). La decisión 12 exige >= 8 buckets
     poblados: por debajo, el veredicto es 'no_evaluable' (no es un fallo del calibrador). Un `c` en el borde del intervalo de búsqueda tampoco se evalúa."""
     if c_borde:
         return "no_evaluable", False, f"c en el borde del intervalo de búsqueda [{C_MIN}, {C_MAX}]: el ajuste no está identificado"
@@ -252,6 +237,7 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
     # 2) folds OOS con el σ_g elegido: ajuste en train, gate en test
     cfg_s = _cfg_con_sigma(cfg_v3, sigma_g, n_draws)
     folds: list[ResultadoFold] = []
+    agg = {"p_media": [], "p_cons": [], "y": [], "dia": []}      # cestas de test de TODOS los folds evaluados (para la prueba A)
     for f in folds_idx:
         tr = [cestas[i] for i in f["idx_train"]]
         te = [cestas[i] for i in f["idx_test"]]
@@ -272,13 +258,33 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
             cc = cfg_s["calibracion_tickets"]
             rf.confiabilidad = tabla_confiabilidad([r.p_media for r in res_te], [r.p_conservadora for r in res_te], [1.0 if k.gano else 0.0 for k in te],
                                                    int(cc["gate_bins"]), int(cc["gate_n_min_bin"]))
+            agg["p_media"] += [r.p_media for r in res_te]
+            agg["p_cons"] += [r.p_conservadora for r in res_te]
+            agg["y"] += [1.0 if k.gano else 0.0 for k in te]
+            agg["dia"] += [res.meta[i].dia for i in f["idx_test"]]
         folds.append(rf)
     evaluados = [f for f in folds if f.omitido is None]
-    gates_ok, motivo = decidir_gates(evaluados, int(bo["folds_min_validos"]))
-    veredicto = decidir_veredicto(evaluados, int(bo["folds_min_validos"]))
+
+    # veredicto: SOLO las pruebas A y B (enmienda v0.14). El gate por buckets de cada fold es informativo.
     if not evaluados:
-        gates_ok, veredicto = False, "no_evaluable"
-        motivo = "ningún fold evaluable: " + "; ".join(f"fold {f.k}: {f.omitido}" for f in folds) if folds else "sin folds (muy pocos días)"
+        prueba_a = {"modo": "no_evaluable", "motivo": ("ningún fold evaluable: " + "; ".join(f"fold {f.k}: {f.omitido}" for f in folds)) if folds else "sin folds (muy pocos días)",
+                    "grupos": [], "global": None, "n": 0}
+    elif any(f.c_borde for f in evaluados):
+        prueba_a = {"modo": "no_evaluable", "motivo": f"c en el borde del intervalo de búsqueda [{C_MIN}, {C_MAX}] en fold(s) {[f.k for f in evaluados if f.c_borde]}: ajuste no identificado",
+                    "grupos": [], "global": None, "n": 0}
+    else:
+        prueba_a = evaluar_calibracion_media(agg["p_media"], agg["y"], agg["dia"], bo["prueba_calibracion_media"])
+    cc_s = cfg_s["calibracion_tickets"]
+    pd_ = res.piernas_dia
+    prueba_b = evaluar_sobredispersion([x.dia for x in pd_], [x.liga for x in pd_], [x.p_modelo for x in pd_], [1.0 if x.gano else 0.0 for x in pd_],
+                                       bo["prueba_sobredispersion"], sigma_liga=cc_s.get("sigma_liga", 0.0), sigma_g=sigma_g, semilla=semilla)
+    veredicto = decidir_veredicto(prueba_a["modo"], prueba_b["modo"])
+    gates_ok = veredicto == "superados"
+    motivo = f"A (calibración de p_media): {prueba_a['modo']} — {prueba_a['motivo']} | B (sobredispersión día×liga): {prueba_b['modo']} — {prueba_b['motivo']}"
+    pm_tot = float(np.mean(agg["p_media"])) if agg["p_media"] else None
+    cota = {"n_cestas": len(agg["p_media"]), "p_media_media": pm_tot, "p_conservadora_media": float(np.mean(agg["p_cons"])) if agg["p_cons"] else None,
+            "razon": (float(np.mean(agg["p_cons"])) / pm_tot) if pm_tot else None,
+            "validada": False}                              # la cota NO está validada por A ni por B (B solo descarta incertidumbre COMPARTIDA no modelada)
 
     # 3) versión final: c sobre TODAS las cestas (la que se desplegaría) — su validez OOS es la de los folds de arriba
     final = ct.ajustar(cestas, cfg_s, semilla) if cestas else None
@@ -298,9 +304,11 @@ def ejecutar_con_cestas(res: ResultadoCestas, cfg_v3: dict, *, desde: datetime, 
                             {"c_global": version.c_global, "coste": final.coste if final else None,
                              "n_segmentos_calibrados": len(version.segmentos_calibrados),
                              "n_segmentos_fallback": len(version.segmentos_fallback),
-                             "sigma_liga": "NO ajustado (extensión de calibracion_tickets pendiente): valor de la config"})
+                             "sigma_liga": "NO ajustado (extensión de calibracion_tickets pendiente): valor de la config"},
+                            prueba_a, prueba_b, cota)
     out.resultado_json = {"desde": desde.isoformat(), "hasta": hasta.isoformat(), "datos_reales_declarado": bool(datos_reales),
-                          "motivo": motivo, "veredicto": veredicto, "folds": [asdict(f) for f in folds], "protocolo_sigma_g": proto_res,
+                          "motivo": motivo, "veredicto": veredicto, "prueba_a": prueba_a, "prueba_b": prueba_b, "cota": cota,
+                          "folds": [asdict(f) for f in folds], "protocolo_sigma_g": proto_res,
                           "dataset": dataset, "ajuste_final": out.ajuste_final, "backtest_oos": bo}
     return out
 
@@ -324,6 +332,36 @@ def ejecutar(conn, cfg_v2: dict, cfg_v3: dict, *, desde: datetime, hasta: dateti
 ETIQUETA_VEREDICTO = {"superados": "SUPERADOS", "no_superados": "NO SUPERADOS", "no_evaluable": "NO EVALUABLE"}
 
 
+def _aviso_cota(cota: dict) -> list[str]:
+    if not cota or cota.get("razon") is None:
+        return []
+    razon = cota["razon"]
+    return [f"- ⚠️ **`p_conservadora` es una cota {'MUY ' if razon < 0.7 else ''}conservadora: en las {cota['n_cestas']} cestas de test vale ≈ {100 * razon:.0f} % de `p_media` "
+            f"(media {cota['p_conservadora_media']:.3f} frente a {cota['p_media_media']:.3f}).** Los tickets que superen el EV exigido con la cota serán RAROS. "
+            "La cota NO está validada (ni por A ni por B): es una honestidad estadística, no un defecto a «arreglar» bajando umbrales."]
+
+
+def _seccion_pruebas(r: ResultadoBacktest) -> list[str]:
+    a, b = r.prueba_a, r.prueba_b
+    L = ["## Prueba A — calibración de `p_media` (decide; cestas de todos los folds OOS agregadas)", "",
+         f"- Resultado: **{a.get('modo')}** — {a.get('motivo')}"]
+    if a.get("global"):
+        g = a["global"]
+        L += [f"- Intervalo bilateral {a['z_intervalo']:.2f}σ (grosero {a['z_grosero']:.2f}σ), varianza robusta por día (las cestas de un día comparten partidos). "
+              f"Sesgo global: **{a['direccion']}**.", "",
+              "| grupo (cuantil de p_media) | n | P media | obs | eventos esperados | eventos obs. | z | dentro 95 % |", "|---|---|---|---|---|---|---|---|"]
+        for x in a["grupos"]:
+            L.append(f"| {x['grupo']} | {x['n']} | {x['p_media']:.4f} | {x['obs']:.4f} | {x['esperados']:.1f} | {x['eventos']:.0f} | {x['z']:+.2f} | {'sí' if x['dentro'] else 'NO'} |")
+        L.append(f"| **global** | {g['n']} | {g['p_media']:.4f} | {g['obs']:.4f} | {g['esperados']:.1f} | {g['eventos']:.0f} | {g['z']:+.2f} | {'sí' if g['dentro'] else 'NO'} |")
+    L += ["", "## Prueba B — sobredispersión de piernas por grupos día × liga (decide)", "",
+          f"- Resultado: **{b.get('modo')}** — {b.get('motivo')}"]
+    if b.get("T_obs") is not None:
+        L.append(f"- {b['n_piernas']} piernas (una por partido) en {b['n_grupos']} grupos día×liga · T observado {b['T_obs']:.2f} "
+                 f"(umbral crítico {b['T_critico']:.2f}, sd bajo H0 {b['T_nulo_sd']:.2f}) · p-valor {b['p_valor']:.4f} · potencia para r = {b['r_latente_objetivo']}: {b['potencia']:.2f}")
+    L.append("")
+    return L
+
+
 def reporte_md(r: ResultadoBacktest, *, version_id: int | None, generado: datetime | None = None) -> str:
     d, v = r.dataset, r.version
     L = ["# Backtest OOS · calibración de tickets", "",
@@ -331,9 +369,12 @@ def reporte_md(r: ResultadoBacktest, *, version_id: int | None, generado: dateti
          f"- Datos hasta: {v.datos_hasta.isoformat()} · semilla {v.semilla} · n_draws {v.n_draws} · config_hash `{v.config_hash}`",
          f"- Versión guardada: {'id ' + str(version_id) if version_id else '**NO guardada** (--sin-guardar)'}", "",
          "## Veredicto", "",
-         f"- **Gates de cobertura bilateral: {ETIQUETA_VEREDICTO[r.veredicto]}** — {r.motivo}",
-         *(["- ℹ️ «NO EVALUABLE» significa que NO hay evidencia suficiente para juzgar (pocos buckets poblados, muestra chica o `c` sin identificar); "
-            "NO es un fallo del calibrador ni una aprobación."] if r.veredicto == "no_evaluable" else []),
+         f"- **Pruebas A (calibración de `p_media`) y B (sobredispersión día×liga): {ETIQUETA_VEREDICTO[r.veredicto]}** — {r.motivo}",
+         *(["- ℹ️ «NO EVALUABLE» significa que NO hay evidencia suficiente para juzgar (muestra chica, eventos esperados bajos, pocos grupos, potencia insuficiente o `c` "
+            "sin identificar); NO es un fallo del calibrador ni una aprobación."] if r.veredicto == "no_evaluable" else []),
+         *(_aviso_cota(r.cota)),
+         "- Pasar A y B es condición NECESARIA, no suficiente, para levantar el techo `CON_RESERVAS`: ninguna de las dos valida la incertidumbre idiosincrática (τ) de cada "
+         "partido, que es la que más ensancha `p_conservadora`. Mientras no pasen, el techo se mantiene (fail-closed).",
          f"- `calibrado_con`: **{r.calibrado_con}**" + ("" if r.calibrado_con != "sinteticos" else
                                                    " (gates OK pero NO se declararon datos reales: no sirve para apagar `modo_experimental`)"),
          f"- `c_global` = **{v.c_global:.4f}** · σ_g = **{v.sigma_g}** · σ_ℓ = {v.sigma_liga} (NO ajustado)",
@@ -346,7 +387,8 @@ def reporte_md(r: ResultadoBacktest, *, version_id: int | None, generado: dateti
          f"- Tasa de 'ganan todas' observada: {'n/d' if d['tasa_gano'] is None else f'{d['tasa_gano']:.3%}'}",
          f"- Partidos/días no usados: {d['omisiones'] or 'ninguno'}", "",
          f"- Cestas por tamaño: {d['cestas_por_tamano']} · por estrato de P nominal (0.05): {d['cestas_por_estrato']}", "",
-         "## Folds walk-forward (ajuste SOLO en train; gate en test)", "",
+         *_seccion_pruebas(r),
+         "## Folds walk-forward (ajuste SOLO en train). El gate por buckets es INFORMATIVO desde v0.14 (no decide)", "",
          "| fold | test | n_train | n_test | c (train) | gate | buckets | cobertura | log-loss test | nota |", "|---|---|---|---|---|---|---|---|---|---|"]
     for f in r.folds:
         if f.omitido:

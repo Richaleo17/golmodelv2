@@ -2,11 +2,12 @@
 
     docker compose run --rm api python scripts/backtest_oos.py --datos-reales
 
-Lee cestas ex-post del histórico, ajusta `c` en walk-forward estricto, corre los gates de cobertura BILATERAL en cada fold OOS, aplica el
+Lee cestas ex-post del histórico, ajusta `c` en walk-forward estricto, corre las pruebas A (calibración de p_media) y B (sobredispersión día×liga) sobre el test OOS, aplica el
 protocolo de σ_g, guarda la versión en `versiones_calibrador_tickets` (migración 005; también si los gates fallan) y escribe el reporte.
 
-Códigos de salida: 0 = corrió y los gates PASARON · 3 = los gates NO pasaron (algún fold estrecho/ancho) · 4 = NO EVALUABLE (sin evidencia suficiente: pocos
-buckets poblados, muestra chica o `c` sin identificar; no es un fallo del calibrador) · 2 = error de uso/datos. En 3 y 4 la versión queda registrada y no se usa. NO apaga `modo_experimental`: eso es una decisión humana sobre el reporte.
+Códigos de salida: 0 = corrió y las pruebas A y B PASARON · 3 = NO superados (A de calibración de p_media o B de sobredispersión día×liga FALLA con evidencia;
+enmienda v0.14) · 4 = NO EVALUABLE (sin evidencia suficiente: muestra chica, pocos eventos/grupos, potencia insuficiente, σ>0 o `c` sin identificar; no es un fallo
+del calibrador) · 2 = error de uso/datos. En 3 y 4 la versión queda registrada y no se usa. NO apaga `modo_experimental`: eso es una decisión humana sobre el reporte.
 `--datos-reales`: declaración explícita de que la BD contiene datos reales. Sin ella, aun con gates OK la versión queda como 'sinteticos'
 (que NO sirve para apagar `modo_experimental`).
 Lento por diseño (Monte Carlo sobre miles de cestas, ver presupuesto del pre-registro §2.7): `--n-draws` reduce la precisión para una prueba rápida.

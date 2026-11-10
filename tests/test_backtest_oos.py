@@ -34,19 +34,6 @@ def F(k, modo=None, omitido=None):
                             None if modo is None else modo == "ok", 0.8 if modo else None, "d", 0.3 if modo else None, omitido)
 
 
-# ------------------------------------------------------------------ decisiones puras
-@pytest.mark.parametrize("modos,minimo,esperado", [
-    (["ok", "ok", "ok"], 2, True), (["ok", "ok"], 2, True), (["ok"], 2, False),                       # pocos 'ok'
-    (["ok", "ok", "estrecho"], 2, False), (["ok", "ok", "ancho"], 2, False),                          # cualquier fold malo invalida
-    (["ok", "ok", "insuficiente"], 2, True), (["ok", "insuficiente", "insuficiente"], 2, False),      # insuficiente no rescata ni condena
-    (["ok", "ok", "no_evaluable"], 2, True), (["ok", "no_evaluable", "no_evaluable"], 2, False),      # no_evaluable: igual
-    (["no_evaluable", "no_evaluable"], 1, False),
-    ([], 2, False), (["insuficiente"], 1, False)])
-def test_decidir_gates_tabla_de_verdad(modos, minimo, esperado):
-    ok, motivo = bo.decidir_gates([F(i + 1, m) for i, m in enumerate(modos)], minimo)
-    assert ok is esperado and isinstance(motivo, str) and motivo
-
-
 # ------------------------------------------------------------------ tabla de confiabilidad (diagnóstico)
 def test_tabla_de_confiabilidad_coincide_con_un_calculo_manual():
     p_cons = np.array([0.055, 0.06, 0.07, 0.32, 0.34, 0.97])
@@ -91,20 +78,13 @@ def test_la_corrida_incluye_la_tabla_en_los_folds_el_json_y_el_reporte(corrida):
     assert "## Tabla de confiabilidad por bucket" in md and "obs − P media" in md and "no decide ningún gate" in md
 
 
-def test_el_motivo_cuenta_los_folds_no_evaluables():
-    ok, motivo = bo.decidir_gates([F(1, "ok"), F(2, "ok"), F(3, "no_evaluable"), F(4, "insuficiente")], 2)
-    assert ok is True and "2 no evaluable(s)" in motivo
-    ok, motivo = bo.decidir_gates([F(1, "ok"), F(2, "no_evaluable")], 2)
-    assert ok is False and "1 no evaluable(s)" in motivo and "solo 1 fold(s)" in motivo
-
-
-@pytest.mark.parametrize("modos,minimo,esperado", [
-    (["ok", "ok", "ok"], 2, "superados"), (["ok", "ok", "no_evaluable"], 2, "superados"),
-    (["ok", "estrecho"], 1, "no_superados"), (["ancho", "no_evaluable"], 1, "no_superados"),           # un fold malo es 'no_superados' aunque haya no_evaluables
-    (["no_evaluable", "no_evaluable", "no_evaluable"], 1, "no_evaluable"), (["ok"], 2, "no_evaluable"),  # sin evidencia: NO es un fallo del calibrador
-    (["insuficiente", "insuficiente"], 1, "no_evaluable"), ([], 1, "no_evaluable")])
-def test_veredicto_distingue_no_superados_de_no_evaluable(modos, minimo, esperado):
-    assert bo.decidir_veredicto([F(i + 1, m) for i, m in enumerate(modos)], minimo) == esperado
+@pytest.mark.parametrize("a,b,esperado", [
+    ("ok", "ok", "superados"),
+    ("descalibrado", "ok", "no_superados"), ("ok", "sobredispersion", "no_superados"), ("descalibrado", "sobredispersion", "no_superados"),
+    ("descalibrado", "no_evaluable", "no_superados"), ("no_evaluable", "sobredispersion", "no_superados"),          # un fallo CON evidencia manda
+    ("no_evaluable", "ok", "no_evaluable"), ("ok", "no_evaluable", "no_evaluable"), ("no_evaluable", "no_evaluable", "no_evaluable")])   # sin evidencia: ni fallo ni aprobación
+def test_veredicto_sale_solo_de_las_pruebas_a_y_b(a, b, esperado):
+    assert bo.decidir_veredicto(a, b) == esperado
 
 
 @pytest.mark.parametrize("modo,aprobado,bins,minimo,borde,esperado", [
@@ -249,7 +229,8 @@ def test_la_corrida_tiene_la_estructura_esperada(corrida, cfgs):
     for f in r.folds:
         if f.omitido is None:
             assert f.gate_modo in ("ok", "estrecho", "ancho", "insuficiente", "no_evaluable") and f.c_train > 0 and 0 <= f.gate_cobertura <= 1
-    assert r.gates_ok == bo.decidir_gates([f for f in r.folds if f.omitido is None], 1)[0]
+    assert r.veredicto == bo.decidir_veredicto(r.prueba_a["modo"], r.prueba_b["modo"]) and r.gates_ok == (r.veredicto == "superados")
+    assert r.prueba_a["modo"] in ("ok", "descalibrado", "no_evaluable") and r.prueba_b["modo"] in ("ok", "sobredispersion", "no_evaluable")
     assert r.calibrado_con == bo.decidir_calibrado_con(r.gates_ok, False)
 
 
@@ -317,6 +298,25 @@ def test_sigma_g_protocolo_se_ejecuta_cuando_hay_evidencia_y_elige_cero_si_no_pa
     assert r.sigma_g == p["sigma_g_elegido"] and (r.sigma_g == 0.2) == p["candidatos"]["0.2"]["pasa"]
 
 
+def test_si_el_protocolo_activa_sigma_g_la_prueba_b_lo_recibe_y_no_es_evaluable(cfgs, mundo_cestas, monkeypatch):
+    """σ_g > 0 invalida el nulo de la prueba B (solo valida σ = 0): fail-closed. Aquí el protocolo se fuerza a «pasa» para ejercitar el cableado."""
+    import dataclasses
+    v3 = copy.deepcopy(cfgs[1])
+    v3["backtest_oos"]["protocolo_sigma_g"].update({"min_cestas_entre_ligas": 1, "min_dias_cobertura": 1, "grid": [0.2]})
+    res, desde, hasta = mundo_cestas
+    mixtas = [CestaHistorica([dataclasses.replace(pi, liga="MX1") if k % 2 else pi for k, pi in enumerate(c.piernas)], c.gano) for c in res.cestas]
+    res2 = ch.ResultadoCestas(tuple(mixtas), res.meta, res.excluidas, res.omisiones, res.piernas_dia)
+    monkeypatch.setattr(bo, "evaluar_sigma_g", lambda *a, **k: {"pasa": True, "reduccion_relativa": 0.5})
+    cap = {}
+    _pruebas(monkeypatch, capturas=cap)
+    r = bo.ejecutar_con_cestas(res2, v3, desde=desde, hasta=hasta, semilla=1)
+    assert r.sigma_g == 0.2 and cap["b"][5]["sigma_g"] == 0.2
+    monkeypatch.undo()
+    monkeypatch.setattr(bo, "evaluar_sigma_g", lambda *a, **k: {"pasa": True, "reduccion_relativa": 0.5})
+    r = bo.ejecutar_con_cestas(res2, v3, desde=desde, hasta=hasta, semilla=1)                       # con la prueba B REAL
+    assert r.sigma_g == 0.2 and r.prueba_b["modo"] == "no_evaluable" and "σ_ℓ o σ_g > 0" in r.prueba_b["motivo"] and r.veredicto == "no_evaluable"
+
+
 def test_sin_cestas_falla_en_voz_alta(cfgs):
     vacio = ch.ResultadoCestas((), (), (), {"sin_cuotas_asof": 5})
     with pytest.raises(ValueError, match="sin cestas resueltas"):
@@ -355,6 +355,21 @@ def con(dsn, cargado):  # noqa: F811
     c.close()
 
 
+def _pruebas(monkeypatch, a="ok", b="ok", capturas=None):
+    """Sustituye las pruebas A y B (ya probadas aparte en test_pruebas_tickets.py) por modos forzados; `capturas` guarda con qué datos se las llamó."""
+    def fa(p, y, dia, cfg_a):
+        if capturas is not None:
+            capturas["a"] = (list(p), list(y), list(dia), cfg_a)
+        return {"modo": a, "motivo": f"A forzado {a}", "grupos": [], "global": None, "n": len(p)}
+
+    def fb(dia, liga, p, y, cfg_b, **kw):
+        if capturas is not None:
+            capturas["b"] = (list(dia), list(liga), list(p), list(y), cfg_b, kw)
+        return {"modo": b, "motivo": f"B forzado {b}", "n_piernas": len(p), "n_grupos": 0, "T_obs": None, "p_valor": None, "potencia": None}
+    monkeypatch.setattr(bo, "evaluar_calibracion_media", fa)
+    monkeypatch.setattr(bo, "evaluar_sobredispersion", fb)
+
+
 def _gate(modo, bins=12):
     return lambda cestas, c, cfg_, semilla: ResultadoGateIncert(modo == "ok", modo, 0.75, 0.75, bins, f"forzado {modo}")
 
@@ -372,12 +387,14 @@ def _ventana():
     return (fin - pd.Timedelta(days=75)).to_pydatetime(), fin.to_pydatetime()
 
 
-@pytest.mark.parametrize("modo,reales,gates,cal,cargable", [
-    ("ok", True, True, "oos_real", True),          # gates OK + datos reales declarados: oos_real y la app la puede cargar
-    ("ok", False, True, "sinteticos", False),      # gates OK pero sin declarar datos reales: NO se carga
-    ("estrecho", True, False, "no_calibrado", False)])   # gates fallan: se guarda el intento, NO se carga
-def test_ejecutar_guarda_la_version_y_solo_la_valida_se_carga(con, cfg, cfgs, monkeypatch, modo, reales, gates, cal, cargable):  # noqa: F811
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate(modo))
+@pytest.mark.parametrize("a,b,reales,gates,cal,cargable", [
+    ("ok", "ok", True, True, "oos_real", True),             # A y B superadas + datos reales declarados: oos_real y la app la puede cargar
+    ("ok", "ok", False, True, "sinteticos", False),         # superadas pero sin declarar datos reales: NO se carga
+    ("descalibrado", "ok", True, False, "no_calibrado", False),     # A falla: se guarda el intento, NO se carga
+    ("ok", "sobredispersion", True, False, "no_calibrado", False),  # B falla: idem
+    ("ok", "no_evaluable", True, False, "no_calibrado", False)])    # sin evidencia: jamás oos_real
+def test_ejecutar_guarda_la_version_y_solo_la_valida_se_carga(con, cfg, cfgs, monkeypatch, a, b, reales, gates, cal, cargable):  # noqa: F811
+    _pruebas(monkeypatch, a, b)
     monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))                      # c identificado (con 5-8 piernas este mundo chico lo pega al borde: eso se prueba aparte)
     desde, hasta = _ventana()
     antes = al.cargar_ultima_valida(con)
@@ -390,7 +407,7 @@ def test_ejecutar_guarda_la_version_y_solo_la_valida_se_carga(con, cfg, cfgs, mo
 
 
 def test_sin_guardar_no_escribe_nada(con, cfg, cfgs, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok"))
+    _pruebas(monkeypatch)
     n0 = con.execute("SELECT count(*) AS n FROM versiones_calibrador_tickets").fetchone()["n"]
     desde, hasta = _ventana()
     r, vid = bo.ejecutar(con, cfg, cfgs[1], desde=desde, hasta=hasta, casa="pinnacle", semilla=2, guardar=False)
@@ -404,46 +421,48 @@ def _correr(con, cfg, cfgs, *, minimo=8, **kw):  # noqa: F811
     return bo.ejecutar(con, cfg, v3, desde=desde, hasta=hasta, casa="pinnacle", semilla=2, guardar=False, **kw)[0]
 
 
-def test_menos_de_8_buckets_es_no_evaluable_con_motivo_explicito_aunque_el_gate_diga_estrecho(con, cfg, cfgs, monkeypatch):  # noqa: F811
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("estrecho", bins=3))
+@pytest.mark.parametrize("ma,mb,veredicto,cal", [("ok", "ok", "superados", "oos_real"), ("descalibrado", "ok", "no_superados", "no_calibrado"),
+                                                    ("ok", "sobredispersion", "no_superados", "no_calibrado"), ("ok", "no_evaluable", "no_evaluable", "no_calibrado"),
+                                                    ("no_evaluable", "ok", "no_evaluable", "no_calibrado")])
+def test_el_veredicto_de_la_corrida_viene_de_a_y_b_y_el_gate_por_buckets_es_informativo(con, cfg, cfgs, monkeypatch, ma, mb, veredicto, cal):  # noqa: F811
+    _pruebas(monkeypatch, ma, mb)
     monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
+    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("estrecho", bins=2))                   # el gate viejo dice «estrecho con 2 buckets»: NO debe decidir nada
     r = _correr(con, cfg, cfgs, datos_reales=True)
-    evaluados = [f for f in r.folds if f.omitido is None]
-    assert evaluados and all(f.gate_modo == "no_evaluable" and f.bins_poblados == 3 and f.gate_aprobado is False for f in evaluados)
-    assert all("3 bucket" in f.gate_detalle and "mínimo 8" in f.gate_detalle for f in evaluados)
-    assert r.veredicto == "no_evaluable" and r.gates_ok is False and r.calibrado_con == "no_calibrado"        # nunca oos_real con evidencia insuficiente
-    assert r.resultado_json["veredicto"] == "no_evaluable"
-    md = bo.reporte_md(r, version_id=None)
-    assert "NO EVALUABLE" in md and "NO es un fallo del calibrador" in md and "| 3 |" in md
+    assert r.veredicto == veredicto and r.gates_ok == (veredicto == "superados") and r.calibrado_con == cal
+    assert f"A (calibración de p_media): {ma}" in r.motivo and f"B (sobredispersión día×liga): {mb}" in r.motivo
+    assert r.resultado_json["prueba_a"]["modo"] == ma and r.resultado_json["prueba_b"]["modo"] == mb and r.resultado_json["veredicto"] == veredicto
+    assert all(f.gate_modo == "no_evaluable" for f in r.folds if f.omitido is None)                  # informativo: sigue calculándose y reportándose
 
 
-def test_con_8_o_mas_buckets_el_gate_si_juzga(con, cfg, cfgs, monkeypatch):  # noqa: F811
+def test_la_prueba_a_recibe_las_cestas_de_test_de_todos_los_folds_y_la_b_las_piernas_del_periodo(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    cap = {}
+    _pruebas(monkeypatch, capturas=cap)
     monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("estrecho", bins=8))
     r = _correr(con, cfg, cfgs)
-    assert r.veredicto == "no_superados" and r.gates_ok is False and "FALLA" in r.motivo
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=8))
-    r = _correr(con, cfg, cfgs, datos_reales=True)
-    assert r.veredicto == "superados" and r.gates_ok is True and r.calibrado_con == "oos_real"
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=7))                                    # un bucket menos y ya no hay evidencia
-    r = _correr(con, cfg, cfgs, datos_reales=True)
-    assert r.veredicto == "no_evaluable" and r.calibrado_con == "no_calibrado"
-
-
-@pytest.mark.parametrize("c", [0.1, 5.0])
-def test_c_en_el_borde_no_es_evaluable_ni_se_despliega_aunque_el_gate_diga_ok(con, cfg, cfgs, monkeypatch, c):  # noqa: F811
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=12))
-    monkeypatch.setattr(ct, "ajustar", _ajuste(c))
-    r = _correr(con, cfg, cfgs, datos_reales=True)
     evaluados = [f for f in r.folds if f.omitido is None]
-    assert evaluados and all(f.c_borde and f.gate_modo == "no_evaluable" and "borde" in f.gate_detalle for f in evaluados)
+    p, y, dia, cfg_a = cap["a"]
+    assert len(p) == len(y) == len(dia) == sum(f.n_test for f in evaluados) > 0                          # agregadas, solo del TEST de cada fold
+    assert cfg_a == cfgs[1]["backtest_oos"]["prueba_calibracion_media"] and all(isinstance(d, str) and len(d) == 10 for d in dia)
+    assert all(0 < x < 1 for x in p) and set(y) <= {0.0, 1.0}
+    dia_b, liga_b, p_b, y_b, cfg_b, kw = cap["b"]
+    assert len(dia_b) == len(liga_b) == len(p_b) == len(y_b) > 0 and set(y_b) <= {0.0, 1.0}
+    assert cfg_b == cfgs[1]["backtest_oos"]["prueba_sobredispersion"] and kw["sigma_liga"] == 0.1 and kw["sigma_g"] == 0.0 and kw["semilla"] == 2   # σ vigentes
+
+
+def test_c_en_el_borde_de_un_fold_hace_la_prueba_a_no_evaluable_sin_llamarla(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    cap = {}
+    _pruebas(monkeypatch, capturas=cap)
+    monkeypatch.setattr(ct, "ajustar", _ajuste(5.0))
+    r = _correr(con, cfg, cfgs, datos_reales=True)
+    assert r.prueba_a["modo"] == "no_evaluable" and "borde" in r.prueba_a["motivo"] and "a" not in cap
     assert r.veredicto == "no_evaluable" and r.gates_ok is False and r.calibrado_con == "no_calibrado"
-    assert "borde" in r.motivo and "⚠borde" in bo.reporte_md(r, version_id=None)
+    assert "⚠borde" in bo.reporte_md(r, version_id=None)
 
 
-def test_c_final_en_el_borde_bloquea_aunque_los_folds_pasen(con, cfg, cfgs, monkeypatch):  # noqa: F811
+def test_c_final_en_el_borde_bloquea_aunque_a_y_b_pasen(con, cfg, cfgs, monkeypatch):  # noqa: F811
     """Los folds ajustan con sus trains (c identificado); solo el ajuste FINAL (todas las cestas) cae en el borde: no se despliega."""
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate("ok", bins=12))
+    _pruebas(monkeypatch)
     real = ct.ajustar
     n = {"i": 0}
 
@@ -451,30 +470,29 @@ def test_c_final_en_el_borde_bloquea_aunque_los_folds_pasen(con, cfg, cfgs, monk
         n["i"] += 1
         return dataclasses.replace(real(cestas, cfg_, semilla), c_global=1.0)
     monkeypatch.setattr(ct, "ajustar", ajustar)
-    todos = _correr(con, cfg, cfgs, datos_reales=True)                                                       # control: sin borde, pasa
-    assert todos.veredicto == "superados" and todos.calibrado_con == "oos_real"
-    ultimo = {"k": 0}
+    control = _correr(con, cfg, cfgs, datos_reales=True)                                                    # control: sin borde, pasa
+    assert control.veredicto == "superados" and control.calibrado_con == "oos_real"
+    k = len([f for f in control.folds if f.omitido is None])
+    n["i"] = 0
 
     def ajustar2(cestas, cfg_, semilla):
-        ultimo["k"] += 1
-        c = 1.0 if ultimo["k"] <= len([f for f in todos.folds if f.omitido is None]) else 5.0               # los K ajustes de fold, luego el final
-        return dataclasses.replace(real(cestas, cfg_, semilla), c_global=c)
+        n["i"] += 1
+        return dataclasses.replace(real(cestas, cfg_, semilla), c_global=1.0 if n["i"] <= k else 5.0)      # los K ajustes de fold, luego el final
     monkeypatch.setattr(ct, "ajustar", ajustar2)
     r = _correr(con, cfg, cfgs, datos_reales=True)
     assert r.veredicto == "no_evaluable" and r.gates_ok is False and r.calibrado_con == "no_calibrado" and "borde" in r.motivo
 
 
-def test_un_fold_estrecho_con_evidencia_suficiente_sigue_siendo_no_superados_aunque_otro_fold_sea_no_evaluable(con, cfg, cfgs, monkeypatch):  # noqa: F811
+def test_el_reporte_trae_a_b_la_advertencia_de_la_cota_y_el_techo(con, cfg, cfgs, monkeypatch):  # noqa: F811
+    _pruebas(monkeypatch)
     monkeypatch.setattr(ct, "ajustar", _ajuste(1.0))
-    llamadas = {"i": 0}
-
-    def gate(cestas, c, cfg_, semilla):
-        llamadas["i"] += 1
-        return ResultadoGateIncert(False, "estrecho", 0.5, 0.5, 12 if llamadas["i"] == 1 else 2, "x")
-    monkeypatch.setattr(ct, "gate_cobertura_tickets", gate)
     r = _correr(con, cfg, cfgs)
-    modos = [f.gate_modo for f in r.folds if f.omitido is None]
-    assert modos[0] == "estrecho" and set(modos[1:]) <= {"no_evaluable"} and r.veredicto == "no_superados"
+    assert r.cota["razon"] is not None and 0 < r.cota["razon"] < 1 and r.cota["validada"] is False and r.cota["n_cestas"] > 0
+    md = bo.reporte_md(r, version_id=None)
+    for pieza in ("## Prueba A — calibración de `p_media`", "## Prueba B — sobredispersión", "cota", "conservadora", "RAROS", "NO está validada",
+                  "condición NECESARIA, no suficiente", "techo `CON_RESERVAS`", "INFORMATIVO"):
+        assert pieza in md, pieza
+    assert f"≈ {100 * r.cota['razon']:.0f} % de `p_media`" in md
 
 
 def _script():
@@ -508,10 +526,11 @@ def test_script_devuelve_4_si_no_es_evaluable_0_si_superados_3_si_no_superados(d
     argv = ["--desde", desde.date().isoformat(), "--hasta", hasta.date().isoformat(), "--casa", "pinnacle", "--n-draws", "100", "--sin-guardar"]
     s = _script()
     monkeypatch.setattr(s, "cargar_v3", lambda: v3)
-    for modo, bins, rc, texto in (("ok", 20, 0, "SUPERADOS"), ("estrecho", 20, 3, "NO SUPERADOS"), ("estrecho", 2, 4, "NO EVALUABLE")):
-        monkeypatch.setattr(ct, "gate_cobertura_tickets", _gate(modo, bins=bins))
-        rep = tmp_path / f"{modo}{bins}.md"
-        assert s.main(argv + ["--reporte", str(rep)]) == rc, (modo, bins)
+    for ma, mb, rc, texto in (("ok", "ok", 0, "SUPERADOS"), ("descalibrado", "ok", 3, "NO SUPERADOS"), ("ok", "sobredispersion", 3, "NO SUPERADOS"),
+                              ("no_evaluable", "ok", 4, "NO EVALUABLE")):
+        _pruebas(monkeypatch, ma, mb)
+        rep = tmp_path / f"{ma}{mb}.md"
+        assert s.main(argv + ["--reporte", str(rep)]) == rc, (ma, mb)
         assert texto in rep.read_text(encoding="utf-8") and texto in capsys.readouterr().out
 
 

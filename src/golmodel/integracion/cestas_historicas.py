@@ -64,11 +64,23 @@ class MetaCesta:
 
 
 @dataclass(frozen=True)
+class PiernaDia:
+    """Una pierna por partido resuelto para la prueba B (enmienda v0.14): la de MAYOR p_modelo del partido (regla fija que no mira resultados)."""
+    dia: str
+    liga: str
+    partido_id: int
+    selecciones: tuple[str, ...]
+    p_modelo: float
+    gano: bool
+
+
+@dataclass(frozen=True)
 class ResultadoCestas:
     cestas: tuple[CestaHistorica, ...]       # solo las resueltas (gano True/False); paralelas a `meta`
     meta: tuple[MetaCesta, ...]
     excluidas: tuple[MetaCesta, ...]         # anuladas o pendientes: contadas, nunca borradas en silencio
     omisiones: dict                          # motivo -> n (partidos o días no usados)
+    piernas_dia: tuple[PiernaDia, ...] = ()  # prueba B: mejor pierna de cada partido resuelto del período (independiente de las cestas muestreadas)
 
 
 # --------------------------------------------------------------------- lectura (SQL; sin lógica)
@@ -189,6 +201,7 @@ def construir_cestas(df_modelo: pd.DataFrame, pool: pd.DataFrame, cuotas: pd.Dat
     cestas: list[CestaHistorica] = []
     metas: list[MetaCesta] = []
     excluidas: list[MetaCesta] = []
+    piernas_dia: list[PiernaDia] = []
     previo: ModeloDC | None = None
     t = pd.Timestamp(desde)
     fin = pd.Timestamp(hasta)
@@ -233,6 +246,11 @@ def construir_cestas(df_modelo: pd.DataFrame, pool: pd.DataFrame, cuotas: pd.Dat
                                    float(probabilidad(m, *sels)))))
                 info[pid] = legs
             pids = sorted(info)
+            for pid in pids:                                           # prueba B: una pierna por partido (la de mayor p_modelo; desempate por selección), solo si se resuelve
+                ph, pm = max(info[pid], key=lambda x: (x[1].p_modelo, x[1].selecciones))
+                g1 = resolver_ticket({"piernas": [{"partido_id": pid, "selecciones": list(pm.selecciones)}]}, resultados)
+                if g1 is not None:
+                    piernas_dia.append(PiernaDia(str(dia.date()), ph.liga, pid, pm.selecciones, float(pm.p_modelo), bool(g1)))
             if len(pids) < min(tamanos):
                 _om("dia_con_partidos_insuficientes")
                 continue
@@ -251,7 +269,7 @@ def construir_cestas(df_modelo: pd.DataFrame, pool: pd.DataFrame, cuotas: pd.Dat
                     cestas.append(CestaHistorica([ph for ph, _ in piernas], bool(gano)))
                     metas.append(meta)
         t = t_sig
-    return ResultadoCestas(tuple(cestas), tuple(metas), tuple(excluidas), omisiones)
+    return ResultadoCestas(tuple(cestas), tuple(metas), tuple(excluidas), omisiones, tuple(piernas_dia))
 
 
 def construir_cestas_historicas(conn, desde: datetime, hasta: datetime, cfg_v2: dict, cfg_v3: dict, *, casa: str,

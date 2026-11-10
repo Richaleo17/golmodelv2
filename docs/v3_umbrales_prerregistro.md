@@ -1,7 +1,7 @@
 # Pre-registro consolidado de umbrales V3 · Diseño V3
 
 - Estado: aprobado · política provisional (pendiente de validación OOS)
-- Versión: v0.13.1
+- Versión: v0.14
 - Fecha: 2026-11-10
 - Autor(es): equipo V3
 - Depende de: `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_tickets_objetivo_diseno.md`, `v3_cerebro2_diseno.md`
@@ -418,6 +418,81 @@ pasar a un modelo calibrado, rechazar a uno sobreconfiado y a uno demasiado anch
 **Diagnóstico añadido al reporte (no decide nada):** tabla de confiabilidad por bucket de `p_conservadora` y por fold — n, tasa observada, P media (`p_media`), `p_conservadora` media, `obs − P media` y si supera la cota. Permite separar «el modelo está mal calibrado»
 (`obs ≠ P media`) de «el gate es estructuralmente estricto» (`obs ≈ P media` pero `> p_cons`).
 
+### 2.12 ENMIENDA v0.14 (2026-11-10) — el gate de tickets se sustituye por dos pruebas válidas (A y B); el gate por buckets pasa a INFORMATIVO
+
+> **Qué se corrige:** el examen estaba mal diseñado, no el modelo. El gate de cobertura por buckets (§2.5/§2.7, ampliado en v0.13) es **inválido** para validar la cota `p_conservadora` de un ticket de 5-8 piernas.
+> **Qué NO se corrige:** ningún umbral se relaja para que algo pase. El techo `CON_RESERVAS` y `modo_experimental` se mantienen mientras A y B no pasen **con datos reales** (y, aun entonces, levantar el techo es decisión humana).
+> **Estado de la evidencia:** A y B **no se han ejecutado con datos reales**. Todo lo de abajo se fijó y validó con SIMULACIONES sintéticas.
+
+**Por qué el gate por buckets es inválido (para tickets de 5-8 piernas):**
+1. *Identificabilidad.* El resultado de una cesta es binario, `y ~ Bernoulli(p)`: su distribución depende de la distribución latente de `p` **solo por su media**. Una cota inferior `p_conservadora` (cuantil `q` de `p`) no es observable en `y`. El gate compara la tasa observada de un bucket con la **media** de `p_conservadora`; con incertidumbre moderada esa media queda por debajo de la tasa observada **aunque el modelo sea perfecto** (simulación: con `s` = 0.2 la cobertura es 0.87 y el gate dice «ancho» en el 68 % de las corridas de un modelo perfecto; con `s` = 0.4, 99 %).
+2. *Rango.* La decisión 12 («bins de 0.05, ≥ 8 buckets poblados») está escrita para **selecciones individuales** (probabilidades altas). Con cestas de 5-8 piernas `p_cons` casi no pasa de 0.25 (primera corrida real con 5-8 piernas: 2 buckets poblados de 20 en los 4 folds): el criterio no se puede cumplir con ninguna cantidad de datos. En v0.13 se trasladó ese criterio al nivel ticket sin comprobar que fuera alcanzable: error de diseño declarado.
+3. *Evidencia real que lo respalda (no es una validación del calibrador):* en la corrida con 5-8 piernas, `obs − P media` quedó en ±0.03 (probabilidad central bien calibrada), `p_cons` media ≈ 0.5 × `P media`, y la tasa observada superó la cota en todos los folds → «ancho», que es lo que predice el punto 1 para un modelo calibrado.
+
+El gate por buckets **se sigue calculando y mostrando** (columna del reporte y tabla de confiabilidad) como diagnóstico, **sin decidir el veredicto**.
+
+**Veredicto (3 estados):** `superados` solo si A **y** B dan `ok`; `no_superados` si A da `descalibrado` o B da `sobredispersion` (fallo con evidencia, aunque la otra prueba sea `no_evaluable`); `no_evaluable` en cualquier otro caso (falta evidencia: ni fallo ni aprobación).
+`gates_ok = (veredicto == superados)`; `calibrado_con = oos_real` exige `gates_ok` **y** `--datos-reales` (sin cambios). Se mantiene: un `c` en el borde del intervalo de búsqueda (en algún fold o en el ajuste final) → `no_evaluable`.
+
+#### Prueba A — calibración de `p_media` (lo que un resultado binario SÍ identifica)
+
+Cestas de test de **todos los folds OOS evaluados**, agregadas; `p_media` = la probabilidad conjunta del backtest (con `c` del fold). Grupos por **cuantiles de `p_media`** (5 grupos de igual tamaño). Intervalo bilateral del **95 %** por grupo y global.
+
+*Desviación declarada respecto de lo aprobado («intervalo binomial del 95 %»):* las cestas de un mismo día **comparten partidos** (40 cestas/día sobre ~10 partidos), por lo que no son independientes y un intervalo binomial/Poisson-binomial sería demasiado estrecho. Medido en simulación con la estructura real de datos: tratar las cestas como independientes hace fallar a un modelo perfecto en más del 25 % de las corridas (test en `test_pruebas_tickets.py`). Se usa el mismo intervalo del 95 % pero con varianza **robusta por clúster (día)**: `V = G/(G−1) · Σ_d (Σ_i∈d (y_i − p_i))²`, `z = Σ(y − p)/√V`. Entre días los partidos son distintos.
+
+**Criterios de aceptación (fijados antes de implementar; iteración 2, ver abajo):**
+| Criterio | Valor |
+|---|---|
+| Grupos | 5, por cuantiles de `p_media`, ≥ 200 cestas cada uno |
+| Evaluabilidad | ≥ 20 eventos esperados (Σ `p_media`) por grupo; ≥ 2 días por grupo; si no → `no_evaluable` |
+| (i) Global | el total cae dentro del intervalo 95 % (`|z| ≤ 1.96`) |
+| (ii) Grupos | ≥ **3** de 5 dentro del intervalo 95 % |
+| (iii) Grosero | ningún grupo con `|z| > 4.0` |
+`ok` si (i)∧(ii)∧(iii); si no, `descalibrado` (con dirección: obs < esperado ⇒ el modelo **sobreestima**).
+
+**Registro de iteraciones (transparencia):**
+- *Iteración 1 (fijada primero):* ≥ 4 de 5 grupos dentro del 95 % y ningún grupo fuera del 99.9 % (`|z| > 3.29`). Validación sintética: un modelo **perfecto pasaba solo el 85.7 %** (tamaño 14.3 % > el 10 % que me había propuesto como máximo). Diagnóstico: el estadístico robusto por día tiene colas más pesadas que la normal (P(`|z|`>1.96) por grupo = 6.9 %, P(`|z|`>3.29) = 1.3 %) por los grupos con pocos eventos y por clústeres donde un solo partido decide muchas cestas.
+- *Iteración 2 (vigente):* reglas (ii) y (iii) como en la tabla, elegidas **con simulaciones del nulo (semillas 101/202), nunca con datos reales**, y validadas con semillas distintas (20261110). Es el mismo criterio que para cualquier prueba nueva: el valor crítico se fija por el comportamiento bajo el nulo, no para que un modelo concreto pase. Cambiar cualquier valor de la tabla es nueva versión.
+
+**Validación por simulación (A)** — `scripts/validar_pruebas_v014.py`, 400 repeticiones, 320 días × 19 cestas, 8-13 partidos/día, cestas de 5-8 piernas que comparten partidos; `p_media` media 0.07, ≈510 eventos por mundo:
+| Escenario (el modelo reporta…) | pasa | falla (`descalibrado`) | no evaluable |
+|---|---|---|---|
+| p verdadera (modelo PERFECTO) | **93.0 %** | 7.0 % | 0 % |
+| p × 1.10 (sobreestima 10 %) | 80.8 % | 19.2 % | 0 % |
+| p × 1.25 (sobreestima 25 %) | 50.5 % | 49.5 % | 0 % |
+| p × 1.50 (sobreestima 50 %) | 3.0 % | **97.0 %** | 0 % |
+| p × 0.80 (subestima 20 %) | 12.2 % | 11.5 % | 76.2 % (el grupo bajo queda con < 20 eventos esperados) |
+| p^0.85 (miscalibración por pendiente) | 9.2 % | **90.8 %** | 0 % |
+
+**Limitación declarada de A (potencia):** con ~6000 cestas que comparten partidos hay pocos resultados independientes. A detecta con ≥ 90 % de probabilidad una sobreestimación ≳ 50 % o una miscalibración por pendiente, pero **solo la mitad de las veces una de 25 % y casi nunca una de 10 %**. «A = ok» significa «no hay evidencia de un sesgo grande», no «calibrado con precisión». Mejorar la potencia exige más partidos distintos (más historia), no más cestas.
+
+#### Prueba B — sobredispersión de piernas por grupos de factores compartidos (día × liga)
+
+**Qué prueba:** si el modelo omite incertidumbre COMPARTIDA (factores por liga/día: lo que en el modelo representan σ_ℓ y σ_g), los resultados de las piernas de un mismo (día, liga) están correlacionados y la variación entre grupos supera la que implica la independencia. Es la única señal en los datos de que la cota omite incertidumbre compartida.
+**Datos:** una pierna por partido resuelto del período (`piernas_dia`): la de **mayor `p_modelo`** del partido (regla fija que no mira resultados; verificado sin fuga: cambiar los resultados cambia `gano`, nunca la pierna ni su `p`). Grupos = (día, liga) con ≥ 4 partidos.
+**Estadístico:** `T = Σ_G R_G² − Σ_G V_G`, con `R_G = Σ(y − p)` y `V_G = Σ p(1−p)` (`E[T] = 0` bajo independencia). **Nulo** por simulación de piernas independientes (4000); p-valor unilateral `(1 + #{T* ≥ T_obs})/(S + 1)`.
+**Criterios (fijados antes de implementar):** ≥ 100 grupos; `α = 0.05`; `r_latente_objetivo = 0.10` (correlación latente gaussiana dentro del grupo que la prueba debe poder detectar) con potencia ≥ **0.80**, calculada en cada corrida con la estructura real de grupos (si no alcanza → `no_evaluable`: **no se aprueba por falta de potencia**).
+`sobredispersion` (falla) si `p < α`; `ok` si no rechaza y hay potencia; `no_evaluable` en otro caso.
+**Alcance:** valida el modelo con **σ_ℓ = σ_g = 0** (los valores vigentes). Si alguno es > 0 el nulo correcto (con factores) no está implementado → `no_evaluable` (fail-closed).
+
+**Validación por simulación (B)** — 100 repeticiones, 320 días × 8 ligas, ≈4.5 partidos por liga-día, `p` ∈ U(0.55, 0.92):
+| Correlación latente real | `sobredispersion` detectada | `ok` |
+|---|---|---|
+| 0 (independiente; **tamaño**) | **5.0 %** | 95.0 % |
+| 0.05 | 96.0 % | 4.0 % |
+| 0.10 (objetivo) | **100 %** | 0 % |
+| 0.20 | 100 % | 0 % |
+
+**Qué NO prueba B (importante):** no valida la incertidumbre **idiosincrática** (τ) de cada partido, que con σ = 0 es **toda** la anchura de `p_conservadora` (`p_cons` ≈ 0.5 × `p_media`). Pasar B descarta incertidumbre compartida no modelada; **no certifica la cota**. Por eso **A y B juntas son condición necesaria, no suficiente**, para levantar el techo `CON_RESERVAS`. Validar τ (p. ej. por grupos de equipo × ventana) queda **fuera de esta enmienda**, declarado.
+
+**Advertencia obligatoria en cada reporte:** `p_conservadora` es una cota **muy conservadora** (≈ 50 % de `p_media` en la corrida con datos reales), por lo que los tickets que superen el EV exigido con ella serán **raros**. El reporte la calcula (`p_cons / p_media` medio en el test) y la imprime siempre. Esto es honestidad estadística, no un defecto a corregir bajando umbrales.
+
+**Techo y `modo_experimental`:** sin cambios. `tickets.py` nunca emite `APROBADO`; solo una calibración `oos_real` con A y B superadas, sobre datos reales, y la decisión humana, pueden apagar `modo_experimental`. Mientras tanto, techo `CON_RESERVAS` (fail-closed).
+
+**Valores nuevos (origen · justificación · validación):** todos provisionales, desarrollador, 2026-11-10. `n_grupos 5`, `min_cestas_por_grupo 200`, `nivel_intervalo 0.95`: aprobados por el responsable. `min_eventos_esperados_por_grupo 20`: la aproximación normal no es fiable con menos. `min_grupos_dentro 3` y `z_grosero 4.0`: iteración 2, por simulación del nulo. B: `min_partidos_por_grupo 4`, `min_grupos 100`, `alfa 0.05`, `r_latente_objetivo 0.10`, `potencia_min 0.80`, `n_simulaciones_nulo 4000`, `n_simulaciones_potencia 300`. Validación: las tablas de arriba (reproducibles con el script); con datos reales, el reporte muestra cada estadístico.
+
+**Qué se verificó y qué NO:** verificado con datos sintéticos (tests con mutantes, simulaciones de tamaño y potencia). **No** se ejecutó el backtest con datos reales después de esta enmienda: A y B están pendientes de correr en el Mac del responsable. Riesgo anticipado: A puede salir `no_evaluable` si el grupo de `p_media` más baja tiene < 20 eventos esperados.
+
 ## 3. Alternativas descartadas
 
 - **Presentar estos números como finales:** no hay datos para validarlos en esta sesión; son provisionales.
@@ -462,3 +537,4 @@ pasar a un modelo calibrado, rechazar a uno sobreconfiado y a uno demasiado anch
 | v0.12 | 2026-11-10 | §2.9: parámetros del orquestador del backtest OOS y de «Soñadoras» con origen/justificación/validación; §2.10 nuevo: semántica de «Soñadoras» y su hallazgo aritmético (p_conservadora > 0.75 ⇒ EV del modelo > 0 cuando existe). Fijado DESPUÉS de implementar. No cambia ningún umbral previo. |
 | v0.13 | 2026-11-10 | §2.11 ENMIENDA (corrección metodológica de la PRUEBA, **no** relajación de gates): el muestreo uniforme de cestas no cubría el rango de probabilidad (>85 % en el primer tramo; gate con 1 bucket poblado; `c` en el borde) → muestreo estratificado por P nominal (cuotas iguales, sin filtrar por aprobación); `gate_bins` 8→20 (bins de 0.05, decisión 12); veredicto de 3 estados con `no_evaluable` (< 8 buckets poblados o `c` en el borde; código de salida 4). Ligas femeniles (Liga MX Femenil, UEFA Women's Champions League) como competiciones SOLO-MERCADO: sin histórico ni modelo, sin picks/tickets V3, fuera de la calibración. Ningún umbral de aprobación cambia. |
 | v0.13.1 | 2026-11-10 | Addendum a §2.11, DESPUÉS de la primera corrida real (declarado): (1) backtest limitado a cestas de 5-8 piernas (91.7 % de las cestas muestreadas tenía 2-4); (2) tabla de confiabilidad por bucket en el reporte (diagnóstico); (3) corrige la frase de la enmienda sobre la «cola alta» (el gate falló por `ancho`, no por sub-cobertura en la cola); (4) hallazgo simulado sobre el gate bilateral por bucket: enmienda v0.14 APLAZADA. Ningún umbral ni criterio de gate cambia. |
+| v0.14 | 2026-11-10 | §2.12 ENMIENDA tras la corrida real con 5-8 piernas (declarado: posterior al resultado, fijada con simulaciones, sin datos reales de A/B): el gate de cobertura por buckets se declara INVÁLIDO para la cota de un ticket (identificabilidad; rango ≤ 0.25 vs ≥ 8 buckets de 0.05) y pasa a INFORMATIVO; el veredicto sale de la prueba A (calibración de `p_media`, 5 cuantiles, 95 %, varianza robusta por día porque las cestas de un día comparten partidos) y la prueba B (sobredispersión día × liga, una pierna por partido, nulo por simulación, potencia exigida). Umbrales fijados y validados por simulación; iteración 1 → 2 documentada. Techo `CON_RESERVAS` y `modo_experimental` sin cambios; advertencia obligatoria sobre `p_cons ≈ 50 % de p_media`. |
