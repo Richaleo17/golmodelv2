@@ -29,7 +29,8 @@ from golmodel.ingesta.tipos import (
 BASE_URL = "https://v3.football.api-sports.io"
 
 LIGAS = {"EPL": 39, "SA": 135, "MX1": 262, "MLS": 253, "BR1": 71, "LL": 140, "BUN": 78, "L1": 61,
-         "ERE": 88, "BEL": 144, "POR": 94}  # VERIFICAR EN DOCUMENTACIÓN
+         "ERE": 88, "BEL": 144, "POR": 94,
+         "MXF": 673}  # VERIFICAR EN DOCUMENTACIÓN (673 = Liga MX Femenil: confirmar con /leagues?country=Mexico)
 
 ESTADOS = {
     **dict.fromkeys(["TBD", "NS"], "programado"),
@@ -65,7 +66,7 @@ CASAS = {"Pinnacle": "pinnacle", "Bet365": "bet365"}  # VERIFICAR EN DOCUMENTACI
 def anio_temporada(temporada: str | None, fecha: datetime | None = None) -> int:
     if temporada:
         anio = int(temporada[:4])
-        # Liga MX: API-Football agrupa Apertura (año N) y Clausura (año N+1) en la temporada N.  # VERIFICAR
+        # Liga MX y Liga MX Femenil: API-Football agrupa Apertura (año N) y Clausura (año N+1) en la temporada N.  # VERIFICAR
         return anio - 1 if temporada.endswith("Clausura") else anio
     if fecha is None:
         raise ValueError("Se necesita temporada o fecha")

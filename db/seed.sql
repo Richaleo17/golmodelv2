@@ -16,7 +16,8 @@ INSERT INTO ligas (codigo, nombre, pais, football_data_codigo, football_data_for
  ('L1',  'Ligue 1',       'Francia',      'F1',  'principal', 'soccer_france_ligue_one',       61,  'Ligue_1',    true,  'understat', 1),
  ('ERE', 'Eredivisie',    'Países Bajos', 'N1',  'principal', 'soccer_netherlands_eredivisie', 88,  NULL,         false, NULL,        1),
  ('BEL', 'Pro League',    'Bélgica',      'B1',  'principal', 'soccer_belgium_first_div',      144, NULL,         false, NULL,        1),
- ('POR', 'Primeira Liga', 'Portugal',     'P1',  'principal', 'soccer_portugal_primeira_liga', 94,  NULL,         false, NULL,        1);
+ ('POR', 'Primeira Liga', 'Portugal',     'P1',  'principal', 'soccer_portugal_primeira_liga', 94,  NULL,         false, NULL,        1),
+ ('MXF', 'Liga MX Femenil', 'México',     NULL,  NULL,        NULL,                            673, NULL,         false, NULL,        2);  -- # VERIFICAR id; clave de Odds API se descubre
 
 INSERT INTO casas_apuestas (nombre, clave, odds_api_key, football_data_prefijo, rol) VALUES
  ('Pinnacle',          'pinnacle', 'pinnacle', 'PS',  'ambos'),     -- referencia y ejecución en paper trading

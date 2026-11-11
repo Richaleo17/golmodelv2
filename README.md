@@ -2,7 +2,7 @@
 
 **Probabilidades calibradas · valor sin margen (+EV) · riesgo controlado.**
 
-Aplicación analítica para apuestas de fútbol (11 ligas: Premier, La Liga, Serie A, Bundesliga, Ligue 1, Liga MX, MLS, Brasileirão, Eredivisie, Bélgica y Portugal). Prioriza tres cosas: que las probabilidades estén bien calibradas, que el valor esperado se mida después de quitar el margen de la casa y que la gestión de riesgo sea conservadora. Todo el stack de esta versión es gratuito.
+Aplicación analítica para apuestas de fútbol (12 ligas: Premier, La Liga, Serie A, Bundesliga, Ligue 1, Liga MX, Liga MX Femenil, MLS, Brasileirão, Eredivisie, Bélgica y Portugal). Prioriza tres cosas: que las probabilidades estén bien calibradas, que el valor esperado se mida después de quitar el margen de la casa y que la gestión de riesgo sea conservadora. Todo el stack de esta versión es gratuito.
 
 ![Módulo 1 · Valor](docs/capturas/m1.png)
 
@@ -41,7 +41,7 @@ Guía completa: [`docs/operacion.md`](docs/operacion.md). Decisiones de diseño:
 ```bash
 pytest
 ```
-Corre 136 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
+Corre 170 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
 
 ```bash
 psql -f db/tests/test_schema.sql
