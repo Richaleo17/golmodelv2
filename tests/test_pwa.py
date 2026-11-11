@@ -192,7 +192,7 @@ def test_la_raiz_lleva_a_la_pwa_y_la_pwa_se_sirve(cli):
     assert h.status_code == 200 and "text/html" in h.headers["content-type"]
     assert "<title>GolModel</title>" in h.text and 'name="viewport"' in h.text and "viewport-fit=cover" in h.text
     assert 'rel="manifest"' in h.text and 'rel="apple-touch-icon"' in h.text and 'name="theme-color"' in h.text
-    assert [m for m in re.findall(r'data-v="(\w+)"', h.text)] == ["diario", "meter", "sonadoras", "cuotas", "datos"]      # el menú inferior que se pidió
+    assert [m for m in re.findall(r'data-v="(\w+)"', h.text)] == ["diario", "meter", "sonadoras", "nfl", "cuotas", "datos"]      # el menú inferior que se pidió (+ NFL, 2026-11-11)
     for recurso in ("app.css", "app.js", "sw.js", "icon.svg", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-180.png"):
         assert cli.get(f"/app/{recurso}").status_code == 200, recurso
 

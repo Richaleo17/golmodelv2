@@ -241,6 +241,9 @@ def test_una_femenil_pedida_sin_patron_no_queda_al_final_bajo_el_tope_de_credito
     from golmodel.config import cargar
     from golmodel.ingesta.competiciones import elegir_competiciones
     cm = cargar()["competiciones_mercado"]
+    # Enmienda 2026-11-11: Liga MX Femenil tiene MODELO PROPIO y salió de las reglas solo-mercado de la config. El MECANISMO
+    # (una femenil pedida sin patrón no queda al final) se sigue probando con una regla explícita.
+    cm = {**cm, "femeniles": [*cm["femeniles"], {"nombre": "Liga MX Femenil", "todos": [["ligamx", "liga_mx"], ["women", "womens", "femenil"]]}]}
     dep = [_d("soccer_spain_copa_del_rey"), _d("soccer_argentina_primera_division"), _d("soccer_mexico_ligamx_women"), _d("soccer_uefa_champs_league")]
     k = [d["key"] for d in elegir_competiciones(dep, set(), cm)]
     assert set(k) == {d["key"] for d in dep}
@@ -252,6 +255,10 @@ def test_diagnostico_dice_con_certeza_si_la_api_ofrece_liga_mx_femenil():
     from golmodel.config import cargar
     from golmodel.ingesta.competiciones import diagnostico
     cm = cargar()["competiciones_mercado"]
+    assert "Liga MX Femenil" not in {r["nombre"] for r in cm["femeniles"]}       # ya no es solo mercado (modelo propio MXF)
+    # Enmienda 2026-11-11: Liga MX Femenil tiene MODELO PROPIO y salió de las reglas solo-mercado de la config. El MECANISMO
+    # (una femenil pedida sin patrón no queda al final) se sigue probando con una regla explícita.
+    cm = {**cm, "femeniles": [*cm["femeniles"], {"nombre": "Liga MX Femenil", "todos": [["ligamx", "liga_mx"], ["women", "womens", "femenil"]]}]}
     sin = diagnostico([_d("soccer_mexico_ligamx"), _d("soccer_uefa_champs_league_women"), _d("soccer_epl_women")], {"soccer_mexico_ligamx"}, cm)
     regla = {r["nombre"]: r for r in sin["reglas_femeniles"]}
     assert regla["Liga MX Femenil"]["ofrecida"] is False and regla["Liga MX Femenil"]["coincide"] == []
@@ -259,7 +266,8 @@ def test_diagnostico_dice_con_certeza_si_la_api_ofrece_liga_mx_femenil():
     assert {f["key"] for f in sin["femeniles_ofrecidas"]} == {"soccer_uefa_champs_league_women", "soccer_epl_women"}      # muestra lo que SÍ hay, incluso lo que no se pidió
     assert sin["total_futbol_activo"] == 3 and [m["key"] for m in sin["mexico"]] == ["soccer_mexico_ligamx"]
     con = diagnostico([_d("soccer_mexico_ligamx_women", "Liga MX Femenil")], set(), cm)
-    assert con["reglas_femeniles"][0]["ofrecida"] is True and con["reglas_femeniles"][0]["coincide"][0]["key"] == "soccer_mexico_ligamx_women"
+    rc = {r["nombre"]: r for r in con["reglas_femeniles"]}["Liga MX Femenil"]
+    assert rc["ofrecida"] is True and rc["coincide"][0]["key"] == "soccer_mexico_ligamx_women"
     assert [e["key"] for e in con["elegidas"]] == ["soccer_mexico_ligamx_women"]
 
 
@@ -279,8 +287,12 @@ def test_api_revisar_competiciones_sin_llave_con_error_y_con_datos(api):
     assert r.status_code == 503 and "ODDS_API_KEY" in r.json()["detail"]
     pipe._proveedor_mercado = lambda: Prov()
     r = cli.post("/catalogo/competiciones/revisar")
-    assert r.status_code == 200 and r.json()["reglas_femeniles"][0] == {"nombre": "Liga MX Femenil", "ofrecida": True, "coincide": [{"key": "soccer_mexico_ligamx_women", "title": "Liga MX Femenil"}]}
-    assert [e["key"] for e in r.json()["elegidas"]] == ["soccer_mexico_ligamx_women"]                       # soccer_epl ya está modelada: no se ofrece como «solo mercado»
+    j = r.json()
+    assert r.status_code == 200 and j["reglas_femeniles"][0] == {"nombre": "UEFA Women's Champions League", "ofrecida": False, "coincide": []}
+    # El diagnóstico sigue diciendo con certeza si la API ofrece la Femenil mexicana...
+    assert {"key": "soccer_mexico_ligamx_women", "title": "Liga MX Femenil"} in j["femeniles_ofrecidas"] + j["mexico"]
+    # ...pero ya no se elige como «solo mercado»: tiene modelo propio (enmienda 2026-11-11). soccer_epl está modelada.
+    assert j["elegidas"] == []
 
     class Roto:
         def deportes_futbol(self):
