@@ -1,5 +1,5 @@
 """Liga MX Femenil (MXF): nombres separados de los varoniles, fuentes y carga de histórico por API."""
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import httpx
 import pytest
@@ -228,17 +228,66 @@ def test_historico_un_errorplan_no_bloquea_las_demas_temporadas(conn_bd):
     assert compartido.disponible("api_football")          # el del pipeline no se toca
 
 
-def test_thesportsdb_liga_con_id_usa_dos_consultas():
-    visto = []
-    prox = {"idEvent": "1", "strTimestamp": "2026-11-13T02:00:00", "strHomeTeam": "Monterrey W",
-            "strAwayTeam": "Tigres W", "strStatus": "Not Started"}
+def _tsdb_mxf(dia_ev, *, falla_dia=None, otra_liga=False):
+    """TheSportsDB simulado: «próximos de la liga» trae solo 1 partido (como la llave gratuita); el resto sale por día."""
+    visto, pausas = [], []
+    prox = {"idEvent": "1", "strTimestamp": "2026-11-12T01:00:00", "strHomeTeam": "Club America W",
+            "strAwayTeam": "Toluca W", "strStatus": "Not Started", "idLeague": "5206"}
     lejos = {**prox, "idEvent": "2", "strTimestamp": "2026-12-30T02:00:00"}
 
     def h(req):
-        visto.append(req.url.path.rsplit("/", 1)[-1])
-        return httpx.Response(200, json={"events": [prox, lejos] if "next" in req.url.path else None})
+        ruta = req.url.path.rsplit("/", 1)[-1]
+        visto.append((ruta, req.url.params.get("d")))
+        if ruta == "eventsnextleague.php":
+            return httpx.Response(200, json={"events": [prox, lejos]})
+        if ruta == "eventsday.php":
+            d = req.url.params["d"]
+            if d == falla_dia:
+                return httpx.Response(429)
+            evs = [ev for ev in dia_ev if ev["strTimestamp"].startswith(d)]
+            if otra_liga:
+                evs = evs + [{**prox, "idEvent": "99", "idLeague": "4350", "strTimestamp": f"{d}T20:00:00"}]
+            return httpx.Response(200, json={"events": evs or None})
+        return httpx.Response(200, json={"events": None})
 
-    p = tsdb.TheSportsDb(transport=httpx.MockTransport(h))
+    p = tsdb.TheSportsDb(transport=httpx.MockTransport(h), dormir=pausas.append, reintentos=0)
+    return p, visto, pausas
+
+
+PACHUCA = {"idEvent": "7", "strTimestamp": "2026-11-13T03:05:00", "strHomeTeam": "Pachuca W",
+           "strAwayTeam": "Monterrey W", "strStatus": "Not Started", "idLeague": "5206"}
+
+
+def test_thesportsdb_femenil_trae_los_partidos_de_cada_dia():
+    """Caso real: «próximos de la liga» solo trajo América-Toluca y faltaba Pachuca-Monterrey."""
+    p, visto, pausas = _tsdb_mxf([PACHUCA])
+    import golmodel.ingesta.proveedores.thesportsdb as mod
+    hoy = datetime.now(timezone.utc).date()
+    xs = p.obtener(Solicitud(Capacidad.FIXTURES, "MXF", desde=hoy - timedelta(days=7), hasta=hoy + timedelta(days=7)))
+    dias = [d for r, d in visto if r == "eventsday.php"]
+    assert dias == [(hoy + timedelta(days=k)).isoformat() for k in range(p.dias_adelante + 1)]   # solo días futuros
+    assert pausas == [p.pausa_s] * (len(dias) - 1)                         # espaciadas para no provocar 429
+    ids = {x.id_externo for x in xs}
+    if PACHUCA["strTimestamp"][:10] in dias:
+        assert "7" in ids
+    assert "2" not in ids                                                  # fuera de la ventana
+    assert mod.IDS_LIGA["MXF"] == "5206"
+
+
+def test_thesportsdb_femenil_por_dia_con_fecha_fija(monkeypatch):
+    import golmodel.ingesta.proveedores.thesportsdb as mod
+
+    class Fecha(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime(2026, 11, 11, 12, 0, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(mod, "datetime", Fecha)
+    p, visto, _ = _tsdb_mxf([PACHUCA], falla_dia="2026-11-12", otra_liga=True)
     xs = p.obtener(Solicitud(Capacidad.FIXTURES, "MXF", desde=date(2026, 11, 4), hasta=date(2026, 11, 18)))
-    assert visto == ["eventsnextleague.php", "eventspastleague.php"]
-    assert [x.id_externo for x in xs] == ["1"]               # fuera de la ventana no entra
+    assert sorted(x.id_externo for x in xs) == ["1", "7"]       # Pachuca-Monterrey sí; un día con 429 no tumba los demás
+    assert "99" not in {x.id_externo for x in xs}               # eventos de otra liga se descartan
+    # RESULTADOS en la misma corrida: «próximos/últimos» salen de la caché y no se piden días futuros
+    antes = len(visto)
+    p.obtener(Solicitud(Capacidad.RESULTADOS, "MXF", desde=date(2026, 11, 4), hasta=date(2026, 11, 18)))
+    assert len(visto) == antes

@@ -7,10 +7,12 @@ segunda fuente que los confirme.  Documentación: https://www.thesportsdb.com/fr
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+import time
+from collections.abc import Callable
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
-from golmodel.ingesta.proveedores.base import Proveedor
+from golmodel.ingesta.proveedores.base import ErrorTransitorio, Proveedor
 from golmodel.ingesta.proveedores.http import ClienteHTTP
 from golmodel.ingesta.tipos import Capacidad, PartidoExterno, Solicitud
 
@@ -72,9 +74,45 @@ class TheSportsDb(Proveedor):
     capacidades = frozenset({Capacidad.FIXTURES, Capacidad.RESULTADOS})
     ligas = frozenset(NOMBRES_LIGA)
 
-    def __init__(self, api_key: str = LLAVE_PUBLICA, max_dias: int = 10, **kw: Any):
+    def __init__(self, api_key: str = LLAVE_PUBLICA, max_dias: int = 10, *, dias_adelante: int = 6,
+                 pausa_s: float = 2.5, cache_s: float = 600.0, dormir: Callable[[float], None] = time.sleep,
+                 reloj: Callable[[], float] = time.monotonic, **kw: Any):
         self.max_dias = max_dias
+        self.dias_adelante = dias_adelante      # ligas con id: días futuros que se piden uno por uno
+        self.pausa_s = pausa_s                  # entre consultas por día (la llave gratuita da 429 si se le satura)
+        self.cache_s = cache_s                  # FIXTURES y RESULTADOS de la misma corrida no repiten consultas
+        self._dormir, self._reloj = dormir, reloj
+        self._cache: dict[tuple, tuple[float, Any]] = {}
         self.http = ClienteHTTP(self.nombre, f"https://www.thesportsdb.com/api/v1/json/{api_key}", **kw)
+
+    def _get(self, ruta: str, params: dict) -> Any:
+        k = (ruta, tuple(sorted(params.items())))
+        hit = self._cache.get(k)
+        if hit and self._reloj() - hit[0] < self.cache_s:
+            return hit[1]
+        cuerpo = self.http.get_json(ruta, params)
+        self._cache[k] = (self._reloj(), cuerpo)
+        return cuerpo
+
+    def _dias_liga(self, liga: str, desde: date, hasta: date) -> list[PartidoExterno]:
+        """Partidos día por día (próximos días). «Próximos de la liga» con la llave gratuita trae muy pocos:
+        así salen todos los de la ventana. Un día que responda 429 se omite sin perder los demás."""
+        salida: list[PartidoExterno] = []
+        d, primero = desde, True
+        while d <= hasta:
+            if not primero:
+                self._dormir(self.pausa_s)
+            primero = False
+            try:
+                cuerpo = self._get("/eventsday.php", {"d": d.isoformat(), "l": NOMBRES_LIGA[liga]})
+            except ErrorTransitorio:
+                d += timedelta(days=1)
+                continue
+            evs = [e for e in (cuerpo or {}).get("events") or []
+                   if str(e.get("idLeague") or IDS_LIGA[liga]) == IDS_LIGA[liga]]   # por si la API ignora «l»
+            salida.extend(parse_eventos({"events": evs}, liga))
+            d += timedelta(days=1)
+        return salida
 
     def temporada(self, liga: str, temporada: str) -> list[PartidoExterno]:
         """Temporada completa (histórico de ligas sin CSV de football-data). La llave gratuita puede recortar
@@ -97,9 +135,13 @@ class TheSportsDb(Proveedor):
             # gratuita responde 429 si se le pide día por día para todas las ligas.
             salida = []
             for ruta in ("/eventsnextleague.php", "/eventspastleague.php"):
-                cuerpo = self.http.get_json(ruta, {"id": IDS_LIGA[s.liga]})
+                cuerpo = self._get(ruta, {"id": IDS_LIGA[s.liga]})
                 salida.extend(parse_eventos(cuerpo or {}, s.liga))
-            salida = [p for p in salida if desde <= p.inicio.date() <= hasta]
+            if s.capacidad is Capacidad.FIXTURES:
+                d0, d1 = max(desde, hoy), min(hasta, hoy + timedelta(days=self.dias_adelante))
+                salida.extend(self._dias_liga(s.liga, d0, d1))
+            unicos = {p.id_externo or (p.local, p.visitante, p.inicio): p for p in salida}
+            salida = [p for p in unicos.values() if desde <= p.inicio.date() <= hasta]
             if s.capacidad is Capacidad.RESULTADOS:
                 salida = [p for p in salida if p.estado == "finalizado"]
             return salida
