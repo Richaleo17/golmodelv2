@@ -230,3 +230,66 @@ def test_el_analisis_avisa_que_el_modelo_no_sabe_de_motivacion_ni_rotaciones(con
     ps = _partidos(con, _dia(con))[:2]
     r = bo.analizar(con, cfg, _cfg(), _momento(), _legs(ps, 2))
     assert any("motivación" in a and "rotaciones" in a for a in r["avisos"])
+
+
+# ------------------------------------------------------------------ competiciones solo mercado: prioridad de las femeniles y diagnóstico
+def _d(k, t=None):
+    return {"key": k, "title": t or k, "active": True}
+
+
+def test_una_femenil_pedida_sin_patron_no_queda_al_final_bajo_el_tope_de_creditos():
+    from golmodel.config import cargar
+    from golmodel.ingesta.competiciones import elegir_competiciones
+    cm = cargar()["competiciones_mercado"]
+    dep = [_d("soccer_spain_copa_del_rey"), _d("soccer_argentina_primera_division"), _d("soccer_mexico_ligamx_women"), _d("soccer_uefa_champs_league")]
+    k = [d["key"] for d in elegir_competiciones(dep, set(), cm)]
+    assert set(k) == {d["key"] for d in dep}
+    assert k.index("soccer_mexico_ligamx_women") < k.index("soccer_argentina_primera_division") < k.index("soccer_spain_copa_del_rey")   # antes que las de patrones bajos
+    assert k.index("soccer_uefa_champs_league") <= k.index("soccer_mexico_ligamx_women") or k.index("soccer_mexico_ligamx_women") == 0          # la Champions no se desplaza hacia atrás por ella
+
+
+def test_diagnostico_dice_con_certeza_si_la_api_ofrece_liga_mx_femenil():
+    from golmodel.config import cargar
+    from golmodel.ingesta.competiciones import diagnostico
+    cm = cargar()["competiciones_mercado"]
+    sin = diagnostico([_d("soccer_mexico_ligamx"), _d("soccer_uefa_champs_league_women"), _d("soccer_epl_women")], {"soccer_mexico_ligamx"}, cm)
+    regla = {r["nombre"]: r for r in sin["reglas_femeniles"]}
+    assert regla["Liga MX Femenil"]["ofrecida"] is False and regla["Liga MX Femenil"]["coincide"] == []
+    assert regla["UEFA Women's Champions League"]["ofrecida"] is True
+    assert {f["key"] for f in sin["femeniles_ofrecidas"]} == {"soccer_uefa_champs_league_women", "soccer_epl_women"}      # muestra lo que SÍ hay, incluso lo que no se pidió
+    assert sin["total_futbol_activo"] == 3 and [m["key"] for m in sin["mexico"]] == ["soccer_mexico_ligamx"]
+    con = diagnostico([_d("soccer_mexico_ligamx_women", "Liga MX Femenil")], set(), cm)
+    assert con["reglas_femeniles"][0]["ofrecida"] is True and con["reglas_femeniles"][0]["coincide"][0]["key"] == "soccer_mexico_ligamx_women"
+    assert [e["key"] for e in con["elegidas"]] == ["soccer_mexico_ligamx_women"]
+
+
+def test_api_revisar_competiciones_sin_llave_con_error_y_con_datos(api):
+    from fastapi.testclient import TestClient  # noqa: F401
+    from golmodel.api import main
+    cli, _ = api
+    pipe = main._servicio.pipeline
+
+    class Prov:
+        ligas_claves = {"EPL": "soccer_epl"}
+
+        def deportes_futbol(self):
+            return [_d("soccer_epl"), _d("soccer_mexico_ligamx_women", "Liga MX Femenil")]
+    pipe._proveedor_mercado = lambda: None
+    r = cli.post("/catalogo/competiciones/revisar")
+    assert r.status_code == 503 and "ODDS_API_KEY" in r.json()["detail"]
+    pipe._proveedor_mercado = lambda: Prov()
+    r = cli.post("/catalogo/competiciones/revisar")
+    assert r.status_code == 200 and r.json()["reglas_femeniles"][0] == {"nombre": "Liga MX Femenil", "ofrecida": True, "coincide": [{"key": "soccer_mexico_ligamx_women", "title": "Liga MX Femenil"}]}
+    assert [e["key"] for e in r.json()["elegidas"]] == ["soccer_mexico_ligamx_women"]                       # soccer_epl ya está modelada: no se ofrece como «solo mercado»
+
+    class Roto:
+        def deportes_futbol(self):
+            raise RuntimeError("https://api.the-odds-api.com/v4/sports?apiKey=SECRETA")
+    pipe._proveedor_mercado = lambda: Roto()
+    r = cli.post("/catalogo/competiciones/revisar")
+    assert r.status_code == 502 and "RuntimeError" in r.json()["detail"] and "SECRETA" not in r.text and "apiKey" not in r.text   # nunca filtra la llave
+    from golmodel import acceso
+    from golmodel.api import seguridad
+    env = {"APP_PASSWORD": "admin-1", "APP_VIEWER_PASSWORD": "lector-1", "UI_BIND": "0.0.0.0"}
+    tok = f"Bearer {acceso.crear_token(acceso.LECTOR, acceso.secreto('admin-1', 'lector-1', {}))}"
+    assert seguridad.decidir("POST", "/catalogo/competiciones/revisar", tok, env)[0] == 403            # solo el administrador

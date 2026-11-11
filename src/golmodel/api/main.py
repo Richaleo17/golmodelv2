@@ -359,6 +359,22 @@ def get_catalogo_equipos(q: str = "", limite: int = 60, conn=Depends(conexion)):
     return catalogo.listar(conn, q=q, limite=limite)
 
 
+@app.post("/catalogo/competiciones/revisar")
+def post_revisar_competiciones(s: Servicio = Depends(servicio)):
+    """Qué competiciones ofrece The Odds API frente a las reglas del proyecto (p. ej. si existe Liga MX Femenil y con qué clave).
+    Usa GET /v4/sports, que NO consume créditos. Solo administrador (llama a un servicio externo con tu llave)."""
+    from golmodel.ingesta import competiciones
+    prov = s.pipeline._proveedor_mercado()
+    if prov is None:
+        raise HTTPException(503, "Falta la llave de The Odds API (ODDS_API_KEY): sin ella no se pueden revisar las competiciones.")
+    try:
+        deportes = prov.deportes_futbol()
+    except Exception as e:                                                       # noqa: BLE001 — solo el tipo del error: la URL de la API lleva la llave
+        raise HTTPException(502, f"No se pudo consultar The Odds API ({type(e).__name__}). Revisa la llave y vuelve a intentar.")
+    modeladas = {v for v in getattr(prov, "ligas_claves", {}).values()}
+    return competiciones.diagnostico(deportes, modeladas, s.cfg.get("competiciones_mercado") or {})
+
+
 class AliasManual(BaseModel):
     equipo_id: int
     alias: str = Field(min_length=2, max_length=60)

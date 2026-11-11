@@ -622,6 +622,26 @@ function montarCatalogo(v) {
   q.addEventListener("input", () => { clearTimeout(t); t = setTimeout(buscar, 300); });
 }
 
+/* ¿Qué competiciones ofrece The Odds API? Responde con certeza si existe, p. ej., Liga MX Femenil (en vez de adivinar su clave). */
+function montarCompeticiones(v) {
+  const b = $("#comp-rev", v), z = $("#comp-res", v);
+  if (!b) return;
+  const fichas = (l) => (l || []).map((x) => `${esc(x.title)} <span class="meta">(${esc(x.key)})</span>`).join("; ") || "ninguna";
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    z.innerHTML = '<p class="vacio"><span class="spin"></span>Consultando…</p>';
+    const r = await api("POST", "/catalogo/competiciones/revisar");
+    b.disabled = false;
+    if (!r.ok) { z.innerHTML = `<p class="error">${esc(r.error)}</p>`; return; }
+    const d = r.data;
+    z.innerHTML = (d.reglas_femeniles || []).map((x) => `<div class="${x.ofrecida ? "ok" : "no"}"><b>${esc(x.nombre)}</b>: ${x.ofrecida
+      ? "✅ la API la ofrece como " + fichas(x.coincide) + ". Entra en la próxima actualización si tiene partidos en la ventana."
+      : "❌ The Odds API no la ofrece ahora (o no está activa). Sin ella no hay partidos ni cuotas de esa competición."}</div>`).join("") +
+      `<p class="meta">Fútbol activo en la API: ${esc(d.total_futbol_activo)}. Competiciones que se consultan: ${esc((d.elegidas || []).length)}.<br>` +
+      `Femeniles que SÍ ofrece: ${fichas(d.femeniles_ofrecidas)}.<br>De México: ${fichas(d.mexico)}.</p>`;
+  });
+}
+
 async function vDatos() {
   const r = await api("GET", "/estado");
   let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">05</b> Datos</h2>`;
@@ -651,6 +671,10 @@ async function vDatos() {
   h += `<h3>📚 Catálogo de equipos</h3><details id="cat"><summary>Buscar un equipo, sus nombres en cada API y sus abreviaturas</summary>` +
     `<p class="meta">Las abreviaturas de 3 letras (CHE, MCI…) se derivan del nombre. Si tu casa usa una que no aparece (p. ej. «BHA» para Brighton), agrégala como alias: así tus capturas de boleto la entienden.</p>` +
     `<input id="cat-q" type="text" placeholder="🔎 Equipo, alias o abreviatura (mín. 2 letras)" aria-label="Buscar equipo"><div id="cat-res"></div></details>`;
+  if (S.rol === "admin") {
+    h += `<h3>🌎 Competiciones solo mercado</h3><div class="card"><p class="meta">Revisa qué competiciones ofrece The Odds API (p. ej. si existe <b>Liga MX Femenil</b> y con qué nombre). No gasta créditos.</p>` +
+      `<button id="comp-rev" class="btn" type="button" style="width:100%">Revisar qué ofrece The Odds API</button><div id="comp-res"></div></div>`;
+  }
   h += `<h3>📝 Pendientes</h3><div class="card meta">Nombres de equipo por revisar: <b>${esc(e.alias_pendientes)}</b> · conflictos de datos abiertos: <b>${esc(e.conflictos_abiertos)}</b>. Se resuelven en la versión completa de escritorio (Streamlit, puerto 8501 en tu computadora); no afectan lo que ves aquí.</div>`;
   const u = e.ultima_ejecucion;
   if (u) h += `<h3>🧾 Última actualización</h3><div class="card meta">${esc(u.tipo)} · ${esc(u.estado)}${(u.etapas || []).map((x) => `<br>${x.estado === "ok" ? "✅" : x.estado === "error" ? "❌" : "•"} ${esc(x.etapa)}${x.error ? " — " + esc(x.error) : ""}`).join("")}</div>`;
@@ -658,6 +682,7 @@ async function vDatos() {
     html: h,
     alMontar: (v) => {
       montarCatalogo(v);
+      montarCompeticiones(v);
       if (S.rol !== "admin") return;
       Object.keys(TIPOS).forEach(async (k) => {
         const c = await api("GET", "/costo/" + k);

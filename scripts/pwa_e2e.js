@@ -64,6 +64,9 @@ const ANALISIS = { dia: "2026-11-10", calibrado_con: "oos_real", n_draws: 20000,
     sugerencias: [
       { tipo: "bajar", partido: "Arsenal vs Chelsea", de: "OU:2.5:over", a: "OU:1.5:over", de_etiqueta: "Más de 2.5 goles", a_etiqueta: "Más de 1.5 goles", p_pierna_antes: 0.55, p_pierna_despues: 0.8, cuota_justa_nueva: 1.25, p_conservadora_despues: 0.31, sube_x: 1.41 },
       { tipo: "quitar", partido: "Lyon vs Niza", p_conservadora_despues: 0.41, sube_x: 1.86 }] } };
+const COMPETICIONES = { total_futbol_activo: 31, elegidas: [{ key: "soccer_uefa_champs_league_women", title: "UEFA Women's Champions League" }],
+  femeniles_ofrecidas: [{ key: "soccer_uefa_champs_league_women", title: "UEFA Women's Champions League" }], mexico: [{ key: "soccer_mexico_ligamx", title: "Liga MX" }],
+  reglas_femeniles: [{ nombre: "Liga MX Femenil", ofrecida: false, coincide: [] }, { nombre: "UEFA Women's Champions League", ofrecida: true, coincide: [{ key: "soccer_uefa_champs_league_women", title: "UEFA Women's Champions League" }] }] };
 const CATALOGO = [{ id: 1, nombre: "Brighton", pais: "Inglaterra", ligas: ["EPL"], alias: { odds_api: ["Brighton and Hove Albion"] }, abreviaturas: ["BRI"] }];
 
 async function simular(page) {
@@ -76,6 +79,7 @@ async function simular(page) {
   });
   await page.route(/\/boleto\/leer$/, (r) => r.fulfill(j(BOLETO)));
   await page.route(/\/boleto\/analizar$/, (r) => { ULTIMO_ANALISIS = r.request().postDataJSON(); r.fulfill(j(ANALISIS)); });
+  await page.route(/\/catalogo\/competiciones\/revisar$/, (r) => r.fulfill(j(COMPETICIONES)));
   await page.route(/\/catalogo\/equipos/, (r) => r.fulfill(j(CATALOGO)));
   await page.route(/\/catalogo\/alias$/, (r) => r.fulfill(j({ equipo_id: 1, equipo: "Brighton", alias: "BHA", nuevo: true })));
   await page.route(/\/estado$/, (r) => (r.request().url().includes("/auth/") ? r.fallback() : r.fulfill(j(ESTADO))));      // /auth/estado va al servidor real
@@ -203,6 +207,10 @@ async function simular(page) {
   ok((await page.$$("button[data-tipo]")).length === 4, "Datos: los 4 botones de actualización (administrador)");
   if (MODO === "mock") ok(/Costo: odds_api 2/.test(await page.textContent("#costo-actualizar_todo")), "Datos: muestra el costo estimado de cada actualización");
   if (MODO === "mock") {
+    await page.click("#comp-rev");
+    await page.waitForSelector("#comp-res .no");
+    const comp = await page.textContent("#comp-res");
+    ok(/Liga MX Femenil: ❌ The Odds API no la ofrece/.test(comp) && /Women's Champions League: ✅/.test(comp) && /soccer_mexico_ligamx/.test(comp), "Competiciones: dice con certeza qué femeniles ofrece The Odds API y cuáles no");
     await page.click("#cat summary");
     await page.fill("#cat-q", "brigh");
     await page.waitForSelector("#cat-res .card");
@@ -240,6 +248,7 @@ async function simular(page) {
     await page.fill("#cat-q", "brigh");
     await page.waitForSelector("#cat-res .card");
     ok(/Brighton/.test(await page.textContent("#cat-res")) && (await page.$$("button[data-alias], input[data-alias-q]")).length === 0, "El lector SÍ consulta el catálogo pero NO ve dónde agregar alias");
+    ok((await page.$$("#comp-rev")).length === 0, "El lector NO ve el botón de revisar competiciones (llama a un servicio externo con la llave)");
   }
   await page.click('#nav button[data-v="cuotas"]');
   await page.waitForSelector("#vista h3");
