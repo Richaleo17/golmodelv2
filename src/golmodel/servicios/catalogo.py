@@ -15,10 +15,11 @@ from __future__ import annotations
 import re
 import unicodedata
 
-from golmodel.servicios import captura
+from golmodel.servicios import captura, selecciones
 
 # Palabras que no aportan a una abreviatura («FC», «CF», «AFC»…).
-RUIDO = {"fc", "cf", "afc", "sc", "ac", "as", "cd", "ud", "rc", "ca", "de", "del", "la", "el", "los", "las", "club", "the", "women", "femenil", "w"}
+RUIDO = {"fc", "cf", "afc", "sc", "ac", "as", "cd", "ud", "rc", "ca", "de", "del", "la", "el", "los", "las", "club", "the", "women", "femenil", "w",
+         "and", "of", "republic", "rep"}                          # «Bosnia and Herzegovina» no debe dar «AND» (Andorra) ni «Czech Republic» «REP»
 MAX_OPCIONES = 4
 
 
@@ -29,6 +30,9 @@ def _limpio(t: str) -> str:
 
 def codigos_de(nombre: str) -> set[str]:
     """Abreviaturas de 3 letras (MAYÚSCULAS) plausibles de un nombre. «Man City» → {MAN, CIT, MCI, MC…}; «Chelsea» → {CHE}."""
+    oficiales = selecciones.codigos(nombre)
+    if oficiales:                                                     # selección nacional: SOLO sus códigos («Spain» → ESP; «Germany» → GER/ALE). Los derivados
+        return set(oficiales)                                         # chocarían entre países: «NOR» de «Northern Ireland» es el código de Noruega.
     toks = [t for t in _limpio(nombre).split() if t]
     util = [t for t in toks if t not in RUIDO] or toks
     out: set[str] = set()
@@ -54,16 +58,24 @@ def es_abreviatura(texto: str) -> bool:
 
 
 def encaja(texto: str, nombres: set[str]) -> float:
-    """Qué tan bien encaja `texto` con un equipo (todos sus nombres y alias): 1.0 si es una abreviatura derivada o un alias exacto,
-    si no el puntaje normal de nombre. 0 si no encaja."""
-    base = captura.puntaje(texto, nombres)
-    if base >= captura.MIN_PUNTAJE:
-        return base
-    if es_abreviatura(texto):
-        t = _limpio(texto).upper().replace(" ", "")
-        if any(t == _limpio(n).upper().replace(" ", "") or t in codigos_de(n) for n in nombres):
-            return 0.85                                                # válido, pero menos firme que un nombre idéntico
-    return 0.0
+    """Qué tan bien encaja `texto` con un equipo (todos sus nombres y alias). 0 si no encaja.
+    · Texto normal (nombre completo o parcial): el puntaje de nombres de siempre (≥ 0.80).
+    · Texto corto de una sola palabra (2-4 letras: «CHE», «AND», «Roma»): reglas ESTRICTAS, sin parecido difuso —
+      1.0 si es idéntico a un nombre/alias (con o sin «FC», «AS»…); 0.85 si es un código del equipo o una palabra completa de su nombre.
+      (El parecido difuso daba falsos positivos: «AND» de Andorra encajaba con «Bosnia and Herzegovina» por la palabra «and».)"""
+    if not es_abreviatura(texto):
+        base = captura.puntaje(texto, nombres)
+        return base if base >= captura.MIN_PUNTAJE else 0.0
+    t = _limpio(texto).replace(" ", "")
+    mejor = 0.0
+    for n in nombres:
+        ln = _limpio(n)
+        palabras = [x for x in ln.split() if x not in RUIDO]
+        if t == ln.replace(" ", "") or (palabras and t == "".join(palabras)):
+            return 1.0                                                 # «Roma» = «AS Roma»; alias manual «BHA»
+        if t.upper() in codigos_de(n) or (len(t) >= 3 and t in palabras and not selecciones.codigos(n)):
+            mejor = 0.85                                               # código, o palabra completa del nombre de un club («City» en «Man City»)
+    return mejor
 
 
 def emparejar_flexible(local: str, visitante: str, partidos: list[dict], nombres: dict[int, set[str]]) -> tuple[dict | None, str, list[dict]]:

@@ -13,6 +13,17 @@ const ok = (c, msg) => { if (!c) { fallos.push(msg); console.log("✗ " + msg); 
 const HOY = new Date().toISOString().slice(0, 10);
 const sumar = (iso, n) => { const d = new Date(iso + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+// PNG gris de w×h construido a mano (sin dependencias): sirve para probar el corte en tramos de una captura MUY alta como la de un boleto de 24 selecciones.
+const zlib = require("zlib");
+function pngGris(w, h) {
+  const tabla = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+  const crc = (b) => { let c = 0xffffffff; for (const x of b) c = tabla[(c ^ x) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+  const trozo = (tipo, datos) => { const t = Buffer.concat([Buffer.from(tipo), datos]), l = Buffer.alloc(4), c = Buffer.alloc(4); l.writeUInt32BE(datos.length); c.writeUInt32BE(crc(t)); return Buffer.concat([l, t, c]); };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(w, 0); ihdr.writeUInt32BE(h, 4); ihdr[8] = 8; ihdr[9] = 0;
+  const filas = Buffer.alloc((w + 1) * h, 200); for (let y = 0; y < h; y++) filas[y * (w + 1)] = 0;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), trozo("IHDR", ihdr), trozo("IDAT", zlib.deflateSync(filas)), trozo("IEND", Buffer.alloc(0))]);
+}
+let ULTIMO_LEER = null;                                                            // cuerpo que mandó la pantalla a /boleto/leer
 const XSS = '<img src=x onerror="window.__xss=1">';
 const BLOQUE = (h, l, v, j, p, c) => ({ hora: h, local: l, visitante: v, jugada: j, p_calibrada: p, cuota: c, crs_alerta: "BAJA", crs_total: 10, seleccion_a: "OU:1.5:over", seleccion_b: null, partido_id: 1, orden: 1 });
 const PANEL = {
@@ -46,7 +57,8 @@ const SON = { aviso: "Producto de alto riesgo y EV negativo.", sonadora: null, m
 const PARLAYS = [{ fuente: "v3", estado: "APROBADO", es_apuesta_del_dia: true, sello: "BETA", cuota_combinada: 18.4, cuota_justa: 12.3, p_parlay: 0.081, ev: 0.49, stake_u: 0.12, bloques: [BLOQUE("10:30", "Arsenal", "Chelsea", "x", 0.8, 1.35)] }];
 
 let ULTIMO_ANALISIS = null;                                                       // cuerpo que mandó la pantalla a /boleto/analizar
-const BOLETO = { lectura: { partidos: [] }, n_ok: 2, n_total: 4, monto: 50, cobro: null, cuota_total: 2.6, moneda: "MXN", confianza_lectura: "alta",
+const BOLETO = { lectura: { partidos: [] }, n_ok: 2, n_total: 4,
+  verificacion: { producto: 6.93, cuota_total: 2.6, coincide: false, n: 4, mensaje: "⚠ El producto de las 4 cuotas leídas (6.93) NO coincide con el momio del boleto (2.60). Revisa las filas contra tu boleto antes de analizar." }, monto: 50, cobro: null, cuota_total: 2.6, moneda: "MXN", confianza_lectura: "alta",
   legs: [
     { texto: "ARS - CHE: Total de goles Más de 1.5", partido_id: 1, partido: "Arsenal vs Chelsea", seleccion: "OU:1.5:over", cuota: 1.35, estado: "ok", motivo: "",
       entendido_como: "«ARS - CHE» → Arsenal vs Chelsea (por abreviatura): confírmalo" },
@@ -58,7 +70,11 @@ const BOLETO = { lectura: { partidos: [] }, n_ok: 2, n_total: 4, monto: 50, cobr
 const ANALISIS = { dia: "2026-11-10", calibrado_con: "oos_real", n_draws: 20000, avisos: ["La cota conservadora es ≈ la mitad de la probabilidad media: es prudente a propósito."],
   piernas: [
     { partido_id: 1, partido: "Arsenal vs Chelsea", liga: "EPL", selecciones: ["OU:1.5:over"], cuota: 1.35, estado: "ok", motivo: "", p_modelo: 0.8, p_mercado: 0.78, p_mostrar: 0.8, cuota_justa: 1.25 },
-    { partido_id: 4, partido: "Lyon vs Niza", liga: "L1", selecciones: ["BTTS:si"], cuota: 1.9, estado: "ok", motivo: "", p_modelo: 0.55, p_mercado: 0.5, p_mostrar: 0.53, cuota_justa: 1.89 }],
+    { partido_id: 4, partido: "Lyon vs Niza", liga: "L1", selecciones: ["BTTS:si"], cuota: 1.9, estado: "ok", motivo: "", p_modelo: 0.55, p_mercado: 0.5, p_mostrar: 0.53, cuota_justa: 1.89 },
+    { partido_id: 9, partido: "Turkey vs Belgium", liga: "MK:soccer_uefa_nations_league", selecciones: ["OU:4.5:under"], cuota: 1.16, estado: "ok", bloque: "independiente", motivo: "", p_modelo: null, p_mercado: 0.86,
+      p_mostrar: 0.86, cuota_justa: 1.16, nota: "Solo mercado: probabilidad de las casas (sin margen); no hay modelo propio. Se multiplica suponiendo independencia." }],
+  independiente: { n_partidos: 1, p_producto: 0.86, cuota_justa: 1.16, sugerencias: [{ tipo: "quitar", partido: "Turkey vs Belgium", p_despues: 0.43, sube_x: 1.16 }] },
+  completo: { n_partidos: 3, p_media: 0.37, p_conservadora: 0.19, cuota_justa: 2.7, supuesto: "Producto de la conjunta del motor V3 (si la hay) por la probabilidad del bloque independiente: aproximado.", cuota_total: 2.6, ev_media: -0.04, ev_conservador: -0.5 },
   conjunta: { n_partidos: 2, p_media: 0.43, p_conservadora: 0.22, p_independencia: 0.42, lift: 1.02, ic: [0.2, 0.25], cuota_justa_conservadora: 4.5, cuota_total: 2.6, ev_media: 0.118, ev_conservador: -0.428, stake_referencia_u: 0,
     sin_cada_partido: [{ partido: "Arsenal vs Chelsea", p_media: 0.53, p_conservadora: 0.3, sube_x: 1.36, cuota: 1.9, ev_conservador: -0.43 }, { partido: "Lyon vs Niza", p_media: 0.8, p_conservadora: 0.41, sube_x: 1.86, cuota: 1.35, ev_conservador: -0.45 }],
     sugerencias: [
@@ -77,7 +93,7 @@ async function simular(page) {
     const d = r.request().url().split("/").pop();
     r.fulfill(j(d === HOY ? PANEL : d === sumar(HOY, 1) ? manana : vacio));
   });
-  await page.route(/\/boleto\/leer$/, (r) => r.fulfill(j(BOLETO)));
+  await page.route(/\/boleto\/leer$/, (r) => { ULTIMO_LEER = r.request().postDataJSON(); r.fulfill(j(BOLETO)); });
   await page.route(/\/boleto\/analizar$/, (r) => { ULTIMO_ANALISIS = r.request().postDataJSON(); r.fulfill(j(ANALISIS)); });
   await page.route(/\/catalogo\/competiciones\/revisar$/, (r) => r.fulfill(j(COMPETICIONES)));
   await page.route(/\/catalogo\/equipos/, (r) => r.fulfill(j(CATALOGO)));
@@ -177,11 +193,16 @@ async function simular(page) {
     await page.click("#c-prev");
     await page.waitForSelector("#c-res table");
     ok(/no entendí/.test(await page.textContent("#c-res")) && /A vs B/.test(await page.textContent("#c-res")), "Cuotas: la vista previa muestra lo que entendió y lo que no");
-    await page.setInputFiles("#bol-arch", { name: "boleto.png", mimeType: "image/png", buffer: PNG });
+    await page.setInputFiles("#bol-arch", { name: "boleto.png", mimeType: "image/png", buffer: pngGris(700, 4000) });      // alto como un boleto de ~24 selecciones
     await page.waitForSelector("#bol #bol-ok");
+    ok(ULTIMO_LEER && Array.isArray(ULTIMO_LEER.imagenes_base64) && ULTIMO_LEER.imagenes_base64.length === 4 && ULTIMO_LEER.media_type === "image/jpeg" && !("imagen_base64" in ULTIMO_LEER),
+      "Boleto: una captura muy alta (700×4000) se parte en 4 tramos legibles en lugar de achicarla a 1600 px" + (ULTIMO_LEER ? ` (mandó ${(ULTIMO_LEER.imagenes_base64 || []).length})` : ""));
+    ok(ULTIMO_LEER.imagenes_base64.every((t) => t.length > 100 && /^[A-Za-z0-9+/=]+$/.test(t)), "Boleto: cada tramo viaja como JPEG en base64 válido");
     const bol = await page.textContent("#bol");
     ok(/2 de 4 selecciones reconocidas/.test(bol) && /No encontré el partido/.test(bol), "Boleto: muestra lo leído y marca lo que no pudo emparejar");
     ok(/por abreviatura/.test(bol) && /confírmalo/.test(bol), "Boleto: avisa cuando entendió una abreviatura y pide confirmarla");
+    ok(/NO coincide con el momio del boleto/.test(await page.textContent("#bol-verif")) && (await page.$eval("#bol-verif", (e) => e.className)) === "no",
+      "Boleto: avisa en rojo cuando el producto de las cuotas leídas no coincide con el momio (posible error de lectura)");
     ok((await page.evaluate(() => window.__xss)) === undefined && (await page.$$("#bol img")).length === 0, "Boleto: el HTML del motivo no se ejecuta");
     ok((await page.$$('[data-opc="1"] option')).length === 3 && /Ambiguo/.test(bol), "Boleto: si la abreviatura es ambigua, ofrece elegir entre los partidos candidatos");
     await page.selectOption('[data-opc="1"]', "11");                                  // la persona elige «Man City vs Chelsea»
@@ -195,6 +216,9 @@ async function simular(page) {
     ok(/Qué cambiaría el modelo/.test(res) && /cambia «Más de 2\.5 goles» por «Más de 1\.5 goles»/.test(res) && /Quita Lyon vs Niza/.test(res) && /paga menos/.test(res), "Boleto: sugerencias (bajar la línea / quitar un partido) con la advertencia de que pagan menos");
     ok(/Prob\. conjunta/.test(res) && /43\.0%/.test(res) && /22\.0%/.test(res) && /EV conservador/.test(res), "Boleto: probabilidad conjunta, conservadora y EV");
     ok(/¿Y si quitas un partido\?/.test(res) && /Sin…/.test(res), "Boleto: tabla de qué pasa al quitar cada partido");
+    ok(/Boleto completo \(aproximado\)/.test(res) && /Turkey vs Belgium/.test(res) && /Solo mercado: probabilidad de las casas/.test(res) && /Quita Turkey vs Belgium/.test(res),
+      "Boleto: los partidos solo mercado se muestran aparte, con su aviso, y entran al total aproximado y a las sugerencias");
+    ok((await page.$$("#bol-res .chip.viejo")).length === 1, "Boleto: el partido solo mercado lleva su etiqueta «mercado»");
     await page.screenshot({ path: `${OUT}/04b-boleto.png`, fullPage: true });
   }
   await page.screenshot({ path: `${OUT}/04-cuotas.png`, fullPage: true });

@@ -29,6 +29,9 @@ PNG = base64.b64decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4
     ("DOBLE OPORTUNIDAD", "Cruz Azul o empate", None, "DC:1X"), ("Doble oportunidad", "Empate o América", None, "DC:X2"), ("Doble oportunidad", "Cruz Azul o América", None, "DC:12"),
     ("DOBLE OPORTUNIDAD", "1X", None, "DC:1X"),
     ("ANOTA", "Cruz Azul Sí", None, "ANOTA:local:si"),
+    # Formato de Draftea: «GOLES TOTALES 90'» con flechas ↑ (más) y ↓ (menos), incluidas las líneas 0.5 y 4.5 que el motor V3 no cubre
+    ("GOLES TOTALES 90'", "↑1.5", None, "OU:1.5:over"), ("GOLES TOTALES 90'", "↓ 3.5", None, "OU:3.5:under"), ("GOLES TOTALES 90'", "↑ 2.5", None, "OU:2.5:over"),
+    ("GOLES TOTALES 90'", "↑ 0.5", None, "OU:0.5:over"), ("GOLES TOTALES 90'", "↓ 4.5", None, "OU:4.5:under"), ("GOLES TOTALES", "Menos", 4.5, "OU:4.5:under"),
 ])
 def test_normalizar_a_catalogo(mercado, seleccion, linea, esperado):
     assert bo.normalizar(mercado, seleccion, linea, "Cruz Azul", "América") == (esperado, "")
@@ -36,7 +39,7 @@ def test_normalizar_a_catalogo(mercado, seleccion, linea, esperado):
 
 @pytest.mark.parametrize("mercado,seleccion,linea,fragmento", [
     ("TIROS DE ESQUINA", "Más 7.5", 7.5, "no cubre"), ("Tarjetas totales", "Menos 4.5", 4.5, "no cubre"), ("Goles del jugador", "Más", 0.5, "no cubre"),
-    ("PRIMER GOL", "Cruz Azul", None, "no entra"), ("TOTAL DE GOLES", "Más 4.5", 4.5, "fuera del catálogo"), ("TOTAL DE GOLES", "Más", None, "línea"),
+    ("PRIMER GOL", "Cruz Azul", None, "no entra"), ("TOTAL DE GOLES", "Más 5.5", 5.5, "fuera del catálogo"), ("TOTAL DE GOLES", "Más", None, "línea"),
     ("GANA", "Pumas", None, "equipo"), ("Marcador exacto", "2-1", None, "no reconocido"), ("AMBOS ANOTAN", "tal vez", None, "No entendí"),
 ])
 def test_normalizar_rechaza_con_motivo_lo_que_no_cubre(mercado, seleccion, linea, fragmento):
@@ -182,7 +185,7 @@ def test_analizar_distingue_lo_que_no_entra_a_la_conjunta(con, cfg):  # noqa: F8
     r = bo.analizar(con, cfg, _cfg(), _momento(), _legs(ps, 3), cuota_total=2.0)
     estados = {f["partido_id"]: f["estado"] for f in r["piernas"]}
     assert estados[ps[0]["id"]] == "ya_empezo" and list(estados.values()).count("ok") == 2 and r["conjunta"]["n_partidos"] == 2
-    assert any("NO entran a la probabilidad conjunta" in a for a in r["avisos"])
+    assert any("NO entran al cálculo" in a and "no del boleto completo" in a for a in r["avisos"])
     from datetime import timedelta
     tarde = bo.analizar(con, cfg, _cfg(), _momento() + timedelta(hours=7), _legs(ps[1:3], 2))                    # ya pasó la hora de inicio de TODOS
     assert tarde["conjunta"] is None and {f["estado"] for f in tarde["piernas"]} == {"ya_empezo"}                # nada que calcular: no se inventa una probabilidad
@@ -272,3 +275,209 @@ def test_el_diario_trae_las_tarjetas_de_mercados_sin_tocar_que_meter(api):
                 assert x["p"] >= 0.5 and x["pick"] in ("Sí", "No")                                        # el lado más probable del mercado
         assert m["ganador"]["pick"] == p["gana"]["favorito"] and m["ganador"]["p"] == pytest.approx(p["gana"]["p"]) and m["primer_gol"]["aprox"] is True
     assert set(pan) >= {"mejores", "valor", "rompe", "v3"}                                                      # «Qué meter» sigue igual
+
+
+# ------------------------------------------------------------------ boleto LARGO (Draftea: ~24 selecciones): lectura en tramos, sin cortarse
+def _lectura_json(n, desde=0):
+    return '{"partidos":[' + ",".join(
+        f'{{"local":"E{i}","visita":"F{i}","selecciones":[{{"mercado_texto":"GOLES TOTALES 90\'","seleccion_texto":"Más","linea":1.5,"cuota":1.2}}]}}' for i in range(desde, desde + n)) + '],"monto":20,"cuota_total":90.51}'
+
+
+def test_leer_captura_en_tramos_manda_todas_las_imagenes_en_una_peticion_y_pide_espacio_de_sobra():
+    visto = {}
+
+    def falso(payload, llave):
+        visto["p"] = payload
+        return _respuesta(_lectura_json(24))
+    r = bo.leer_captura([PNG, PNG, PNG], "image/png", enviar=falso, env={"ANTHROPIC_API_KEY": "k"})
+    c = visto["p"]["messages"][0]["content"]
+    assert [x["type"] for x in c] == ["image", "image", "image", "text"]                      # los 3 tramos, en orden, y el texto al final
+    assert "tramos CONSECUTIVOS" in c[-1]["text"] and "↑" in c[-1]["text"] and "Momio" in c[-1]["text"]
+    assert visto["p"]["max_tokens"] == bo.MAX_TOKENS and bo.MAX_TOKENS >= 6000                  # con 1800 un boleto de 24 selecciones se cortaba a la mitad
+    assert len(r["partidos"]) == 24 and r["cuota_total"] == 90.51
+    with pytest.raises(bo.ErrorBoleto, match="máximo"):
+        bo.leer_captura([PNG] * (bo.MAX_IMAGENES + 1), "image/png", enviar=falso, env={"ANTHROPIC_API_KEY": "k"})
+    with pytest.raises(bo.ErrorBoleto, match="vacía"):
+        bo.leer_captura([], "image/png", enviar=falso, env={"ANTHROPIC_API_KEY": "k"})
+
+
+def test_si_la_respuesta_se_corta_por_longitud_se_dice_la_causa_real_no_intenta_de_nuevo():
+    cortada = {"content": [{"type": "text", "text": _lectura_json(24)[:900]}], "stop_reason": "max_tokens"}
+    with pytest.raises(bo.ErrorBoleto, match="dos capturas"):
+        bo.leer_captura(PNG, "image/png", enviar=lambda p, k: cortada, env={"ANTHROPIC_API_KEY": "k"})
+    rota = {"content": [{"type": "text", "text": _lectura_json(3)[:200] + "}"}], "stop_reason": "end_turn"}
+    with pytest.raises(bo.ErrorBoleto, match="incompleta"):                                     # un JSON roto SIN corte por longitud: el mensaje de siempre
+        bo.leer_captura(PNG, "image/png", enviar=lambda p, k: rota, env={"ANTHROPIC_API_KEY": "k"})
+
+
+def test_los_tramos_con_solapamiento_no_duplican_selecciones_ni_partidos():
+    sel = lambda m, s, ln=None: {"mercado_texto": m, "seleccion_texto": s, "linea": ln, "cuota": 1.2}      # noqa: E731
+    lect = {"partidos": [
+        {"local": "TUR", "visita": "BEL", "selecciones": [sel("GOLES TOTALES 90'", "Más", 1.5)]},
+        {"local": "CZE", "visita": "ESP", "selecciones": [sel("GOLES TOTALES 90'", "Más", 1.5)]},
+        {"local": "CZE", "visita": "ESP", "selecciones": [sel("GOLES TOTALES 90'", "Más", 1.5), sel("AMBOS ANOTAN", "Sí")], "local_completo": "Czech Republic"},   # el mismo partido en el tramo siguiente
+        {"local": "tur", "visita": "bel", "selecciones": [sel("GOLES TOTALES 90'", "Más", 1.5)]}]}                                              # repetido tal cual (otra capitalización)
+    r = bo._fusionar(lect)
+    assert [(b["local"], b["visita"]) for b in r["partidos"]] == [("TUR", "BEL"), ("CZE", "ESP")]
+    assert len(r["partidos"][0]["selecciones"]) == 1 and len(r["partidos"][1]["selecciones"]) == 2           # la repetida se fue; la nueva (ambos anotan) se conserva
+    assert r["partidos"][1]["local_completo"] == "Czech Republic"
+    distintas = bo._fusionar({"partidos": [{"local": "A", "visita": "B", "selecciones": [sel("GOLES TOTALES", "Más", 1.5), sel("GOLES TOTALES", "Más", 2.5), sel("GOLES TOTALES", "Menos", 1.5)]}]})
+    assert len(distintas["partidos"][0]["selecciones"]) == 3                                                # líneas o lados distintos NO se confunden con repetidas
+
+
+def test_api_acepta_tramos_y_rechaza_lo_vacio(api, monkeypatch):
+    cli, _ = api
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-x")
+    visto = {}
+
+    def falso(payload, llave):
+        visto["n"] = sum(1 for x in payload["messages"][0]["content"] if x["type"] == "image")
+        return _respuesta(LECTURA_OK)
+    monkeypatch.setattr(bo, "_enviar_anthropic", falso)
+    r = cli.post("/boleto/leer", json={"imagenes_base64": [_b64(), _b64(), _b64()], "media_type": "image/png"})
+    assert r.status_code == 200 and visto["n"] == 3
+    assert cli.post("/boleto/leer", json={"media_type": "image/png"}).status_code == 422                     # sin ninguna imagen
+    assert cli.post("/boleto/leer", json={"imagenes_base64": [], "media_type": "image/png"}).status_code == 422
+    assert cli.post("/boleto/leer", json={"imagenes_base64": [_b64()] * (bo.MAX_IMAGENES + 1), "media_type": "image/png"}).status_code == 422
+    assert cli.post("/boleto/leer", json={"imagenes_base64": ["%%%no%%%"], "media_type": "image/png"}).status_code == 422
+
+
+# ------------------------------------------------------------------ bloque independiente: partidos SOLO MERCADO y líneas 0.5 / 4.5
+def _matriz(con, pid):
+    from golmodel.integracion import candidatas as cd
+    return cd._matriz_decision(cd._prediccion(con, pid, _momento()))
+
+
+def _clonar_a_mercado(con, p, n):
+    """Partido nuevo en una competición SOLO MERCADO (`MK:`) con la predicción de `p` copiada (en producción esa matriz sale de las cuotas del mercado)."""
+    from golmodel import repositorio as repo
+    liga = repo.asegurar_liga_mercado(con, "test_selecciones", "Selecciones de prueba")
+    l = con.execute("INSERT INTO equipos (nombre, pais) VALUES (%s, '') RETURNING id", (f"Mercado Local {n}",)).fetchone()["id"]
+    v = con.execute("INSERT INTO equipos (nombre, pais) VALUES (%s, '') RETURNING id", (f"Mercado Visita {n}",)).fetchone()["id"]
+    pid = con.execute("INSERT INTO partidos (liga_id, temporada, inicio, local_id, visitante_id, estado) SELECT %s, temporada, inicio, %s, %s, 'programado' FROM partidos WHERE id = %s RETURNING id",
+                      (liga["id"], l, v, p["id"])).fetchone()["id"]
+
+    def cols(tabla, excluir):
+        return [r["column_name"] for r in con.execute("SELECT column_name FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = %s ORDER BY ordinal_position", (tabla,))
+                if r["column_name"] not in excluir]
+    c1 = ", ".join(cols("predicciones", {"id", "partido_id"}))
+    fuente = con.execute("SELECT id FROM predicciones WHERE partido_id = %s AND origen = 'produccion' ORDER BY creada_en DESC, id DESC LIMIT 1", (p["id"],)).fetchone()["id"]
+    nuevo = con.execute(f"INSERT INTO predicciones (partido_id, {c1}) SELECT %s, {c1} FROM predicciones WHERE id = %s RETURNING id", (pid, fuente)).fetchone()["id"]
+    c2 = ", ".join(cols("predicciones_seleccion", {"prediccion_id"}))
+    con.execute(f"INSERT INTO predicciones_seleccion (prediccion_id, {c2}) SELECT %s, {c2} FROM predicciones_seleccion WHERE prediccion_id = %s", (nuevo, fuente))
+    return pid
+
+
+def test_solo_mercado_y_lineas_extra_se_evaluan_aparte_con_su_matriz_y_se_combinan_con_la_conjunta(con, cfg):  # noqa: F811
+    import numpy as np
+    ps = _partidos(con, _dia(con))
+    mod_cat, mod_extra = ps[0], ps[1]                                                                        # modelados: uno con línea del catálogo, otro con 0.5
+    m1, m2 = _clonar_a_mercado(con, ps[2], 1), _clonar_a_mercado(con, ps[3], 2)                              # dos partidos solo mercado
+    legs = [{"partido_id": mod_cat["id"], "seleccion": "OU:1.5:over", "cuota": 1.3}, {"partido_id": mod_extra["id"], "seleccion": "OU:0.5:over", "cuota": 1.05},
+            {"partido_id": m1, "seleccion": "1X2:1", "cuota": 1.8}, {"partido_id": m2, "seleccion": "OU:4.5:under", "cuota": 1.1}]
+    r = bo.analizar(con, cfg, _cfg(), _momento(), legs, cuota_total=4.0)
+    por = {f["partido_id"]: f for f in r["piernas"]}
+    assert por[mod_cat["id"]].get("bloque") is None and por[mod_cat["id"]]["estado"] == "ok"                # catálogo + modelado: motor V3
+    for pid in (mod_extra["id"], m1, m2):
+        assert por[pid]["estado"] == "ok" and por[pid]["bloque"] == "independiente" and "independencia" in por[pid]["nota"]
+    mx = _matriz(con, mod_extra["id"])
+    i, j = np.indices(mx.shape)
+    assert por[mod_extra["id"]]["p_mostrar"] == pytest.approx(float(mx[(i + j) > 0.5].sum()))                # «más de 0.5» = 1 − P(0-0), recomputado aparte
+    assert por[m2]["p_mostrar"] == pytest.approx(float(_matriz(con, m2)[(i + j) < 4.5].sum()))
+    assert "solo mercado" in por[m1]["nota"].lower() and por[mod_extra["id"]]["nota"].startswith("Línea fuera del catálogo")
+    assert por[m1]["estado"] == "ok" and por[m1]["p_modelo"] is None                                          # sin modelo propio: no se presenta como probabilidad del modelo
+    prod = por[mod_extra["id"]]["p_mostrar"] * por[m1]["p_mostrar"] * por[m2]["p_mostrar"]
+    assert r["independiente"]["n_partidos"] == 3 and r["independiente"]["p_producto"] == pytest.approx(prod)
+    c, cm = r["conjunta"], r["completo"]
+    assert c["n_partidos"] == 1 and cm["n_partidos"] == 4
+    assert cm["p_media"] == pytest.approx(c["p_media"] * prod) and cm["p_conservadora"] == pytest.approx(c["p_conservadora"] * prod)
+    assert cm["ev_media"] == pytest.approx(cm["p_media"] * 4.0 - 1) and cm["ev_conservador"] == pytest.approx(cm["p_conservadora"] * 4.0 - 1)
+    assert cm["cuota_justa"] == pytest.approx(1 / cm["p_media"])
+    assert any("SUPONIENDO que son independientes" in a for a in r["avisos"]) and not any("NO entran al cálculo" in a for a in r["avisos"])
+
+
+def test_boleto_solo_de_mercado_no_inventa_cota_conservadora_ni_conjunta_calibrada(con, cfg):  # noqa: F811
+    ps = _partidos(con, _dia(con))
+    ids = [_clonar_a_mercado(con, ps[k], k) for k in range(3)]
+    r = bo.analizar(con, cfg, _cfg(), _momento(), [{"partido_id": i, "seleccion": "OU:1.5:over", "cuota": 1.3} for i in ids], cuota_total=2.2)
+    assert r["conjunta"] is None                                                                           # no hay conjunta calibrada: no se simula una
+    cm = r["completo"]
+    assert cm["p_conservadora"] is None and cm["ev_conservador"] is None and cm["p_media"] == pytest.approx(r["independiente"]["p_producto"])
+    assert cm["ev_media"] == pytest.approx(cm["p_media"] * 2.2 - 1)
+
+
+def test_sugerencias_del_bloque_independiente_son_numeros_de_la_matriz_ordenados(con, cfg):  # noqa: F811
+    ps = _partidos(con, _dia(con))
+    ids = [_clonar_a_mercado(con, ps[k], k) for k in range(3)]
+    r = bo.analizar(con, cfg, _cfg(), _momento(), [{"partido_id": i, "seleccion": "OU:3.5:over", "cuota": 2.2} for i in ids], cuota_total=10.0)
+    sug = r["independiente"]["sugerencias"]
+    assert sug and len(sug) <= bo.MAX_SUGERENCIAS and [s["sube_x"] for s in sug] == sorted((s["sube_x"] for s in sug), reverse=True) and all(s["sube_x"] > 1 for s in sug)
+    pp = {f["partido"]: f["p_mostrar"] for f in r["piernas"]}
+    for s in sug:
+        if s["tipo"] == "quitar":
+            assert s["sube_x"] == pytest.approx(1 / pp[s["partido"]])                                          # sin ese partido el producto sube 1/p (independencia)
+        else:
+            assert s["de"] == "OU:3.5:over" and s["a"] in ("OU:2.5:over", "OU:1.5:over", "OU:0.5:over") and s["p_pierna_despues"] > s["p_pierna_antes"]
+            assert s["sube_x"] == pytest.approx(s["p_pierna_despues"] / s["p_pierna_antes"]) and s["cuota_justa_nueva"] == pytest.approx(1 / s["p_pierna_despues"])
+
+
+def test_solo_mercado_sin_prediccion_dice_que_faltan_cuotas_y_no_calcula(con, cfg):  # noqa: F811
+    from datetime import timedelta
+    ps = _partidos(con, _dia(con))
+    pid = _clonar_a_mercado(con, ps[0], 9)
+    antes = _momento() - timedelta(days=60)                                                                  # antes de que existiera cualquier predicción
+    r = bo.analizar(con, cfg, _cfg(), antes, [{"partido_id": pid, "seleccion": "OU:1.5:over"}])
+    f = r["piernas"][0]
+    assert f["estado"] == "sin_modelo" and "Actualizar solo cuotas" in f["motivo"] and f["p_mostrar"] is None
+    assert r["conjunta"] is None and r["independiente"] is None and r["completo"] is None
+
+
+# ------------------------------------------------------------------ fallas halladas en auditoría (cada prueba FALLA con el código anterior)
+def test_el_ev_usa_la_cuota_de_los_partidos_que_si_entraron_no_la_total_del_boleto(con, cfg):  # noqa: F811
+    ps = _partidos(con, _dia(con))
+    con.execute("UPDATE partidos SET estado = 'cancelado' WHERE id = %s", (ps[0]["id"],))
+    r = bo.analizar(con, cfg, _cfg(), _momento(), _legs(ps, 3, cuota=1.3), cuota_total=2.0)              # 3 × 1.3 ≈ 2.2 pagaría 2.0; uno quedó fuera
+    c = r["conjunta"]
+    assert c["n_partidos"] == 2 and c["cuota_parcial"] is True and c["cuota_total"] == pytest.approx(1.3 * 1.3)
+    assert c["ev_media"] == pytest.approx(c["p_media"] * 1.69 - 1) and c["ev_conservador"] == pytest.approx(c["p_conservadora"] * 1.69 - 1)   # antes: × 2.0 (EV inflado)
+    assert all(x["cuota"] == pytest.approx(1.3) for x in c["sin_cada_partido"])                          # quitar uno de los dos deja la cuota del otro
+    assert any("no con la cuota total del boleto" in a for a in r["avisos"])
+    sin_cuotas = bo.analizar(con, cfg, _cfg(), _momento(), _legs(ps, 3, cuota=None), cuota_total=2.0)    # sin cuota por selección no se puede saber la del subconjunto
+    assert "ev_media" not in sin_cuotas["conjunta"] and "cuota_total" not in sin_cuotas["conjunta"]
+    assert any("Falta la cuota de algún partido" in a for a in sin_cuotas["avisos"])
+    completo = bo.analizar(con, cfg, _cfg(), _momento(), _legs(ps[1:], 3, cuota=1.3), cuota_total=2.0)   # todo entró: se usa la cuota total tal cual
+    assert completo["conjunta"]["cuota_total"] == 2.0 and completo["conjunta"]["cuota_parcial"] is False
+    assert not any("no con la cuota total" in a for a in completo["avisos"])
+
+
+def test_en_un_boleto_mixto_cada_bloque_usa_su_cuota(con, cfg):  # noqa: F811
+    ps = _partidos(con, _dia(con))
+    m1 = _clonar_a_mercado(con, ps[2], 1)
+    legs = [{"partido_id": ps[0]["id"], "seleccion": "OU:1.5:over", "cuota": 1.3}, {"partido_id": ps[1]["id"], "seleccion": "OU:1.5:over", "cuota": 1.4},
+            {"partido_id": m1, "seleccion": "OU:1.5:over", "cuota": 1.25}]
+    r = bo.analizar(con, cfg, _cfg(), _momento(), legs, cuota_total=2.2)
+    c, cm = r["conjunta"], r["completo"]
+    assert c["n_partidos"] == 2 and c["cuota_parcial"] is True and c["cuota_total"] == pytest.approx(1.3 * 1.4)       # el motor V3 solo cubre 2 de 3: NO se usa 2.2
+    assert c["ev_media"] == pytest.approx(c["p_media"] * 1.82 - 1)
+    assert cm["n_partidos"] == 3 and cm["cuota_parcial"] is False and cm["cuota_total"] == 2.2                       # el total sí cubre los 3
+    assert cm["ev_media"] == pytest.approx(cm["p_media"] * 2.2 - 1)
+
+
+def test_una_respuesta_cortada_nunca_se_da_por_buena_aunque_el_json_sea_valido_o_no_haya_json():
+    valida_pero_cortada = {"content": [{"type": "text", "text": _lectura_json(3)}], "stop_reason": "max_tokens"}
+    with pytest.raises(bo.ErrorBoleto, match="dos capturas"):                                           # podrían faltar filas: no se analiza un boleto incompleto
+        bo.leer_captura(PNG, "image/png", enviar=lambda p, k: valida_pero_cortada, env={"ANTHROPIC_API_KEY": "k"})
+    sin_llaves = {"content": [{"type": "text", "text": "Voy a leer el boleto"}], "stop_reason": "max_tokens"}
+    with pytest.raises(bo.ErrorBoleto, match="dos capturas"):
+        bo.leer_captura(PNG, "image/png", enviar=lambda p, k: sin_llaves, env={"ANTHROPIC_API_KEY": "k"})
+
+
+def test_la_api_acepta_un_boleto_de_25_selecciones(api):
+    cli, _ = api
+    legs = [{"partido_id": 90_000_000 + i, "seleccion": "OU:1.5:over", "cuota": 1.2} for i in range(25)]
+    r = cli.post("/boleto/analizar", json={"legs": legs, "cuota_total": 90.51})
+    assert r.status_code == 422 and isinstance(r.json()["detail"], str) and "no existe" in r.json()["detail"]      # pasó la validación de tamaño; falla porque esos partidos no existen
+    r41 = cli.post("/boleto/analizar", json={"legs": legs + legs[:16]})
+    assert r41.status_code == 422 and not isinstance(r41.json()["detail"], str)                                    # 41: rechazado por tamaño
+    extra = cli.post("/boleto/analizar", json={"legs": [{"partido_id": 90_000_001, "seleccion": "OU:4.5:under"}]})
+    assert "no existe" in extra.json()["detail"]                                                                    # la línea 4.5 se acepta como selección válida

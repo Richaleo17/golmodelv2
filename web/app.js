@@ -399,21 +399,33 @@ const ETQ_SEL = {
   "OU:3.5:over": "Más de 3.5 goles", "OU:3.5:under": "Menos de 3.5 goles",
   "ANOTA:local:si": "Local anota", "ANOTA:local:no": "Local no anota", "ANOTA:visitante:si": "Visitante anota", "ANOTA:visitante:no": "Visitante no anota",
   "DC:1X": "Local o empate (1X)", "DC:X2": "Empate o visitante (X2)", "DC:12": "Sin empate (12)",
+  "OU:0.5:over": "Más de 0.5 goles", "OU:0.5:under": "Menos de 0.5 goles", "OU:4.5:over": "Más de 4.5 goles", "OU:4.5:under": "Menos de 4.5 goles",
   "AH:local:+1.5": "Hándicap local +1.5", "AH:local:-1.5": "Hándicap local −1.5", "AH:visitante:+1.5": "Hándicap visitante +1.5", "AH:visitante:-1.5": "Hándicap visitante −1.5",
 };
 const etqSel = (c) => ETQ_SEL[c] || c;
 const ESTADO_LEG = { sin_partido: "No encontré el partido", no_reconocido: "No entendí la selección", no_soportado: "Mercado no modelado", ya_empezo: "Ya empezó o terminó", sin_modelo: "Sin modelo para este partido" };
 
-/* Reduce la foto del teléfono (varios MB) a ≤1600 px en JPEG: suficiente para leer el boleto y rápido de subir. */
-function reducirImagen(archivo, max = 1600) {
+/* Prepara la captura para leerla. Un boleto largo (p. ej. Draftea con 24 selecciones) es una imagen MUY alta: reducirla a 1600 px de alto la volvía ilegible.
+   Se parte en TRAMOS de 1400 px de alto (con 160 px de solapamiento para no cortar una fila) manteniendo el ancho (≤1100 px), en JPEG. Una imagen chica se amplía
+   hasta 2× para que el texto se lea mejor. Cada tramo pesa poco; el servidor los junta y quita lo repetido. */
+const TRAMO_ALTO = 1400, TRAMO_SOLAPE = 160, TRAMO_MAX = 10;
+function prepararImagenes(archivo) {
   return new Promise((ok, mal) => {
     const url = URL.createObjectURL(archivo), img = new Image();
     img.onload = () => {
-      const k = Math.min(1, max / Math.max(img.width, img.height)), c = document.createElement("canvas");
-      c.width = Math.max(1, Math.round(img.width * k)); c.height = Math.max(1, Math.round(img.height * k));
-      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
       URL.revokeObjectURL(url);
-      ok({ b64: c.toDataURL("image/jpeg", 0.85).split(",")[1], tipo: "image/jpeg" });
+      const k = img.width < 700 ? Math.min(2, 700 / img.width) : Math.min(1, 1100 / img.width);
+      const ancho = Math.max(1, Math.round(img.width * k)), alto = Math.max(1, Math.round(img.height * k));
+      const n = alto <= TRAMO_ALTO ? 1 : Math.ceil((alto - TRAMO_SOLAPE) / (TRAMO_ALTO - TRAMO_SOLAPE));
+      if (n > TRAMO_MAX) { mal(new Error(`La captura es demasiado larga (${n} tramos; máximo ${TRAMO_MAX}). Súbela en dos capturas.`)); return; }
+      const tramos = [];
+      for (let i = 0; i < n; i++) {
+        const y0 = i * (TRAMO_ALTO - TRAMO_SOLAPE), h = Math.min(TRAMO_ALTO, alto - y0), c = document.createElement("canvas");
+        c.width = ancho; c.height = h;
+        c.getContext("2d").drawImage(img, 0, y0 / k, img.width, h / k, 0, 0, ancho, h);
+        tramos.push(c.toDataURL("image/jpeg", 0.88).split(",")[1]);
+      }
+      ok({ tramos, tipo: "image/jpeg" });
     };
     img.onerror = () => { URL.revokeObjectURL(url); mal(new Error("No pude abrir esa imagen. Usa una captura JPG o PNG.")); };
     img.src = url;
@@ -444,16 +456,18 @@ function htmlBoletoResultado(a) {
   const c = a.conjunta;
   let h = `<h3>📊 Análisis del boleto</h3>`;
   h += `<table class="t"><tr><th>Partido</th><th>Selección</th><th>Modelo</th><th>Cuota justa</th></tr>${a.piernas.map((f) =>
-    `<tr><td>${esc(f.partido)}</td><td>${f.selecciones.map((s) => esc(etqSel(s))).join(" + ")}</td>` +
+    `<tr><td>${esc(f.partido)}${f.bloque === "independiente" ? ' <span class="chip viejo">mercado</span>' : ""}${f.nota ? `<div class="meta">${esc(f.nota)}</div>` : ""}</td><td>${f.selecciones.map((s) => esc(etqSel(s))).join(" + ")}</td>` +
     (f.estado === "ok" ? `<td><b style="color:${colorP(f.p_mostrar)}">${pct(f.p_mostrar)}</b></td><td>${num(f.cuota_justa)}</td>` : `<td colspan="2" class="no">${esc(f.motivo)}</td>`) + `</tr>`).join("")}</table>`;
+  const fuera = a.piernas.filter((f) => f.estado !== "ok").length;           // partidos que NO entraron a ningún cálculo
   if (c) {
+    if (a.independiente || fuera) h += `<p class="meta"><b>Motor V3:</b> los números de este bloque son solo de ${esc(c.n_partidos)} partido(s) con modelo propio, no de todo el boleto.</p>`;
     h += `<div class="kpis"><div class="kpi"><div class="v">${pct(c.p_media, 1)}</div><div class="l">Prob. conjunta</div></div><div class="kpi"><div class="v">${pct(c.p_conservadora, 1)}</div><div class="l">Conservadora</div></div>` +
       `<div class="kpi"><div class="v">${pct(c.p_independencia, 1)}</div><div class="l">Si fueran independientes</div></div>` +
       `<div class="kpi"><div class="v">${num(c.lift, 2)}×</div><div class="l">Efecto dependencia</div></div>` +
       `<div class="kpi"><div class="v">${num(c.cuota_justa_conservadora)}</div><div class="l">Cuota mín. conserv.</div></div>` +
       (c.ev_conservador != null ? `<div class="kpi"><div class="v" style="color:${c.ev_conservador > 0 ? "var(--hi)" : "var(--lo)"}">${(100 * c.ev_conservador).toFixed(1)}%</div><div class="l">EV conservador</div></div>` : "") + `</div>`;
     if (c.cuota_total) {
-      h += `<p class="${c.ev_conservador > 0 ? "ok" : "no"}">Con tu cuota total ${num(c.cuota_total)}: EV con la prob. media ${(100 * c.ev_media).toFixed(1)}% · con la conservadora ${(100 * c.ev_conservador).toFixed(1)}%. ` +
+      h += `<p class="${c.ev_conservador > 0 ? "ok" : "no"}">${c.cuota_parcial ? "Con la cuota de estos partidos (" + num(c.cuota_total) + ", el producto de sus cuotas)" : "Con tu cuota total " + num(c.cuota_total)}: EV con la prob. media ${(100 * c.ev_media).toFixed(1)}% · con la conservadora ${(100 * c.ev_conservador).toFixed(1)}%. ` +
         (c.stake_referencia_u ? `Referencia de stake: ${num(c.stake_referencia_u)} u.` : "El modelo no ve ventaja con la conservadora: no hay stake de referencia.") + `</p>`;
     }
     if (c.sin_cada_partido && c.sin_cada_partido.length) {
@@ -461,11 +475,24 @@ function htmlBoletoResultado(a) {
         `<tr><td>${esc(x.partido)}</td><td>${pct(x.p_conservadora, 1)}</td><td>${x.sube_x ? num(x.sube_x, 2) + "×" : "—"}</td><td>${x.cuota ? num(x.cuota) : "—"}</td></tr>`).join("")}</table>`;
     }
   }
-  if (c && c.sugerencias && c.sugerencias.length) {
-    h += `<h3>💡 Qué cambiaría el modelo</h3><p class="meta">Ordenado por cuánto sube la probabilidad conservadora del boleto. Cambiar a una opción más segura <b>paga menos</b>: mételo solo si tu casa paga más que la cuota justa indicada.</p>` +
-      c.sugerencias.map((s) => s.tipo === "bajar"
-        ? `<div class="card"><b>${esc(s.partido)}</b>: cambia «${esc(s.de_etiqueta)}» por «${esc(s.a_etiqueta)}».<div class="meta">Esa selección pasa de ${pct(s.p_pierna_antes)} a ${pct(s.p_pierna_despues)} (cuota justa ${num(s.cuota_justa_nueva)}); el boleto sube a ${pct(s.p_conservadora_despues, 1)} conservadora (${num(s.sube_x, 2)}×).</div></div>`
-        : `<div class="card"><b>Quita ${esc(s.partido)}</b>.<div class="meta">El boleto sube a ${pct(s.p_conservadora_despues, 1)} conservadora (${num(s.sube_x, 2)}×), pero pagará menos.</div></div>`).join("");
+  const cm = a.completo;
+  if (cm) {                                                                  // boleto con partidos solo mercado / líneas fuera del catálogo: resumen APROXIMADO del total
+    h += `<h3>🎟️ ${fuera ? "Partidos calculados" : "Boleto completo"} (aproximado)</h3>` +
+      (fuera ? `<p class="no">Faltan ${esc(fuera)} partido(s) que no se pudieron calcular: esto NO es la probabilidad de todo tu boleto, solo de los ${esc(cm.n_partidos)} calculados.</p>` : "") +
+      `<div class="kpis"><div class="kpi"><div class="v">${pct(cm.p_media, cm.p_media < 0.01 ? 2 : 1)}</div><div class="l">${fuera ? "Prob. de los calculados" : "Prob. de que TODO se cumpla"}</div></div>` +
+      `<div class="kpi"><div class="v">${num(cm.cuota_justa)}</div><div class="l">Cuota justa</div></div>` +
+      (cm.p_conservadora != null ? `<div class="kpi"><div class="v">${pct(cm.p_conservadora, cm.p_conservadora < 0.01 ? 2 : 1)}</div><div class="l">Conservadora</div></div>` : "") +
+      (cm.ev_media != null ? `<div class="kpi"><div class="v" style="color:${cm.ev_media > 0 ? "var(--hi)" : "var(--lo)"}">${(100 * cm.ev_media).toFixed(1)}%</div><div class="l">EV con ${cm.cuota_parcial ? "la cuota de estos partidos" : "tu cuota"} ${num(cm.cuota_total)}</div></div>` : "") + `</div>` +
+      `<p class="meta">${esc(cm.supuesto)} ${a.independiente ? esc(a.independiente.n_partidos) + " de " + esc(cm.n_partidos) + " partidos van por este camino (solo mercado o línea fuera del catálogo)." : ""}</p>`;
+  }
+  const sugs = [...((c && c.sugerencias) || []).map((s) => ({ ...s, _d: s.p_conservadora_despues, _u: "conservadora" })),
+    ...((a.independiente && a.independiente.sugerencias) || []).map((s) => ({ ...s, _d: s.p_despues, _u: "(aprox.)" }))].sort((x, y) => y.sube_x - x.sube_x).slice(0, 8);
+  if (sugs.length) {
+    h += `<h3>💡 Qué cambiaría el modelo</h3><p class="meta">Ordenado por cuánto sube la probabilidad del boleto. Cambiar a una opción más segura <b>paga menos</b>: mételo solo si tu casa paga más que la cuota justa indicada. ` +
+      `Para quitar un partido, mira primero los de menor probabilidad: son los eslabones débiles.</p>` +
+      sugs.map((s) => s.tipo === "bajar"
+        ? `<div class="card"><b>${esc(s.partido)}</b>: cambia «${esc(s.de_etiqueta)}» por «${esc(s.a_etiqueta)}».<div class="meta">Esa selección pasa de ${pct(s.p_pierna_antes)} a ${pct(s.p_pierna_despues)} (cuota justa ${num(s.cuota_justa_nueva)}); el boleto sube a ${pct(s._d, s._d < 0.01 ? 2 : 1)} ${s._u} (${num(s.sube_x, 2)}×).</div></div>`
+        : `<div class="card"><b>Quita ${esc(s.partido)}</b>.<div class="meta">El boleto sube a ${pct(s._d, s._d < 0.01 ? 2 : 1)} ${s._u} (${num(s.sube_x, 2)}×), pero pagará menos.</div></div>`).join("");
   }
   h += (a.avisos || []).map((t) => `<div class="aviso-prov">${esc(t)}</div>`).join("");
   return h;
@@ -478,7 +505,8 @@ function montarBoleto(v) {
     const b = S.boleto;
     if (!b) { zona.innerHTML = ""; return; }
     zona.innerHTML = `<div class="card"><p class="meta">Leído de tu captura${b.confianza_lectura ? " (confianza de la lectura: " + esc(b.confianza_lectura) + ")" : ""}: ${esc(b.n_ok)} de ${esc(b.n_total)} selecciones reconocidas. ` +
-      `<b>Revisa que sea lo que dice tu boleto</b> y corrige lo que haga falta antes de analizar.</p>${htmlBoletoLegs(b)}` +
+      `<b>Revisa que sea lo que dice tu boleto</b> y corrige lo que haga falta antes de analizar.</p>` +
+      (b.verificacion ? `<p id="bol-verif" class="${b.verificacion.coincide ? "ok" : "no"}">${esc(b.verificacion.mensaje)}</p>` : "") + htmlBoletoLegs(b) +
       `<div class="fila"><div><label for="bol-ct">Cuota total del boleto</label><input id="bol-ct" type="number" step="0.01" min="1.01" value="${b.cuota_total ? esc(b.cuota_total) : ""}"></div>` +
       `<div><label for="bol-monto">Monto apostado${b.moneda ? " (" + esc(b.moneda) + ")" : ""}</label><input id="bol-monto" type="number" step="0.01" min="0" value="${b.monto ? esc(b.monto) : ""}"></div></div>` +
       `<div class="fila"><button id="bol-ok" class="btn primario" type="button">Analizar boleto</button><button id="bol-borrar" class="btn" type="button">Descartar</button></div><div id="bol-res">${b.resultado ? htmlBoletoResultado(b.resultado) : ""}</div></div>`;
@@ -514,10 +542,11 @@ function montarBoleto(v) {
   if (arch) arch.addEventListener("change", async () => {
     const f = arch.files && arch.files[0];
     if (!f) return;
-    est.innerHTML = '<p class="vacio"><span class="spin"></span>Leyendo tu boleto… (unos segundos)</p>';
+    est.innerHTML = '<p class="vacio"><span class="spin"></span>Preparando la imagen…</p>';
     try {
-      const im = await reducirImagen(f);
-      const r = await api("POST", "/boleto/leer", { imagen_base64: im.b64, media_type: im.tipo });
+      const im = await prepararImagenes(f);
+      est.innerHTML = `<p class="vacio"><span class="spin"></span>Leyendo tu boleto${im.tramos.length > 1 ? ` (${im.tramos.length} partes)` : ""}… puede tardar hasta un minuto si es largo.</p>`;
+      const r = await api("POST", "/boleto/leer", { imagenes_base64: im.tramos, media_type: im.tipo });
       if (!r.ok) { est.innerHTML = `<p class="error">${esc(r.error)}</p>`; return; }
       S.boleto = { ...r.data, resultado: null };
       est.innerHTML = "";

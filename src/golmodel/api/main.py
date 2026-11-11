@@ -336,7 +336,9 @@ def post_cuotas_texto(t: TextoCuotas, s: Servicio = Depends(servicio), conn=Depe
 
 # ------------------------------------------------------------------ boleto por captura (visión de Anthropic + modelo V3)
 class LeerBoleto(BaseModel):
-    imagen_base64: str = Field(max_length=8_000_000)
+    """Una imagen (`imagen_base64`) o los TRAMOS consecutivos de una captura larga (`imagenes_base64`, con solapamiento)."""
+    imagen_base64: str | None = Field(default=None, max_length=8_000_000)
+    imagenes_base64: list[str] | None = Field(default=None, min_length=1, max_length=boleto.MAX_IMAGENES)
     media_type: str = "image/png"
 
 
@@ -348,7 +350,7 @@ class LegBoleto(BaseModel):
 
 
 class AnalizarBoleto(BaseModel):
-    legs: list[LegBoleto] = Field(min_length=1, max_length=20)
+    legs: list[LegBoleto] = Field(min_length=1, max_length=40)          # un boleto de Draftea llega a ~25 selecciones
     cuota_total: float | None = Field(default=None, gt=1.0, lt=100000)
     monto: float | None = Field(default=None, gt=0, lt=10_000_000)
 
@@ -394,9 +396,14 @@ def post_boleto_leer(b: LeerBoleto, s: Servicio = Depends(servicio), conn=Depend
     """Lee la captura de un boleto (Anthropic) y la empareja con los partidos programados. Devuelve lo leído para que el usuario lo CONFIRME antes de analizar."""
     import base64
     import binascii
+    crudas = b.imagenes_base64 if b.imagenes_base64 else ([b.imagen_base64] if b.imagen_base64 else [])
+    if not crudas:
+        raise HTTPException(422, "Falta la imagen del boleto.")
+    if any(len(x) > 8_000_000 for x in crudas):
+        raise HTTPException(422, "Un tramo de la imagen es demasiado grande (máx. ~6 MB por tramo).")
     try:
-        imagen = base64.b64decode(b.imagen_base64, validate=True)
-        lectura = boleto.leer_captura(imagen, b.media_type)
+        imagenes = [base64.b64decode(x, validate=True) for x in crudas]
+        lectura = boleto.leer_captura(imagenes, b.media_type)
     except binascii.Error:
         raise HTTPException(422, "La imagen no llegó bien codificada.")
     except boleto.ErrorBoleto as e:

@@ -293,3 +293,148 @@ def test_api_revisar_competiciones_sin_llave_con_error_y_con_datos(api):
     env = {"APP_PASSWORD": "admin-1", "APP_VIEWER_PASSWORD": "lector-1", "UI_BIND": "0.0.0.0"}
     tok = f"Bearer {acceso.crear_token(acceso.LECTOR, acceso.secreto('admin-1', 'lector-1', {}))}"
     assert seguridad.decidir("POST", "/catalogo/competiciones/revisar", tok, env)[0] == 403            # solo el administrador
+
+
+# ------------------------------------------------------------------ selecciones: códigos de Draftea (ESP, ING, ALE, HOL…) que NO se derivan del nombre en inglés
+# Pares tomados de una captura real de Draftea (12–15 nov): cada uno debe encajar con el partido de The Odds API (nombres en inglés).
+PARES_DRAFTEA = [("TUR", "BEL", "Turkey", "Belgium"), ("CZE", "ESP", "Czech Republic", "Spain"), ("SMR", "BLR", "San Marino", "Belarus"), ("ITA", "FRA", "Italy", "France"),
+                 ("MNE", "LVA", "Montenegro", "Latvia"), ("ING", "CRO", "England", "Croatia"), ("MDA", "KAZ", "Moldova", "Kazakhstan"), ("AND", "GIB", "Andorra", "Gibraltar"),
+                 ("BUL", "ISL", "Bulgaria", "Iceland"), ("LUX", "EST", "Luxembourg", "Estonia"), ("HOL", "GRE", "Netherlands", "Greece"), ("SVK", "FRO", "Slovakia", "Faroe Islands"),
+                 ("LIE", "AZE", "Liechtenstein", "Azerbaijan"), ("SVN", "SUI", "Slovenia", "Switzerland"), ("SCO", "MKD", "Scotland", "North Macedonia"), ("SRB", "ALE", "Serbia", "Germany"),
+                 ("RKS", "ISR", "Kosovo", "Israel"), ("NOR", "WAL", "Norway", "Wales"), ("GEO", "HUN", "Georgia", "Hungary"), ("SWE", "BIH", "Sweden", "Bosnia and Herzegovina"),
+                 ("ROU", "POL", "Romania", "Poland"), ("AUT", "IRL", "Austria", "Ireland"), ("NIR", "UKR", "Northern Ireland", "Ukraine"), ("PRT", "DEN", "Portugal", "Denmark"),
+                 ("ESP", "ING", "Spain", "England")]
+
+
+@pytest.mark.parametrize("a,b,na,nb", PARES_DRAFTEA)
+def test_cada_codigo_de_draftea_encaja_con_el_nombre_de_la_api(a, b, na, nb):
+    assert cat.encaja(a, {na}) >= 0.8 and cat.encaja(b, {nb}) >= 0.8, (a, b)
+    assert cat.encaja(a, {nb}) == 0 or a in cat.codigos_de(nb)                       # y no con el rival (salvo coincidencia real de códigos)
+
+
+def test_el_boleto_entero_de_draftea_empareja_cada_partido_con_el_suyo_y_no_con_otro():
+    ps = [_p(i + 1, na, nb, "MK:soccer_uefa_nations_league") for i, (_, _, na, nb) in enumerate(PARES_DRAFTEA)]
+    nom = _nombres(ps)
+    for i, (a, b, _, _) in enumerate(PARES_DRAFTEA):
+        p, motivo, ops = cat.emparejar_flexible(a, b, ps, nom)
+        assert p is not None and p["id"] == i + 1 and motivo == "" and ops == [], (a, b, motivo)
+    assert cat.emparejar_flexible("ISL", "BUL", ps, nom)[0] is None                    # orden invertido: se rechaza, no se adivina
+
+
+def test_codigos_de_selecciones_no_chocan_por_palabras_de_relleno():
+    assert "AND" not in cat.codigos_de("Bosnia and Herzegovina") and "REP" not in cat.codigos_de("Czech Republic")
+    assert {"ESP"} <= cat.codigos_de("Spain") and {"ALE", "GER"} <= cat.codigos_de("Germany") and {"ING", "ENG"} <= cat.codigos_de("England")
+    assert {"HOL", "NED"} <= cat.codigos_de("Netherlands") and cat.codigos_de("Chelsea") == {"CHE"}                  # un club no recibe códigos de selección
+    assert cat.encaja("ALE", {"Germany"}) >= 0.8 and cat.encaja("ALE", {"Austria"}) == 0 and cat.encaja("ESP", {"Spain"}) >= 0.8
+
+
+# ------------------------------------------------------------------ fallas halladas en auditoría (cada prueba FALLA con el código anterior)
+def test_una_abreviatura_no_encaja_por_parecido_difuso_ni_por_palabras_de_relleno():
+    assert cat.encaja("AND", {"Bosnia and Herzegovina"}) == 0                     # antes 0.9 por la palabra «and»: «AND» es Andorra
+    assert cat.encaja("AND", {"Andorra"}) >= 0.8
+    assert cat.encaja("NOR", {"Northern Ireland"}) == 0 and cat.encaja("NOR", {"Norway"}) >= 0.8      # «NOR» es Noruega, no Irlanda del Norte
+    assert cat.encaja("IRE", {"Northern Ireland"}) == 0 and cat.encaja("SPA", {"Spain"}) == 0 and cat.encaja("NET", {"Netherlands"}) == 0
+    assert cat.codigos_de("Northern Ireland") == {"NIR"} and cat.codigos_de("Spain") == {"ESP"}        # una selección: SOLO sus códigos
+    assert cat.encaja("San", {"San Marino"}) == 0 and cat.encaja("SMR", {"San Marino"}) >= 0.8
+
+
+def test_andorra_y_bosnia_o_noruega_e_irlanda_del_norte_no_se_confunden_aunque_jueguen_la_misma_semana():
+    ps = [_p(1, "Bosnia and Herzegovina", "Gibraltar"), _p(2, "Andorra", "Gibraltar"), _p(3, "Northern Ireland", "Wales"), _p(4, "Norway", "Wales")]
+    nom = _nombres(ps)
+    assert cat.emparejar_flexible("AND", "GIB", ps, nom)[0]["id"] == 2
+    assert cat.emparejar_flexible("BIH", "GIB", ps, nom)[0]["id"] == 1
+    assert cat.emparejar_flexible("NOR", "WAL", ps, nom)[0]["id"] == 4
+    assert cat.emparejar_flexible("NIR", "WAL", ps, nom)[0]["id"] == 3
+
+
+def test_resolver_no_asigna_una_abreviatura_a_otro_equipo_por_parecido(monkeypatch):
+    solo_bosnia = [_p(1, "Bosnia and Herzegovina", "Gibraltar")]                                      # Andorra NO juega: «AND - GIB» no debe caer en Bosnia
+    g = _resolver(monkeypatch, solo_bosnia, _bloque("AND", "GIB", "AND"))["legs"][0]
+    assert g["estado"] == "sin_partido" and g["partido_id"] is None
+    g2 = _resolver(monkeypatch, [_p(1, "Northern Ireland", "Wales")], _bloque("NOR", "WAL", "NOR"))["legs"][0]
+    assert g2["estado"] == "sin_partido" and g2["partido_id"] is None
+
+
+def test_nombres_cortos_reales_siguen_encajando_con_reglas_estrictas():
+    assert cat.encaja("Roma", {"AS Roma"}) == 1.0 and cat.encaja("Lyon", {"Lyon"}) == 1.0 and cat.encaja("Pau", {"Pau FC"}) == 1.0
+    assert cat.encaja("City", {"Man City"}) == 0.85 and cat.encaja("Roma", {"Romania"}) == 0          # palabra completa sí; prefijo parecido no
+    ps = [_p(1, "Real Madrid", "Girona"), _p(2, "Real Betis", "Girona")]
+    p, motivo, ops = cat.emparejar_flexible("Real", "Girona", ps, _nombres(ps))                      # «Real» es ambiguo de verdad: se ofrece elegir
+    assert p is None and "Ambiguo" in motivo and len(ops) == 2
+
+
+# ------------------------------------------------------------------ la FECHA de cada fila del boleto afina el emparejado (nunca lo relaja)
+def test_fecha_de_una_fila_del_boleto():
+    from datetime import date
+    hoy = date(2026, 11, 11)
+    assert bo._fecha("12/11", hoy) == date(2026, 11, 12) and bo._fecha("12/nov", hoy) == date(2026, 11, 12) and bo._fecha("12-11", hoy) == date(2026, 11, 12)
+    assert bo._fecha("3/ene", date(2026, 12, 28)) == date(2027, 1, 3) and bo._fecha("30/dic", date(2027, 1, 2)) == date(2026, 12, 30)     # cambio de año: el más cercano
+    assert bo._fecha("31/02", hoy) is None and bo._fecha(None, hoy) is None and bo._fecha("nov", hoy) is None and bo._fecha("12/xyz", hoy) is None
+
+
+def _pf(i, local, visita, dias):
+    from datetime import timedelta
+    return {**_p(i, local, visita), "inicio": _momento() + timedelta(days=dias, hours=1)}
+
+
+def _dm(dias):
+    from datetime import timedelta
+    from zoneinfo import ZoneInfo
+    return f"{(_momento() + timedelta(days=dias, hours=1)).astimezone(ZoneInfo('America/Mexico_City')):%d/%m}"
+
+
+def test_la_fecha_explica_por_que_no_hay_partido_cargado_o_ya_paso(monkeypatch):
+    ps = [_pf(1, "Turkey", "Belgium", 1), _pf(2, "Serbia", "Germany", 2)]
+    futuro = _resolver(monkeypatch, ps, _bloque("NOR", "WAL", "NOR", fecha=_dm(4)))["legs"][0]                 # la base llega hasta +2 días
+    assert futuro["estado"] == "sin_partido" and "todavía no lo tiene cargado" in futuro["motivo"] and f"hasta el {_dm(2)}" in futuro["motivo"]
+    pasado = _resolver(monkeypatch, ps, _bloque("NOR", "WAL", "NOR", fecha=_dm(-3)))["legs"][0]
+    assert pasado["estado"] == "sin_partido" and "ya pasó" in pasado["motivo"]
+    ok = _resolver(monkeypatch, ps, _bloque("TUR", "BEL", "TUR", fecha=_dm(1)))["legs"][0]
+    assert ok["estado"] == "ok" and ok["partido_id"] == 1 and ok["texto"].startswith(_dm(1))
+    sin_fecha = _resolver(monkeypatch, ps, _bloque("NOR", "WAL", "NOR"))["legs"][0]                              # sin fecha: el motivo de siempre
+    assert "No encontré" in sin_fecha["motivo"]
+
+
+def test_la_fecha_desempata_un_par_ambiguo_y_tolera_un_dia_por_huso_horario(monkeypatch):
+    ps = [_pf(1, "Man City", "Chelsea", 1), _pf(2, "Man United", "Chelsea", 3)]
+    assert _resolver(monkeypatch, ps, _bloque("MAN", "CHE", "CHE"))["legs"][0]["estado"] == "sin_partido"       # sin fecha: ambiguo, no se adivina
+    g = _resolver(monkeypatch, ps, _bloque("MAN", "CHE", "CHE", fecha=_dm(3)))["legs"][0]
+    assert g["estado"] == "ok" and g["partido_id"] == 2 and g["seleccion"] == "1X2:2" and "confírmalo" in g["entendido_como"]
+    juntos = [_pf(1, "Man City", "Chelsea", 1), _pf(2, "Man United", "Chelsea", 2)]                              # a un día de distancia la fecha NO alcanza para desempatar
+    assert _resolver(monkeypatch, juntos, _bloque("MAN", "CHE", "CHE", fecha=_dm(1)))["legs"][0]["estado"] == "sin_partido"
+    cerca = _resolver(monkeypatch, [_pf(1, "Turkey", "Belgium", 2)], _bloque("TUR", "BEL", "TUR", fecha=_dm(1)))["legs"][0]
+    assert cerca["estado"] == "ok" and cerca["partido_id"] == 1                                                  # ±1 día: se acepta
+
+
+def test_si_el_unico_partido_que_encaja_es_de_otra_fecha_no_se_da_por_bueno_y_se_ofrece_elegirlo(monkeypatch):
+    ps = [_pf(1, "Spain", "England", 1)]
+    g = _resolver(monkeypatch, ps, _bloque("ESP", "ING", "ESP", fecha=_dm(5)))["legs"][0]                       # el boleto dice +5 días; el partido cargado es +1
+    assert g["estado"] == "sin_partido" and g["partido_id"] is None and "La fecha no coincide" in g["motivo"]
+    assert [o["partido_id"] for o in g["opciones"]] == [1] and g["seleccion_sugerida"] == "1X2:1"               # la persona puede elegirlo si de verdad es ese
+
+
+# ------------------------------------------------------------------ comprobación aritmética de la lectura y mensaje del día cargado a medias
+def test_el_producto_de_las_cuotas_leidas_se_compara_con_el_momio_del_boleto():
+    # Las 25 cuotas de un boleto real de Draftea: su producto es su momio (90.51).
+    reales = [1.16, 1.14, 1.21, 1.19, 1.14, 1.15, 1.50, 1.10, 1.07, 1.18, 1.19, 1.27, 1.27, 1.37, 1.22, 1.41, 1.06, 1.14, 1.10, 1.22, 1.24, 1.26, 1.10, 1.18, 1.17]
+    legs = [{"cuota": q} for q in reales]
+    v = bo._verificar_lectura(legs, 90.51)
+    assert v["coincide"] is True and v["producto"] == pytest.approx(90.51, rel=0.005) and v["n"] == 25 and v["mensaje"].startswith("✓")
+    mal = bo._verificar_lectura([{"cuota": 1.76}] + legs[1:], 90.51)                                # una cuota mal leída (1.16 → 1.76)
+    assert mal["coincide"] is False and mal["mensaje"].startswith("⚠") and "Revisa las filas" in mal["mensaje"]
+    assert bo._verificar_lectura(legs[:-1], 90.51)["coincide"] is False                              # falta una fila
+    assert bo._verificar_lectura(legs, None) is None and bo._verificar_lectura([{"cuota": None}] + legs, 90.51) is None and bo._verificar_lectura([], 90.51) is None
+    assert bo._verificar_lectura(legs, True) is None and bo._verificar_lectura(legs, 1.0) is None    # sin datos suficientes NO se afirma nada
+
+
+def test_resolver_entrega_la_verificacion_y_explica_un_dia_cargado_a_medias(monkeypatch):
+    ps = [_pf(1, "Turkey", "Belgium", 1), _pf(2, "Ponte Preta", "Operario", 3)]                     # el día +3 SÍ tiene partidos, pero no el de selecciones
+    lect = {"cuota_total": 1.2, "partidos": [{"fecha": _dm(1), "local": "TUR", "visita": "BEL", "selecciones": [{"mercado_texto": "GANA", "seleccion_texto": "TUR", "linea": None, "cuota": 1.2}]},
+                                              {"fecha": _dm(3), "local": "NOR", "visita": "WAL", "selecciones": [{"mercado_texto": "GANA", "seleccion_texto": "NOR", "linea": None, "cuota": 1.0}]}]}
+    r = _resolver(monkeypatch, ps, lect)
+    falta = r["legs"][1]
+    assert falta["estado"] == "sin_partido" and f"partidos cargados del {_dm(3)}" in falta["motivo"] and "Actualizar datos" in falta["motivo"]
+    assert r["verificacion"] is None                                                                 # una cuota no se leyó (1.0 no es cuota): no se afirma nada
+    lect["partidos"][1]["selecciones"][0]["cuota"] = 1.5
+    v = _resolver(monkeypatch, ps, lect)["verificacion"]
+    assert v["coincide"] is False and v["producto"] == pytest.approx(1.8)
