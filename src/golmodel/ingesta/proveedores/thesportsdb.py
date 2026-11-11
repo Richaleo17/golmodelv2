@@ -27,7 +27,10 @@ NOMBRES_LIGA = {  # VERIFICAR EN DOCUMENTACIÓN
     "ERE": "Dutch Eredivisie",
     "BEL": "Belgian First Division A",
     "POR": "Portuguese Primeira Liga",
+    "MXF": "Mexican Liga Femenil",
 }
+# Ids de liga para pedir una temporada completa (eventsseason.php). VERIFICAR EN DOCUMENTACIÓN.
+IDS_LIGA = {"MXF": "5206"}
 
 
 def _estado(ev: dict) -> str:
@@ -73,7 +76,20 @@ class TheSportsDb(Proveedor):
         self.max_dias = max_dias
         self.http = ClienteHTTP(self.nombre, f"https://www.thesportsdb.com/api/v1/json/{api_key}", **kw)
 
+    def temporada(self, liga: str, temporada: str) -> list[PartidoExterno]:
+        """Temporada completa (histórico de ligas sin CSV de football-data). La llave gratuita puede recortar
+        el número de eventos por consulta: lo que falte se completa con API-Football."""
+        cuerpo = self.http.get_json("/eventsseason.php", {"id": IDS_LIGA[liga], "s": temporada})
+        return parse_eventos(cuerpo or {}, liga)
+
     def obtener(self, s: Solicitud) -> list[Any]:
+        if s.temporada and s.desde is None and s.hasta is None and s.liga in IDS_LIGA:
+            y = int(s.temporada[:4])                     # «2025-Apertura» y «2026-Clausura» → «2025-2026»
+            y = y - 1 if s.temporada.endswith("Clausura") else y
+            salida = self.temporada(s.liga, f"{y}-{y + 1}")
+            if s.capacidad is Capacidad.RESULTADOS:
+                salida = [p for p in salida if p.estado == "finalizado"]
+            return salida
         hoy = datetime.now(timezone.utc).date()
         desde, hasta = s.desde or hoy, s.hasta or (s.desde or hoy)
         if (hasta - desde).days > self.max_dias:

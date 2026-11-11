@@ -26,6 +26,9 @@ SPORT_KEYS = {  # VERIFICAR EN DOCUMENTACIÓN con GET /v4/sports (no cuesta cré
     "BEL": "soccer_belgium_first_div",
     "POR": "soccer_portugal_primeira_liga",
 }
+# Ligas cuya clave no está confirmada: se busca (gratis) en GET /v4/sports la primera clave activa que contenga
+# todas las palabras de un grupo. Si no aparece, el proveedor entrega vacío y la cadena pasa al siguiente.
+CLAVES_A_DESCUBRIR = {"MXF": [("mexico", "women"), ("mexico", "femenil"), ("ligamx", "women")]}
 LINEAS = {1.5, 2.5, 3.5}
 
 
@@ -74,8 +77,7 @@ def parse_calendario(cuerpo: Any, liga: str) -> list[PartidoExterno]:
 class OddsApi(Proveedor):
     nombre = "odds_api"
     capacidades = frozenset({Capacidad.CUOTAS, Capacidad.CUOTAS_CIERRE, Capacidad.FIXTURES})
-    ligas = frozenset(SPORT_KEYS)
-    ligas_claves = SPORT_KEYS
+    ligas = frozenset(SPORT_KEYS) | frozenset(CLAVES_A_DESCUBRIR)
     presupuesto = "odds_api"
 
     def __init__(self, api_key: str, *, regiones: list[str], mercados: list[str], **kw: Any):
@@ -83,6 +85,24 @@ class OddsApi(Proveedor):
         self.regiones = regiones
         self.mercados = mercados
         self.http = ClienteHTTP(self.nombre, BASE_URL, **kw)
+        self._descubiertas: dict[str, str | None] = {}
+
+    @property
+    def ligas_claves(self) -> dict[str, str]:
+        """Claves de las ligas con modelo propio (incluidas las ya descubiertas): no entran como «solo mercado»."""
+        return {**SPORT_KEYS, **{k: v for k, v in self._descubiertas.items() if v}}
+
+    def clave_liga(self, liga: str) -> str | None:
+        if liga in SPORT_KEYS:
+            return SPORT_KEYS[liga]
+        if liga not in self._descubiertas:
+            self.deportes_futbol()                       # descubre todas las claves pendientes de una vez
+        return self._descubiertas.get(liga)
+
+    def _descubrir(self, deportes: list[dict]) -> None:
+        claves = [str(d["key"]).lower() for d in deportes]
+        for liga, grupos in CLAVES_A_DESCUBRIR.items():
+            self._descubiertas[liga] = next((k for grupo in grupos for k in claves if all(w in k for w in grupo)), None)
 
     def costo_estimado(self, s: Solicitud) -> int:
         if s.capacidad is Capacidad.FIXTURES:
@@ -108,7 +128,9 @@ class OddsApi(Proveedor):
         cuerpo = self.http.get_json("/v4/sports", {"apiKey": self.api_key}, costo=self._costo, restante=self._restante)
         if not isinstance(cuerpo, list):
             raise ErrorFormato("odds_api", "se esperaba una lista de deportes")
-        return [d for d in cuerpo if str(d.get("key", "")).startswith("soccer_") and d.get("active")]
+        futbol = [d for d in cuerpo if str(d.get("key", "")).startswith("soccer_") and d.get("active")]
+        self._descubrir(futbol)
+        return futbol
 
     def eventos_deporte(self, clave: str, hasta: date) -> list[PartidoExterno]:
         """Calendario por clave de deporte (/events, sin cuotas)."""
@@ -127,13 +149,16 @@ class OddsApi(Proveedor):
 
     def obtener(self, s: Solicitud) -> list[Any]:
         ahora = datetime.now(timezone.utc)
+        clave = self.clave_liga(s.liga)
+        if clave is None:
+            return []                    # la liga no está en The Odds API: la cadena usa el siguiente proveedor
         if s.capacidad is Capacidad.FIXTURES:
             # Solo partidos por venir; la consulta registra su costo real según el header del proveedor.
             params = {"apiKey": self.api_key, "dateFormat": "iso"}
             if s.hasta:
                 params["commenceTimeTo"] = _iso(datetime.combine(s.hasta, datetime.min.time(), timezone.utc)
                                                 + timedelta(days=1))
-            cuerpo = self.http.get_json(f"/v4/sports/{SPORT_KEYS[s.liga]}/events", params,
+            cuerpo = self.http.get_json(f"/v4/sports/{clave}/events", params,
                                         costo=self._costo, restante=self._restante)
             return parse_calendario(cuerpo, s.liga)
         params: dict[str, Any] = {
@@ -147,7 +172,7 @@ class OddsApi(Proveedor):
                                             + timedelta(days=1))
         if s.ids_partido.get(self.nombre):
             params["eventIds"] = s.ids_partido[self.nombre]
-        cuerpo = self.http.get_json(f"/v4/sports/{SPORT_KEYS[s.liga]}/odds", params,
+        cuerpo = self.http.get_json(f"/v4/sports/{clave}/odds", params,
                                     costo=self._costo, restante=self._restante)
         tipo = "cierre" if s.capacidad is Capacidad.CUOTAS_CIERRE else "actual"
         return parse_eventos(cuerpo, tipo, observada_en=ahora)

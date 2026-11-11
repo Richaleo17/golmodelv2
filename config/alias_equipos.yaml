@@ -177,6 +177,27 @@ MX1:
   Tigres UANL: [Tigres]
   Toluca: [Deportivo Toluca FC, Toluca FC]
   UNAM Pumas: [Pumas UNAM, Pumas, Club Universidad Nacional]
+MXF:
+  # Liga MX Femenil. Todo nombre de esta liga llega con el sufijo « Femenil» (ingesta/tipos.py: nombre_femenil),
+  # así nunca se une al club varonil. Canónico = como lo escribe API-Football (fuente del histórico). VERIFICAR.
+  Club America Femenil: [America Femenil, Club América Femenil, América Femenil]
+  Atlas Femenil: [Atlas FC Femenil]
+  Atletico San Luis Femenil: [Atl. San Luis Femenil, Atlético San Luis Femenil, San Luis Femenil]
+  Cruz Azul Femenil: [CD Cruz Azul Femenil]
+  Guadalajara Chivas Femenil: [Guadalajara Femenil, CD Guadalajara Femenil, Chivas Guadalajara Femenil, Chivas Femenil]
+  FC Juarez Femenil: [Juarez Femenil, FC Juárez Femenil, Juárez Femenil]
+  Leon Femenil: [Club Leon Femenil, Club León Femenil, León Femenil]
+  Mazatlán Femenil: [Mazatlan FC Femenil, Mazatlán FC Femenil, Mazatlan Femenil]
+  Monterrey Femenil: [CF Monterrey Femenil, Rayadas Femenil]
+  Necaxa Femenil: [Club Necaxa Femenil]
+  Pachuca Femenil: [CF Pachuca Femenil]
+  Puebla Femenil: [Club Puebla Femenil]
+  Club Queretaro Femenil: [Queretaro Femenil, Querétaro FC Femenil, Querétaro Femenil]
+  Santos Laguna Femenil: [Club Santos Laguna Femenil]
+  Club Tijuana Femenil: [Tijuana Femenil, Club Tijuana Xolos Femenil, Xolos Femenil]
+  Tigres UANL Femenil: [Tigres Femenil]
+  Toluca Femenil: [Deportivo Toluca FC Femenil, Toluca FC Femenil]
+  U.N.A.M. - Pumas Femenil: [UNAM Pumas Femenil, Pumas UNAM Femenil, Pumas Femenil, Club Universidad Nacional Femenil]
 MLS:
   Atlanta Utd: [Atlanta United FC, Atlanta United]
   CF Montreal: [CF Montréal]

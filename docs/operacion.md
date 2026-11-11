@@ -109,7 +109,7 @@ Abre **Partidos → Cobertura por liga**: dice, por liga, cuántos partidos de h
 - **Sin partidos próximos:** puede ser receso de la liga. El calendario viene de API-Football, football-data.org, The Odds API y TheSportsDB, en ese orden de respaldo.
 
 ## 11. Ligas y créditos
-Ligas activas (en `config/config.yaml → ligas_activas`): Premier, La Liga, Serie A, Bundesliga, Ligue 1, Liga MX, MLS, Brasileirão, Eredivisie, Bélgica y Portugal. Las nuevas se agregan solas a tu base al reiniciar con `docker compose up -d --build` (migración 002).
+Ligas activas (en `config/config.yaml → ligas_activas`): Premier, La Liga, Serie A, Bundesliga, Ligue 1, Liga MX, Liga MX Femenil, MLS, Brasileirão, Eredivisie, Bélgica y Portugal. Las nuevas se agregan solas a tu base al reiniciar con `docker compose up -d --build` (migración 002).
 
 Carga el histórico de las que falten (una vez; es idempotente):
 ```bash
@@ -118,6 +118,14 @@ docker compose run --rm api python scripts/cargar_historico.py --temporadas 5 --
 **Créditos de The Odds API (500 al mes en el plan gratis):** cada liga con partidos ese día cuesta ~2 créditos por actualización; las ligas sin partidos no se consultan. En días con muchas ligas pueden ser 15–20 créditos por actualización. Si te quedas corto, quita ligas de `ligas_activas` o actualiza menos veces. El contador de la barra lateral muestra lo gastado.
 
 **Calendario:** The Odds API también entrega el calendario de todas las ligas (así salen Liga MX y MLS aunque API-Football esté en pausa). *Pendiente de verificar con tu llave: que esa consulta de calendario no gaste créditos; el contador lo mostrará.*
+
+### Liga MX Femenil (MXF)
+- **Alta:** migración `004_liga_mx_femenil.sql` (se aplica sola al reiniciar la API).
+- **Histórico:** football-data.co.uk no la publica. La primera vez que corre **Actualizar datos**, si la liga tiene menos de 100 partidos jugados, se carga por temporada desde **API-Football** (1 request por temporada: Apertura N + Clausura N+1; respaldo TheSportsDB). Se intenta como máximo una vez al día. A mano: `python scripts/cargar_historico.py --temporadas 5 --ligas MXF`. El resumen queda en la etapa «Resultados y xG» (`historico_api`) y en `/diag/etapas`.
+- **Nombres:** todo equipo de esta liga se guarda con el sufijo «Femenil» («Monterrey Femenil»), venga como venga de cada fuente («Monterrey W», «CF Monterrey Women» o «Monterrey» a secas). Así nunca se une al club varonil. Tabla explícita en `config/alias_equipos.yaml → MXF`.
+- **Cuotas:** la clave de The Odds API se busca sola en `GET /v4/sports` (gratis). Si la liga no aparece ahí, se usa API-Football; si tampoco hay cuotas, se capturan a mano (Draftea).
+- **Sin xG** (solo goles). Objetivo del CRS: liguilla de 8.
+- *Pendiente de verificar con tu llave:* que el id 673 de API-Football sea la Femenil y que el plan gratuito dé acceso a sus temporadas.
 
 ## 12. Diario y Qué meter
 - **📅 Diario:** una tarjeta por partido: quién gana (con empate), primer gol (aproximado), «el otro anota», forma reciente (G/E/P), goles esperados y confianza. Las probabilidades mezclan el modelo con el mercado.

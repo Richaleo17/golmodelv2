@@ -22,7 +22,7 @@ from golmodel.ingesta.proveedores.base import (
     SinPresupuesto,
 )
 from golmodel.ingesta.proveedores.presupuesto import Presupuesto
-from golmodel.ingesta.tipos import Calidad, Capacidad, Solicitud
+from golmodel.ingesta.tipos import Calidad, Capacidad, Solicitud, adaptar_nombres
 
 log = logging.getLogger(__name__)
 
@@ -158,7 +158,7 @@ class Cadena:
                 intentos.append(Intento(p.nombre, "sin_presupuesto", f"costo {costo}, quedan {pres.restante}"))
                 continue
             try:
-                datos = p.obtener(solicitud)
+                datos = adaptar_nombres(solicitud.liga, p.obtener(solicitud))
             except SinPresupuesto as err:
                 intentos.append(Intento(p.nombre, "sin_presupuesto", str(err)))
                 continue
