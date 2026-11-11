@@ -18,6 +18,7 @@ import pandas as pd
 
 from golmodel.ingesta.competiciones import elegir_competiciones
 from golmodel import db, repositorio as repo
+from golmodel.ingesta import historico_api
 from golmodel.ingesta.normalizacion import ResolverEquipos
 from golmodel.ingesta.proveedores.cadena import Cadena
 from golmodel.ingesta.tipos import PartidoExterno, Calidad, Capacidad, Solicitud
@@ -167,6 +168,12 @@ class Pipeline:
                                      "migraciones (docker compose up -d --build).")
                 continue
             temporada = repo.temporada_de(liga, st.ahora)
+            # Ligas sin CSV de football-data (Liga MX Femenil): sin histórico, se carga por temporada desde las APIs.
+            hist = historico_api.autocargar(st.conn, self.cadenas.get(Capacidad.RESULTADOS), liga,
+                                            self.cfg["historico"]["temporadas"], hoy, st.resolver)
+            if hist is not None:
+                res.setdefault("historico_api", {})[codigo] = hist["temporadas"]
+                res["avisos"] += hist["avisos"]
             for cap in (Capacidad.FIXTURES, Capacidad.RESULTADOS):
                 r = self._obtener(cap, Solicitud(cap, codigo, temporada=temporada, desde=hoy - timedelta(days=7),
                                                  hasta=hoy + timedelta(days=7)))
@@ -367,12 +374,12 @@ class Pipeline:
         res = {"competiciones": 0, "partidos": 0, "cuotas": 0, "creditos": 0, "avisos": []}
         if not cm.get("activo") or prov is None:
             return res
-        modeladas = {v for v in getattr(prov, "ligas_claves", {}).values()}
         try:
             deportes = prov.deportes_futbol()
         except Exception as e:                                   # noqa: BLE001 — opcional: no tumba la etapa
             res["avisos"].append(f"Competiciones extra: no se pudo listar deportes ({type(e).__name__}).")
             return res
+        modeladas = {v for v in getattr(prov, "ligas_claves", {}).values()}   # tras listar: incluye las descubiertas
         elegidos = elegir_competiciones(deportes, modeladas, cm)          # orden de prioridad = orden de los patrones (Champions primero)
         hasta = st.hoy() + timedelta(days=max(self.cfg["recalculo"]["dias"]))
         costo_por = len(getattr(prov, "regiones", [1])) * len(getattr(prov, "mercados", [1, 2]))

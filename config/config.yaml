@@ -5,10 +5,11 @@ zona_horaria: America/Mexico_City
 
 # Cada liga activa gasta ~2 créditos de The Odds API por actualización, pero SOLO si ese día tiene partidos.
 # Si te quedas corto de créditos (plan gratis: 500 al mes), quita ligas de esta lista.
-ligas_activas: [EPL, LL, SA, BUN, L1, MX1, MLS, BR1, ERE, BEL, POR]
+ligas_activas: [EPL, LL, SA, BUN, L1, MX1, MXF, MLS, BR1, ERE, BEL, POR]
 historico:
   temporadas: 5            # + la temporada en curso
   # EPL y SA: xG de Understat (goles + xG). MX1, MLS, BR1: solo goles.
+  # MXF (Liga MX Femenil): sin CSV de football-data; el histórico sale de API-Football por temporada (1 request c/u).
 
 fuentes:
   api_football:
@@ -120,6 +121,7 @@ crs:
     SA:  [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 17}]
     BR1: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 6}, {tipo: descenso, ultima_posicion: 16}]
     MX1: [{tipo: clasificacion, ultima_posicion: 6}, {tipo: playoff, ultima_posicion: 10}]   # sin descenso
+    MXF: [{tipo: clasificacion, ultima_posicion: 8}]   # liguilla de 8, sin descenso
     MLS: []                        # playoffs por conferencia: requiere equipo_temporada.grupo
     LL:  [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 17}]
     BUN: [{tipo: titulo, ultima_posicion: 1}, {tipo: clasificacion, ultima_posicion: 4}, {tipo: descenso, ultima_posicion: 15}]

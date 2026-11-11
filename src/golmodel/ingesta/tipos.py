@@ -5,7 +5,8 @@ de qué API salió un dato, salvo por el campo `fuente`, que siempre se guarda.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import re
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from enum import Enum
 
@@ -34,7 +35,7 @@ class Calidad(str, Enum):
 @dataclass(frozen=True)
 class Solicitud:
     capacidad: Capacidad
-    liga: str                                  # código interno: 'EPL','SA','MX1','MLS','BR1'
+    liga: str                                  # código interno: 'EPL','SA','MX1','MXF','MLS','BR1'…
     temporada: str | None = None
     desde: date | None = None
     hasta: date | None = None
@@ -128,3 +129,32 @@ class CalendarioExterno:
     competicion: str
     id_competicion_externa: str | None
     es_local: bool
+
+
+# ---------------------------------------------------------------- ligas femeniles
+# Cada fuente escribe distinto a los equipos femeniles («Monterrey W», «CF Monterrey Women», «Monterrey»…) y algunas
+# usan EXACTAMENTE el mismo nombre que el club varonil. Como los alias (fuente, nombre) son globales, «Monterrey» de
+# la Femenil terminaría unido al Monterrey de la Liga MX y mezclaría los datos de dos equipos distintos. Por eso,
+# en estas ligas todo nombre sale de la cadena con un sufijo único: «Monterrey Femenil».
+LIGAS_FEMENILES = frozenset({"MXF"})
+SUFIJO_FEMENIL = "Femenil"
+_SUFIJOS_FEMENILES = re.compile(r"(?:(?:\s+|\s*[-–(]\s*)(?:w|women|womens|woman|fem|femenil|femenino|feminil|ladies)\.?\)?)+\s*$",
+                                re.IGNORECASE)
+
+
+def nombre_femenil(nombre: str) -> str:
+    """«Club America W» → «Club America Femenil». Idempotente."""
+    base = _SUFIJOS_FEMENILES.sub("", nombre.strip()).strip() or nombre.strip()
+    return f"{base} {SUFIJO_FEMENIL}"
+
+
+def adaptar_nombres(liga: str, datos: list) -> list:
+    """Aplica nombre_femenil a los campos de equipo de lo que entrega un proveedor (solo en ligas femeniles)."""
+    if liga not in LIGAS_FEMENILES:
+        return datos
+    salida = []
+    for d in datos:
+        campos = {c: nombre_femenil(getattr(d, c)) for c in ("local", "visitante", "equipo")
+                  if isinstance(getattr(d, c, None), str) and getattr(d, c)}
+        salida.append(replace(d, **campos) if campos else d)
+    return salida

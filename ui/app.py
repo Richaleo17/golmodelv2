@@ -37,7 +37,7 @@ TITULO_PARAM = {"divergencia_xpts": "Divergencia xPts", "brecha_probabilidad": "
                 "fatiga": "Fatiga", "motivacion": "Motivación", "fragilidad_defensiva": "Fragilidad defensiva"}
 NOMBRE_LIGA = {"EPL": "Premier League", "SA": "Serie A", "MX1": "Liga MX", "MLS": "MLS", "BR1": "Brasileirão",
                "LL": "La Liga", "BUN": "Bundesliga", "L1": "Ligue 1", "ERE": "Eredivisie", "BEL": "Bélgica",
-               "POR": "Primeira Liga"}
+               "POR": "Primeira Liga", "MXF": "Liga MX Femenil"}
 NOMBRE_ETAPA = {"resultados_xg": "Resultados y xG", "liquidacion_clv": "Liquidación y CLV",
                 "reajuste_modelo": "Modelo", "lesiones": "Lesiones", "alineaciones": "Alineaciones",
                 "cuotas": "Cuotas", "recalculo_modulos": "Predicciones y picks"}
@@ -548,7 +548,7 @@ def html_forma(f: str) -> str:
 
 
 PAIS = {"EPL": "Inglaterra", "LL": "España", "SA": "Italia", "BUN": "Alemania", "L1": "Francia", "MX1": "México",
-        "MLS": "EE. UU.", "BR1": "Brasil", "ERE": "Países Bajos", "BEL": "Bélgica", "POR": "Portugal"}
+        "MXF": "México", "MLS": "EE. UU.", "BR1": "Brasil", "ERE": "Países Bajos", "BEL": "Bélgica", "POR": "Portugal"}
 
 
 NOMBRES_DIA: dict[str, str] = {}

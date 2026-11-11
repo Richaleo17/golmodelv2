@@ -18,6 +18,7 @@ sys.path.insert(0, str(RAIZ / "src"))
 
 from golmodel import db, repositorio as repo  # noqa: E402
 from golmodel.config import cargar  # noqa: E402
+from golmodel.ingesta.historico_api import cargar_historico_api, necesita_historico_api  # noqa: E402
 from golmodel.ingesta.limpieza import limpiar  # noqa: E402
 from golmodel.ingesta.normalizacion import ResolverEquipos  # noqa: E402
 from golmodel.ingesta.proveedores.base import ErrorProveedor  # noqa: E402
@@ -44,8 +45,30 @@ def main() -> None:
     und = Understat(pausa_s=cfg["fuentes"]["understat"]["min_segundos_entre_requests"], registrar=reg)
     conn = db.conectar()
     fallos: list[str] = []
+    cadena_api = None
     for codigo in ligas:
         liga = repo.ligas(conn)[codigo]
+        if necesita_historico_api(codigo):              # sin CSV de football-data (Liga MX Femenil)
+            if cadena_api is None:
+                import os
+
+                from golmodel.ingesta.proveedores import registro
+                provs = registro.construir_proveedores(cfg, dict(os.environ), registrar=reg)
+                cadena_api = registro.construir_cadenas(cfg, provs, registro.construir_presupuestos(cfg))[
+                    Capacidad.RESULTADOS]
+            anios = list(range(anio_actual - n_temp, anio_actual + 1))
+            try:
+                r = cargar_historico_api(conn, cadena_api, codigo, anios)
+                conn.commit()
+            except Exception as e:                           # noqa: BLE001
+                conn.rollback()
+                fallos.append(f"{codigo} (APIs): {type(e).__name__}: {e}")
+                continue
+            for y, txt in r["temporadas"].items():
+                print(f"{codigo} {y}-{y + 1}: {txt}")
+            for aviso in dict.fromkeys(r["avisos"]):
+                print(f"  ⚠ {codigo}: {aviso}")
+            continue
         cod_fd, formato = CODIGOS[codigo]
         anios = list(range(anio_actual - n_temp, anio_actual + 1))
         rutas = [ruta_csv(codigo, None)] if formato == "extra" else [ruta_csv(codigo, y) for y in anios]
