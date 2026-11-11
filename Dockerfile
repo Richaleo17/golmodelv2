@@ -5,6 +5,7 @@ COPY src ./src
 RUN pip install --no-cache-dir .
 COPY config ./config
 COPY ui ./ui
+COPY web ./web
 COPY .streamlit ./.streamlit
 COPY scripts ./scripts
 COPY db ./db

@@ -146,23 +146,8 @@ sugerencias:
     empate_alto: 0.30
     confianza_max: 3.5
     peso_bajo: 12.0                 # historial efectivo mínimo para culpar al favorito de una discrepancia
-  top_piernas: 14
-  perfiles:                         # el parlay MÁS probable que paga lo objetivo
-    seguro:      {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.70, p_max_pierna: 0.84}
-    equilibrado: {piernas_min: 3, piernas_max: 5, cuota_min: 3.5, cuota_max: 7.0, p_min_pierna: 0.50, p_max_pierna: 0.80}
-    ambicioso:   {piernas_min: 4, piernas_max: 5, cuota_min: 8.0, cuota_max: 25.0, p_min_pierna: 0.30, p_max_pierna: 0.65}
-  mas_seguros:                      # listas de parlays de alta probabilidad (se muestra la tasa real de acierto)
-    muy_seguro: {piernas_min: 2, piernas_max: 3, cuota_min: 1.35, cuota_max: 2.2, p_min_pierna: 0.78, p_max_pierna: 0.93, cuantos: 4}
-    seguro:     {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.68, p_max_pierna: 0.88, cuantos: 5}
-  ticket:                           # estilo «5 equipos ≈ 15-25x»: las combinaciones más probables de ese pago
-    piernas_min: 5
-    piernas_max: 5
-    cuota_min: 14.0
-    cuota_max: 30.0
-    p_min_pierna: 0.40
-    p_max_pierna: 0.88
-    top_piernas: 16
-    cuantos: 3
+  # RETIRADOS (2026-11-09): `perfiles`, `mas_seguros`, `ticket` y `top_piernas` configuraban parlays por producto de probabilidades
+  # (independencia). Se rediseñarán sobre tickets.py tras validar V3 con datos reales (están en el historial de git).
 
 # Competiciones SIN histórico ni modelo propio (Champions, Europa League, selecciones, ligas menores…).
 # La probabilidad es la del mercado sin margen (Pinnacle o consenso); el panel las marca «SOLO MERCADO».
@@ -174,6 +159,12 @@ competiciones_mercado:
              efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan,
              libertadores, sudamericana, concacaf, copa]
   excluir: [winner, outright, women, womens]
+  # Femeniles INCLUIDAS por decisión del responsable (2026-11-10) aunque `excluir` tenga women/womens. Reglas de TOKENS sobre la clave del deporte de
+  # The Odds API (cada grupo = alternativas; deben aparecer los 3 grupos/2 grupos). Las claves exactas NO están verificadas (sin acceso a GET /v4/sports):
+  # si la API no ofrece la competición, no aparece. Sin histórico ni modelo: solo mercado, sin picks ni tickets V3, fuera de la calibración.
+  femeniles:
+    - {nombre: "Liga MX Femenil", todos: [[ligamx, liga_mx], [women, womens, femenil]]}
+    - {nombre: "UEFA Women's Champions League", todos: [[uefa], [champs], [women, womens]]}
 
 valor:
   umbral_edge: 0.04

@@ -2,7 +2,6 @@
 igual para Liga MX, MLS, La Liga y Bundesliga (calendario por The Odds API, nombres, predicción, panel)."""
 from __future__ import annotations
 
-import math
 import os
 import uuid
 from pathlib import Path
@@ -114,19 +113,9 @@ def test_panel_diario_y_que_meter(corrida):
     assert mejores and len({x["partido_id"] for x in mejores}) == len(mejores)
     assert all(x["cuota_min"] > x["cuota_justa"] >= cfg["sugerencias"]["cuota_justa_minima"] for x in mejores)
     assert [x["puntaje"] for x in mejores] == sorted((x["puntaje"] for x in mejores), reverse=True)
-    # Parlays por perfil: partidos distintos, P = producto, y la cuota justa cae en el rango del perfil
-    for nombre, perfil in cfg["sugerencias"]["perfiles"].items():
-        par = pan["parlays"][nombre]
-        if par is None:
-            continue
-        assert len({x["partido_id"] for x in par["piernas"]}) == par["n"]
-        assert par["p"] == pytest.approx(math.prod(x["p"] for x in par["piernas"]))
-        assert perfil["cuota_min"] <= par["cuota_justa"] <= perfil["cuota_max"]
-        assert perfil["piernas_min"] <= par["n"] <= perfil["piernas_max"]
-    assert any(pan["parlays"].values()), "debería armarse al menos un perfil con 5 ligas"
-    for t in pan["tickets"]:                                  # tickets de pago alto: P real y razones por pierna
-        assert t["n"] == 5 and t["p"] == pytest.approx(math.prod(x["p"] for x in t["piernas"]))
-        assert all(x["porque"] and x["p_modelo"] is not None for x in t["piernas"])
+    # Combinadas: ya no hay parlays por perfil ni tickets de 5 equipos (se armaban bajo independencia); solo la decisión V3
+    assert not {"parlays", "tickets", "mas_seguros", "advertencia"} & set(pan) and "v3" in pan
+    assert pan["v3"] is None or pan["v3"]["estado"] in ("ABSTENCION", "CON_RESERVAS", "EN_OBSERVACION", "RECHAZADO")
     assert "## Mejores jugadas" in sugerencias.texto_panel(pan)
 
 

@@ -6,6 +6,7 @@ from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import numpy as np
+import psycopg
 
 from golmodel.modelos import crs as crs_mod
 from golmodel.modelos.matriz import Matriz
@@ -256,7 +257,75 @@ def dia(conn, cfg: dict, d: date, ahora: datetime) -> list[dict]:
     return salida
 
 
+ADVERTENCIA_V3 = ("Ticket V3 con calibración PROVISIONAL (modo_experimental): probabilidad conjunta con dependencia, "
+                  "cota conservadora sin validar con datos reales; no promovible a paper ni a dinero real.")
+
+
+def decision_v3(conn, d: date) -> dict | None:
+    """Última decisión V3 del día (tickets.py + Cerebro 2) tal como quedó en `auditoria_decisiones`, o None si no hay.
+    Sin la migración 004 devuelve None (la tabla no existe): no se inventa nada."""
+    try:
+        fila = conn.execute("""SELECT * FROM auditoria_decisiones WHERE componente = 'tickets'
+                               AND origen IN ('produccion','paper') AND payload ->> 'dia' = %s
+                               ORDER BY id DESC LIMIT 1""", (d.isoformat(),)).fetchone()
+    except psycopg.errors.UndefinedTable:
+        conn.rollback()
+        return None
+    if fila is None:
+        return None
+    ver = None
+    if fila["estado"] == "PROPUESTO":
+        v = conn.execute("""SELECT estado, categoria, motivo FROM auditoria_decisiones WHERE componente = 'cerebro2'
+                            AND ticket_id = %s ORDER BY id DESC LIMIT 1""", (fila["ticket_id"],)).fetchone()
+        ver = None if v is None else {"estado": v["estado"], "categoria": v["categoria"], "motivo": v["motivo"]}
+    aud = fila["payload"]["auditoria"]
+    beta = fila["payload"].get("beta")                       # sello BETA + banner guardados al decidir (integracion/beta.py); None si no se solicitó
+    beta_ok = bool(beta and beta.get("efectivo"))
+    return {"dia": d.isoformat(), "estado": ver["estado"] if ver else "ABSTENCION", "estado_tickets": fila["estado"],
+            "motivo": fila["motivo"], "categoria": fila["categoria"], "veredicto": ver,
+            "modo_experimental": fila["modo_experimental"], "techo_estado": fila["techo_estado"],
+            "calibrado_con": fila["calibrado_con"], "info_asof": fila["info_asof"], "ticket_id": fila["ticket_id"],
+            "n_candidatas": aud["n_candidatas"], "ticket": fila["payload"]["ticket"],
+            "advertencia": beta["banner"] if beta_ok else ADVERTENCIA_V3, "beta": beta, "sello": beta["sello"] if beta_ok else None}
+
+
+def _ticket_v3_como_parlay(conn, dec: dict) -> dict:
+    """Misma forma que una fila de `parlays_sugeridos` (la UI y la API ya la consumen) + campos V3. Presentación, no modelo."""
+    t = dec["ticket"]
+    bloques = []
+    for k, pt in enumerate(t["piernas"], start=1):
+        sels = pt["selecciones"]
+        nombres = conn.execute("""SELECT el.nombre AS local, ev.nombre AS visitante FROM partidos p
+                                  JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
+                                  WHERE p.id = %s""", (pt["partido_id"],)).fetchone() or {"local": "?", "visitante": "?"}
+        alerta = conn.execute("""SELECT crs_alerta FROM predicciones WHERE partido_id = %s AND origen = 'produccion'
+                                 AND creada_en <= %s ORDER BY creada_en DESC, id DESC LIMIT 1""",
+                              (pt["partido_id"], dec["info_asof"])).fetchone()
+        bloques.append({"orden": k, "partido_id": pt["partido_id"], **nombres, "tipo": "sgp" if len(sels) == 2 else "simple",
+                        "seleccion_a": sels[0], "seleccion_b": sels[1] if len(sels) > 1 else None,
+                        "p_adj": pt["p_calibrada"], "p_calibrada": pt["p_calibrada"], "p_conservadora": pt["p_conservadora"],
+                        "cuota": pt["cuota"], "crs_total": pt["crs_total"],
+                        "crs_alerta": alerta["crs_alerta"] if alerta else "INSUFICIENTE"})
+    return {"id": None, "fuente": "v3", "ranking": 1, "n_bloques": t["n"], "dia": dec["dia"],
+            "p_parlay": t["p_conservadora"], "p_media": t["p_media"], "p_independencia": t["p_independencia"], "lift": t["lift"],
+            "cuota_combinada": t["cuota_combinada"], "cuota_justa": 1.0 / t["p_conservadora"], "ev": t["ev_cons"],
+            "stake_u": t["stake_u"],
+            # solo promovible con el modo Beta EFECTIVO (calibración oos_real, sin techo) y si el auditor lo APROBÓ; con modo_experimental nunca
+            "es_apuesta_del_dia": bool(dec.get("sello") and dec["estado"] == "APROBADO" and t.get("promovible")),
+            "sello": dec.get("sello"), "beta": dec.get("beta"),
+            "estado": dec["estado"], "techo_estado": dec["techo_estado"], "modo_experimental": dec["modo_experimental"],
+            "calibrado_con": dec["calibrado_con"], "advertencia": dec["advertencia"], "bloques": bloques,
+            "resultado": None, "ganancia_u": None, "ganancia_simples_u": None}
+
+
 def parlays(conn, d: date) -> list[dict]:
+    """El ticket V3 del día (si lo hay) y, DESPUÉS, los parlays legados de V2 (generados bajo independencia)."""
+    dec = decision_v3(conn, d)
+    v3 = [_ticket_v3_como_parlay(conn, dec)] if dec and dec["ticket"] else []
+    return v3 + _parlays_legados(conn, d)
+
+
+def _parlays_legados(conn, d: date) -> list[dict]:
     filas = conn.execute("""SELECT ps.*, l.resultado, l.ganancia_u, l.ganancia_simples_u
                             FROM parlays_sugeridos ps LEFT JOIN parlay_liquidaciones l ON l.parlay_id = ps.id
                             WHERE ps.dia = %s AND ps.origen IN ('paper','real') ORDER BY ps.creado_en DESC, ps.ranking""",
@@ -267,6 +336,7 @@ def parlays(conn, d: date) -> list[dict]:
             JOIN partidos p ON p.id = b.partido_id JOIN equipos el ON el.id = p.local_id
             JOIN equipos ev ON ev.id = p.visitante_id WHERE b.parlay_id = %s ORDER BY b.orden""", (f["id"],)).fetchall()
         f["es_apuesta_del_dia"] = f["ranking"] == 1
+        f["fuente"] = "v2"
     return filas
 
 

@@ -92,6 +92,17 @@ class TheSportsDb(Proveedor):
             return salida
         hoy = datetime.now(timezone.utc).date()
         desde, hasta = s.desde or hoy, s.hasta or (s.desde or hoy)
+        if s.liga in IDS_LIGA:
+            # Ligas con id: 2 consultas (próximos y últimos partidos de la liga) en vez de una por día. La llave
+            # gratuita responde 429 si se le pide día por día para todas las ligas.
+            salida = []
+            for ruta in ("/eventsnextleague.php", "/eventspastleague.php"):
+                cuerpo = self.http.get_json(ruta, {"id": IDS_LIGA[s.liga]})
+                salida.extend(parse_eventos(cuerpo or {}, s.liga))
+            salida = [p for p in salida if desde <= p.inicio.date() <= hasta]
+            if s.capacidad is Capacidad.RESULTADOS:
+                salida = [p for p in salida if p.estado == "finalizado"]
+            return salida
         if (hasta - desde).days > self.max_dias:
             desde = hasta - timedelta(days=self.max_dias)
         salida: list[PartidoExterno] = []

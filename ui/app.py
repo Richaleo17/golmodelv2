@@ -164,6 +164,10 @@ def api(metodo: str, ruta: str, **kw):
     # Defensa en el servidor de la UI: un lector nunca puede modificar nada, aunque manipule la pantalla.
     if metodo != "GET" and st.session_state.get("rol", acceso.ADMIN) != acceso.ADMIN:
         return None, "Solo el administrador puede hacer esto."
+    admin_, lector_ = acceso.claves_desde_env(os.environ)
+    if admin_ or lector_:                          # la API tiene candado: la UI se presenta con un token de su rol (misma llave que la API)
+        tok = acceso.crear_token(st.session_state.get("rol", acceso.ADMIN), acceso.secreto(admin_, lector_, os.environ))
+        kw["headers"] = {**kw.get("headers", {}), "Authorization": f"Bearer {tok}"}
     try:
         r = httpx.request(metodo, f"{API}{ruta}", timeout=30, **kw)
     except httpx.HTTPError as e:
@@ -636,44 +640,29 @@ def _sin_acentos(t: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFD", t.lower()) if unicodedata.category(c) != "Mn")
 
 
-def tarjeta_ticket(n: int, t: dict) -> str:
+def banner_beta(texto: str) -> None:
+    """Banner GRANDE en rojo del modo «Operativo (Beta)». El texto viene de la config aprobada (`modo_operativo_beta.banner`) y se muestra COMPLETO."""
+    st.markdown('<div style="background:#b00020;color:#fff;font-size:1.25rem;font-weight:700;padding:1.1rem 1.3rem;border-radius:10px;'
+                f'margin:.5rem 0 1rem 0;border:3px solid #ff5252">{esc(texto)}</div>', unsafe_allow_html=True)
+
+
+def tarjeta_ticket_v3(v3: dict) -> str:
+    """Ticket V3 del panel: probabilidad conjunta CON dependencia (cota conservadora), calibración provisional, no promovible."""
+    t = v3["ticket"]
     piernas = ""
-    for x in t["piernas"]:
+    for x in t["bloques"]:
         crs = ""
         if x.get("crs_alerta") in ("MEDIA", "ALTA"):
             crs = f' <span class="chip {"rojo" if x["crs_alerta"] == "ALTA" else "viejo"}">CRS {x["crs_total"]}</span>'
-        razones = "".join(f"<li>{esc(r)}</li>" for r in x.get("porque", []))
-        piernas += (f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{x["hora"]} · {esc(x["partido"])} · '
-                    f'{x["p"]:.0%} · justa {x["cuota_justa"]:.2f}</span>{crs}<ul class="porque">{razones}</ul></div>')
-    casa = ""
-    if t.get("cuota_casa"):
-        ok = t["cuota_casa"] >= t["cuota_min"]
-        casa = f'<div class="{"ok" if ok else "no"}">{"✅" if ok else "❌"} Con tus cuotas pagaría {t["cuota_casa"]:.2f}x</div>'
-    crs_nota = (f'<div class="no">⚠ CRS medio/alto en: {esc(", ".join(t["crs_en_juego"]))}. Cuenta como riesgo extra.</div>'
-                if t.get("crs_en_juego") else "")
-    return (f'<div class="parlay"><h4>🎫 Ticket {n} · paga ≈ {t["cuota_justa"]:.1f}x</h4>'
-            f'<div class="meta">Acierta <b>{t["p"]:.1%}</b> → 1 de cada <b>{t["uno_de_cada"]:.0f}</b> · '
-            f'mete solo si tu casa paga ≥ <b>{t["cuota_min"]:.1f}x</b></div>{piernas}{crs_nota}{casa}</div>')
-
-
-def uno_de(x: float) -> str:
-    return f"{x:.1f}" if x < 10 else f"{x:.0f}"
-
-
-def tarjeta_parlay(titulo: str, sub: str, par: dict | None) -> str:
-    if par is None:
-        return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>'
-                '<div class="meta">Hoy no hay jugadas suficientes para este perfil.</div></div>')
-    piernas = "".join(f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{esc(x["partido"])} · {x["p"]:.0%}</span></div>'
-                      for x in par["piernas"])
-    casa = ""
-    if par.get("cuota_casa"):
-        ok = par["cuota_casa"] >= par["cuota_min"]
-        casa = (f'<div class="{"ok" if ok else "no"}">{"✅" if ok else "❌"} Con tus cuotas pagaría {par["cuota_casa"]:.2f}</div>')
-    return (f'<div class="parlay"><h4>{titulo}</h4><div class="meta">{sub}</div>{piernas}'
-            f'<div class="jug-num" style="margin-top:8px"><b style="color:{color_p(min(1.0, par["p"] * 2))}">{par["p"]:.1%}</b> de acertar '
-            f'(1 de cada {uno_de(par["uno_de_cada"])})<br>Cuota justa <b>{par["cuota_justa"]:.2f}</b> · '
-            f'mete si paga ≥ <b>{par["cuota_min"]:.2f}</b></div>{casa}</div>')
+        piernas += (f'<div class="pierna">• <b>{esc(x["jugada"])}</b> <span class="meta">{x["hora"]} · '
+                    f'{esc(x["local"])} vs {esc(x["visitante"])} · {x["p_calibrada"]:.0%} · cuota {x["cuota"]:.2f}</span>{crs}</div>')
+    sello = f' <span class="chip rojo">{esc(v3["sello"])}</span>' if v3.get("sello") else ""
+    pie = (f'Stake propuesto {float(t["stake_u"]):.2f} u (Kelly fraccional sobre la probabilidad conservadora, con tope) · sello {esc(v3["sello"])}.'
+           if v3.get("sello") else f'Stake propuesto {float(t["stake_u"]):.2f} u — NO promovido a paper/real mientras la calibración sea provisional.')
+    return (f'<div class="parlay"><h4>🎫 Ticket V3{sello} · {v3["estado"]} · {t["n_bloques"]} partidos · paga ≈ {t["cuota_combinada"]:.1f}x</h4>'
+            f'<div class="meta">Prob. conservadora <b>{t["p_parlay"]:.1%}</b> (media {t["p_media"]:.1%}; si los partidos fueran '
+            f'independientes: {t["p_independencia"]:.1%}) · factor de dependencia {t["lift"]:.2f}</div>{piernas}'
+            f'<div class="meta">{pie}</div></div>')
 
 
 pan, err_pan = api("GET", f"/panel/{dia.isoformat()}")
@@ -760,33 +749,46 @@ if VISTA == 1:
             st.markdown(f'<div class="jug-fila arriesgada"><div class="meta">{r["hora"]} · '
                         f'{esc(nl(r["liga"]))} · {esc(r["partido"])}</div>'
                         f'<div class="jug-num">{esc("; ".join(r["razones"]))}</div>{alt_html}</div>', unsafe_allow_html=True)
-        st.markdown("### 🧩 Parlays sugeridos")
-        st.caption("Para cada pago objetivo, la combinación MÁS probable de partidos distintos. Entre más paga, menos "
-                   "probable es: el porcentaje de cada tarjeta es la verdad sin adornos.")
-        pc1, pc2, pc3 = st.columns(3)
-        pc1.markdown(tarjeta_parlay("🛡️ Seguro", "pago bajo, acierta seguido", pan["parlays"].get("seguro")), unsafe_allow_html=True)
-        pc2.markdown(tarjeta_parlay("⚖️ Equilibrado", "pago medio", pan["parlays"].get("equilibrado")), unsafe_allow_html=True)
-        pc3.markdown(tarjeta_parlay("🎲 Ambicioso", "pago alto, acierta pocas veces", pan["parlays"].get("ambicioso")), unsafe_allow_html=True)
-        st.markdown("### 🛡️ Más parlays seguros, con su tasa de acierto")
-        st.caption("«Acierta» es la probabilidad real de que se cumplan TODAS las piernas (el producto de cada una). "
-                   "No existe un parlay seguro: uno que acierta 60% falla 4 de cada 10.")
-        mas = pan.get("mas_seguros") or {}
-        hay = False
-        for nombre, titulo, sub in (("muy_seguro", "🛡️🛡️ Muy seguro", "2-3 piernas muy probables, paga poco"),
-                                    ("seguro", "🛡️ Seguro", "3-4 piernas probables")):
-            for i, par in enumerate(mas.get(nombre) or [], 1):
-                hay = True
-                st.markdown(tarjeta_parlay(f"{titulo} #{i}", sub, par), unsafe_allow_html=True)
-        if not hay:
-            st.info("Hoy no hay suficientes jugadas probables de partidos distintos para armar parlays seguros.")
-        st.markdown("### 🎫 Tickets de pago alto (5 equipos, estilo 15-25x)")
-        st.caption("Las combinaciones MÁS probables de cinco partidos que pagan ≈15-30x. Cada pierna trae sus razones reales: "
-                   "lo que dice el modelo, lo que dice el mercado y el riesgo CRS. Un ticket así acierta ~3-6 de cada 100: "
-                   "ganar uno es varianza, no un sistema. Usa solo unidades chicas.")
-        if not pan.get("tickets"):
-            st.info("Hoy no hay cinco partidos con jugadas que armen ese pago. Prueba tras «Actualizar datos» o captura cuotas.")
-        for i, t in enumerate(pan.get("tickets") or [], 1):
-            st.markdown(tarjeta_ticket(i, t), unsafe_allow_html=True)
+        st.markdown("### 🎫 Ticket V3 (5-8 partidos)")
+        v3 = pan.get("v3")
+        if v3 is None:
+            st.info("Todavía no hay decisión V3 para este día (se genera al actualizar/recalcular; requiere la migración 004).")
+        elif v3["ticket"] is None:
+            st.info(f"**V3: abstención** — {v3.get('motivo') or 'sin ticket'}. El sistema prefiere no proponer ticket antes que "
+                    "inventar una probabilidad (no se usa independencia como respaldo).")
+        else:
+            if v3.get("sello"):                                   # modo Beta efectivo: banner GRANDE en rojo (texto aprobado, sin recortar)
+                banner_beta(v3["advertencia"])
+            else:
+                st.warning("⚠️ " + v3["advertencia"])
+            st.markdown(tarjeta_ticket_v3(v3), unsafe_allow_html=True)
+        st.markdown("### 🚨 Soñadoras (Alto Riesgo / EV Negativo)")
+        usar_monto = st.checkbox("Definir mi propio monto (unidades; 1 u = 1% de la banca)", key="son_usar")
+        monto = st.number_input("Monto (u)", min_value=0.01, max_value=0.5, value=0.1, step=0.05, key="son_monto") if usar_monto else None
+        son, err_son = api("GET", f"/sonadoras/{dia.isoformat()}", **({"params": {"stake_u": monto}} if monto else {}))
+        if son is None:
+            st.error(f"No se pudieron calcular las soñadoras: {err_son}")
+        else:
+            st.warning(son["aviso"])
+            if son["sonadora"] is None:
+                dg = son["diagnostico"]
+                st.info(f"**Hoy no hay soñadora** — {son['motivo']}. Selecciones elegibles (p conservadora > "
+                        f"{dg['umbrales']['p_min_pierna']:.0%} y CRS < {dg['umbrales']['crs_max']}): {dg['n_selecciones_elegibles']} en "
+                        f"{dg['n_partidos_elegibles']} partidos; cuota máxima alcanzable {dg['cuota_maxima_alcanzable']:.1f}x "
+                        f"(objetivo > {dg['umbrales']['cuota_objetivo']:g}x). No se relajan los umbrales para forzar una combinada.")
+            else:
+                x = son["sonadora"]
+                legs = "".join(f'<div class="pierna">• <b>{esc(p["jugada"])}</b> <span class="meta">{p["hora"]} · {esc(p["local"])} vs '
+                               f'{esc(p["visitante"])} · cuota {p["cuota"]:.2f} · p cons. {p["p_conservadora"]:.0%}</span></div>' for p in x["piernas"])
+                st.markdown(f'<div class="parlay"><h4>🎰 {x["n"]} selecciones · paga ≈ {x["cuota_combinada"]:.0f}x</h4>'
+                            f'<div class="meta"><b>Probabilidad real: {x["probabilidad_real_texto"]}</b> (1 de cada {x["uno_de_cada"]:,.0f}) · '
+                            f'EV según el modelo {x["ev_real"]:+.0%} por unidad apostada · si fueran independientes: {x["p_independencia"]:.2%}</div>'
+                            f'<div class="no">⚠ Ese EV es optimista: una soñadora solo existe cuando el modelo cree que las cuotas superan a las justas, '
+                            f'y eso casi siempre es error del modelo, no valor.</div>{legs}'
+                            f'<div class="meta">Stake {son["stake_u"]:.2f} u ({son["stake_tipo"]}) · Cerebro 2: <b>{son["estado_cerebro2"]}</b> '
+                            f'(máximo permitido: CON_RESERVAS; nunca APROBADA) · no promovible</div></div>', unsafe_allow_html=True)
+        st.caption("Los parlays por perfil, «más seguros» y los tickets de 5 equipos se retiraron: se armaban multiplicando "
+                   "probabilidades (independencia). Volverán rediseñados sobre V3 cuando esté validado con datos reales.")
         with st.expander("📋 Copiar este resumen"):
             st.code(pan["texto"], language="markdown")
 
@@ -955,19 +957,30 @@ if VISTA == 2:
 if VISTA == 3:
     titulo('04', 'CUOTAS', 'Arma parlays con las cuotas reales de tu casa.')
     pls, _ = api("GET", f"/parlays/{dia.isoformat()}")
-    if not pls:
-        st.info("No hay parlay para este día. Se genera solo si hay al menos 3 partidos con un bloque que cumpla: "
-                "probabilidad ≥ 60%, cuota entre 1.30 y 2.50, EV ≥ umbral y probabilidad total ≥ 15%.")
+    dec_v3, _ = api("GET", f"/tickets/{dia.isoformat()}")
+    for aviso in sorted({p["advertencia"] for p in pls or [] if p.get("advertencia") and not p.get("sello")}):
+        st.warning("⚠️ " + aviso)
+    for aviso in sorted({p["advertencia"] for p in pls or [] if p.get("advertencia") and p.get("sello")}):
+        banner_beta(aviso)
+    if dec_v3 and not dec_v3.get("ticket"):
+        st.info(f"**V3: abstención** — {dec_v3.get('motivo') or 'sin ticket'}. El sistema prefiere no proponer ticket antes que "
+                "inventar una probabilidad (no se usa independencia como respaldo).")
+    elif not dec_v3:
+        st.info("Todavía no hay decisión V3 para este día (se genera al actualizar/recalcular; requiere la migración 004).")
     for par in pls or []:
         with st.container(border=True):
-            titulo = "🎯 Parlay del día" if par["es_apuesta_del_dia"] else f"Alternativa {par['ranking'] - 1}"
+            v3 = par.get("fuente") == "v3"
+            titulo = (f"🎫 Ticket V3 · {par['estado']} · {par['sello']}" if v3 and par.get("sello")
+                      else f"🎫 Ticket V3 · {par['estado']} (calibración provisional)" if v3
+                      else "🎯 Parlay del día" if par["es_apuesta_del_dia"] else f"Alternativa {par['ranking'] - 1}")
             st.markdown(f"### {titulo} · {par['n_bloques']} partidos"
                         + ("" if par["es_apuesta_del_dia"] else " <span class='meta'>(no suma a la exposición)</span>"),
                         unsafe_allow_html=True)
             c1, c2, c3, c4, c5 = st.columns(5)
             c1.metric("Cuota casa", num(par["cuota_combinada"]))
             c2.metric("Cuota justa", num(par["cuota_justa"]), help="La cuota a la que el EV sería cero según el modelo.")
-            c3.metric("Probabilidad", pct(par["p_parlay"]))
+            c3.metric("Prob. conservadora" if v3 else "Probabilidad", pct(par["p_parlay"]),
+                      help="Cuantil bajo (q=0.25) de la probabilidad conjunta con dependencia entre partidos." if v3 else None)
             c4.metric("EV", pct(par["ev"]))
             c5.metric("Stake", f"{float(par['stake_u']):.2f} u")
             df_b = pd.DataFrame([{
@@ -986,6 +999,10 @@ if VISTA == 3:
                                 legend=alt.Legend(orient="top", title=None, labelColor=CAL)),
                 tooltip=["bloque:N", alt.Tooltip("p:Q", format=".1%"), alt.Tooltip("cuota:Q", format=".2f"), "tipo:N", "crs:N"])
             st.altair_chart(ch.properties(height=alt.Step(32)), width="stretch")
+            if v3:
+                st.caption(f"Probabilidad media {pct(par['p_media'])} · si los partidos fueran independientes: "
+                           f"{pct(par['p_independencia'])} · factor de dependencia {par['lift']:.2f}. "
+                           "Stake propuesto, NO promovido a paper/real mientras la calibración sea provisional.")
             if par["resultado"]:
                 st.caption(f"Resultado: {par['resultado']} · {par['ganancia_u']} u (los mismos bloques como simples: "
                            f"{par['ganancia_simples_u']} u)")
@@ -1128,7 +1145,7 @@ if VISTA == 6:
         "Cuota mínima": "La cuota más baja a la que una jugada deja ganancia a la larga: (1 + umbral) ÷ probabilidad. Si tu casa paga menos, no conviene aunque sea probable.",
         "Confianza (0–10)": "Cuánto respaldo tienen los datos del partido: historial de los equipos, cuotas de referencia, acuerdo entre modelo y mercado, riesgo CRS. NO es la probabilidad de acertar.",
         "Rompe parlays": "Partido donde el favorito se ve más seguro de lo que realmente es (el modelo discrepa del mercado, empate probable, riesgo CRS o pocos datos). Evítalo en combinadas.",
-        "Perfiles de parlay": "Seguro, equilibrado y ambicioso: para cada pago objetivo, la combinación más probable de partidos distintos. Más pago = menos probabilidad, sin excepciones.",
+        "Ticket V3": "Combinada de 5-8 partidos con la probabilidad conjunta REAL (con dependencia entre partidos) y su cota conservadora. Mientras la calibración sea provisional no es promovible a apuesta de práctica ni real; si no hay un ticket defendible, el sistema se abstiene y dice por qué.",
         "Probabilidad del mercado": "Lo que piensa la casa de apuestas, después de quitarle su comisión (margen) con el método de Shin.",
         "Probabilidad del modelo": "Lo que calcula golmodelv2 con Dixon-Coles a partir de la historia de goles (y xG cuando hay).",
         "Probabilidad de decisión (p_adj)": "Mezcla de las dos: α·modelo + (1−α)·mercado. α se calibra con datos: si el mercado acierta más, pesa más el mercado. Todas las decisiones usan esta.",

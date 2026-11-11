@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from golmodel.ingesta.competiciones import elegir_competiciones
 from golmodel import db, repositorio as repo
 from golmodel.ingesta import historico_api
 from golmodel.ingesta.normalizacion import ResolverEquipos
@@ -379,12 +380,7 @@ class Pipeline:
             res["avisos"].append(f"Competiciones extra: no se pudo listar deportes ({type(e).__name__}).")
             return res
         modeladas = {v for v in getattr(prov, "ligas_claves", {}).values()}   # tras listar: incluye las descubiertas
-        pats = [x.lower() for x in cm.get("patrones", [])]
-        excl = [x.lower() for x in cm.get("excluir", [])]
-        elegidos = [d for d in deportes if d["key"] not in modeladas
-                    and any(x in d["key"].lower() for x in pats) and not any(x in d["key"].lower() for x in excl)]
-        # Orden de prioridad = orden de los patrones (Champions primero)
-        elegidos.sort(key=lambda d: min((i for i, x in enumerate(pats) if x in d["key"].lower()), default=99))
+        elegidos = elegir_competiciones(deportes, modeladas, cm)          # orden de prioridad = orden de los patrones (Champions primero)
         hasta = st.hoy() + timedelta(days=max(self.cfg["recalculo"]["dias"]))
         costo_por = len(getattr(prov, "regiones", [1])) * len(getattr(prov, "mercados", [1, 2]))
         tope = int(cm.get("max_creditos_por_actualizacion", 16))

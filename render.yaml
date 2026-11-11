@@ -1,5 +1,5 @@
-# Despliegue en Render: una pantalla pública con contraseña + base PostgreSQL administrada.
-# La API y el worker de cierre corren dentro del mismo contenedor (la API NO queda expuesta).
+# Despliegue en Render: la app (API + PWA en /app/) con contraseña + base PostgreSQL administrada.
+# El worker de cierre corre dentro del mismo contenedor. La API protege todo con contraseña (APP_PASSWORD / APP_VIEWER_PASSWORD).
 databases:
   - name: golmodel-db
     plan: basic-256mb          # elige el plan en Render; el gratuito caduca
@@ -31,6 +31,8 @@ services:
       - key: ODDS_API_KEY
         sync: false
       - key: FOOTBALL_DATA_ORG_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY      # para leer capturas de boletos en «Cuotas» (opcional)
         sync: false
 
   # Diagnóstico de SOLO LECTURA (consultas fijas, protegido con token). Sirve para revisar los datos reales.

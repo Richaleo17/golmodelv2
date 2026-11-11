@@ -209,3 +209,36 @@ def test_historico_api_mxf_no_se_mezcla_con_varonil(conn_bd):
     historico_api._INTENTOS.clear()
     assert historico_api.autocargar(c, cad, ligas["MXF"], 1, date(2026, 11, 11), None) is not None
     assert historico_api.autocargar(c, cad, ligas["MXF"], 1, date(2026, 11, 11), None) is None
+
+
+def test_historico_un_errorplan_no_bloquea_las_demas_temporadas(conn_bd):
+    """El plan gratis de API-Football rechaza temporadas fuera de 2022-2024: las que sí cubre deben cargarse."""
+    from golmodel.ingesta.proveedores.base import ErrorPlan
+
+    class PorTemporada(Falso):
+        def obtener(self, s):
+            if s.temporada.startswith("2021"):
+                raise ErrorPlan("api_football", "Free plans do not have access to this season, try from 2022 to 2024.")
+            return [_p("MXF", 1, "Monterrey W", "Tigres UANL W", 1, 0)]
+
+    compartido = Interruptor()
+    cad = Cadena(Capacidad.RESULTADOS, [Eslabon(PorTemporada("api_football", [[]]))], interruptor=compartido)
+    r = historico_api.cargar_historico_api(conn_bd, cad, "MXF", [2021, 2022])
+    assert r["temporadas"][2021] == "sin datos" and r["partidos"] == 1
+    assert compartido.disponible("api_football")          # el del pipeline no se toca
+
+
+def test_thesportsdb_liga_con_id_usa_dos_consultas():
+    visto = []
+    prox = {"idEvent": "1", "strTimestamp": "2026-11-13T02:00:00", "strHomeTeam": "Monterrey W",
+            "strAwayTeam": "Tigres W", "strStatus": "Not Started"}
+    lejos = {**prox, "idEvent": "2", "strTimestamp": "2026-12-30T02:00:00"}
+
+    def h(req):
+        visto.append(req.url.path.rsplit("/", 1)[-1])
+        return httpx.Response(200, json={"events": [prox, lejos] if "next" in req.url.path else None})
+
+    p = tsdb.TheSportsDb(transport=httpx.MockTransport(h))
+    xs = p.obtener(Solicitud(Capacidad.FIXTURES, "MXF", desde=date(2026, 11, 4), hasta=date(2026, 11, 18)))
+    assert visto == ["eventsnextleague.php", "eventspastleague.php"]
+    assert [x.id_externo for x in xs] == ["1"]               # fuera de la ventana no entra

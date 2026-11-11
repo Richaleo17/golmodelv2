@@ -10,16 +10,48 @@
 
 modo_experimental: true          # q y σ_g sin validar → auditor topa en CON_RESERVAS
 
+# --- Modo «Operativo (Beta)» (v0.15+; integracion/beta.py) — INTERRUPTOR MANUAL. ENCENDIDO el 2026-11-10 por decisión del responsable (en el código viene apagado) ---
+# Al poner `activo: true`, la decisión de tickets se toma SIN el techo CON_RESERVAS (el auditor puede emitir APROBADO), pero solo si hay una calibración
+# `oos_real` vigente con gates superados (si no, no surte efecto: fail-closed). NO cambia `modo_experimental` de arriba (que sigue siendo la protección por
+# defecto; el responsable decide cuándo cambiarlo). El stake usa Kelly FRACCIONAL (`kelly_fraccion_parlay`, como máximo) sobre p_conservadora, con el tope
+# `bankroll.stake_max_parlay_u`. Cada decisión Beta lleva el sello BETA y el banner en `auditoria_decisiones`, y la UI muestra el banner en rojo.
+modo_operativo_beta:
+  activo: true                   # ← interruptor: true = Beta encendido (efectivo solo con calibración oos_real vigente); false = apagado
+  kelly_fraccion_parlay: 0.10    # tope de la fracción de Kelly en modo Beta (si bankroll.kelly_fraccion_parlay es menor, se usa esa)
+  sello: BETA
+  banner: "⚠️ MODO BETA. La probabilidad central pasó la prueba de calibración y no se detectó sobredispersión por liga y día, pero la incertidumbre de cada partido (τ) NO está validada y la prueba solo descarta sesgos grandes. Kelly conservador; apuestas con sello BETA. Úsalo bajo tu propio riesgo."
+
 # --- Cerebro 2: benchmark de mercado independiente del Cerebro 1 ---
 cerebro2:
   consenso_mercado:              # fuente + método DISTINTOS a los de C1 (anti-circularidad)
-    # TODO: confirmar contra el catálogo real `casas_apuestas` (rol referencia/ejecucion/ambos;
-    # nunca 'agregado' de football-data). Lista versionada, placeholder a confirmar:
-    casas_elegibles: [pinnacle, bet365, williamhill, marathon]
+    # Casas REALES (nunca los agregados 'promedio'/'maximo' de football-data). Decisión del responsable, 2026-11-09, tras
+    # consultar la BD real: la columna `rol` de `casas_apuestas` NO interviene en el gate (solo esta lista), así que la
+    # etiqueta 'agregado' de bet365 es irrelevante. Las claves son las de The Odds API (vivo) y las de football_data_csv
+    # (histórico): `williamhill` es la misma en ambas. Antes decía `marathon` (clave inexistente: la real es `marathonbet`).
+    # Ampliada el 2026-11-09 por decisión del responsable: betway, interwetten, ladbrokes y vcbet (históricas) pasan a ser elegibles,
+    # por robustez: con 7+ casas, si faltan una o dos en un partido el consenso sigue teniendo >= 3 (n_min no se relaja).
+    casas_elegibles: [pinnacle, bet365, williamhill, marathonbet, nordicbet, tipico_de, onexbet, unibet_se, leovegas_se,
+                      betway, interwetten, ladbrokes, vcbet]
     metodo_devig: power
     agregacion: mediana          # robusta a una casa atípica; sin ponderación por liquidez
     renormalizar_grupo: true
     n_min: 3                     # <3 casas en el mismo lote → gate de mercado = AVISO (no PASS)
+  # Parámetros nuevos de Cerebro 2 — PROVISIONALES, pre-registro §2.9. Sin defaults en el código:
+  # si falta uno, el gate falla cerrado (ABSTENCION), nunca se inventa.
+  umbrales:
+    ev_cons_aviso_margen: 0.05   # EV_cons en (umbral, umbral+margen] -> AVISO
+    crs_aviso_desde: 30          # CRS >= 30 (y < crs_max_pierna) -> AVISO
+    ic_aviso_frac: 0.8           # IC relativo > 0.8*ic_max_rel -> AVISO
+    frescura_aviso_horas: 6
+    frescura_abstencion_horas: 24
+    timeout_s: 30                # cooperativo: se comprueba entre gates
+  metacalibracion:               # job ex-post (no runtime)
+    n_min: 200
+    estados_aprobados: [APROBADO, CON_RESERVAS]   # bajo modo_experimental nada es APROBADO: el auditor decide en sombra
+    bootstrap_ic: 0.99
+    bootstrap_n: 2000
+    bootstrap_semilla: 20260101
+    wilson_z: 1.96
 
 # --- Cerebro 1: devig de referencia (distinto al del Cerebro 2) ---
 devig_c1:
@@ -41,10 +73,123 @@ umbrales_provisionales:
   viabilidad_min_tickets: 1      # U11 generación en vivo
   viabilidad_por_dias: 15        # U11
 
-# --- Gestión de banca (reusa bankroll.py) ---
+# --- Gestión de banca (reusa bankroll.py; valores iguales a config/config.yaml de v2) ---
 bankroll:
   kelly_fraccion_simple: 0.25
   kelly_fraccion_parlay: 0.10
+  unidad_pct_banca: 0.01
+  stake_max_parlay_u: 0.5
+
+# --- Constructor de tickets (motor/tickets.py) · pre-registro §2.8 · PROVISIONAL ---
+tickets:
+  tamano_alta_min: 5
+  tamano_alta_max: 8
+  tamano_reducido_min: 2             # reducidas 2-4 solo si no hay factible de 5-8; <2 no genera
+  top_n_piernas: 12                  # acotador de cómputo (NO umbral de calidad)
+  max_cestas_evaluadas: 20000        # si se excede -> error explícito, nunca truncado en silencio
+  p_min_pierna: 0.75                 # Master Prompt §10.1-C
+  crs_max_pierna: 40                 # Master Prompt §8/§10.1-C
+  max_edad_horas: 24
+  ev_cons_pierna_min: 0.0
+  cache_max_entradas: 1000           # ≈160 MB a n_draws=20000 (dec. 12)
+
+# --- Probabilidad conjunta (motor/dependencia.py) ---
+dependencia:
+  n_draws: 20000
+  percentil_conservador: 0.25        # = q (coherente con incertidumbre)
+  ic: [0.025, 0.975]
+
+# --- Calibración de τ/σ sobre cestas (backtest/calibracion_tickets.py) ---
+calibracion_tickets:
+  q: 0.25
+  delta_cobertura: 0.10
+  gate_bins: 20                      # v0.13: bins de 0.05 (decisión 12). Con 8 bins de 0.125, "≥ 8 buckets poblados" exigiría cestas con p_cons > 0.875: inalcanzable con >= 2 piernas
+  gate_n_min_bin: 100                # cestas mínimas por bucket para que cuente
+  n_min_cestas_segmento: 200         # para fijar c_seg propio; si no, fallback global
+  n0: 150                            # pooling seg->global
+  n_draws: 20000
+  presupuesto_min_por_temporada_liga: 30
+  calibrado_con: "no_calibrado"      # -> "sinteticos" | "oos_real"; solo oos_real desactiva modo_experimental
+  # Construcción de cestas ex-post (integracion/cestas_historicas.py; diseño v3_incertidumbre dec. 5). Son parámetros de
+  # ESFUERZO de muestreo, no umbrales de calidad; provisionales. Los tamaños salen de tickets.tamano_alta_min..max (5-8: los de PRODUCCIÓN; los reducidos 2-4 NO entran al backtest).
+  cestas_historicas:
+    paso_dias: 7                     # reajuste walk-forward del modelo (igual que la calibración semanal de V2)
+    n_cestas_por_dia: 40             # combinaciones muestreadas por día de decisión
+    # Muestreo ESTRATIFICADO (enmienda v0.13, 2026-11-10): el muestreo uniforme concentraba >85 % de las cestas en el primer tramo de
+    # p_conservadora y el gate de cobertura quedaba con 1 bucket poblado. Se muestrean más candidatas (sobremuestreo) con una mezcla de dos
+    # propuestas (uniforme + sesgada a selecciones probables) y se retienen CUOTAS IGUALES por estrato de probabilidad nominal (Π p_modelo).
+    # No filtra por aprobación (ni EV, ni p mínima, ni CRS): solo cambia CÓMO se reparten las cestas por el rango de probabilidad.
+    estratos_ancho: 0.05             # ancho de cada estrato de P nominal (= ancho de bin de la decisión 12)
+    sobremuestreo: 30                # candidatas generadas por cada cesta retenida
+    mezcla_alta_p: 0.5               # fracción de candidatas de la propuesta sesgada a selecciones probables
+    exponente_alta_p: 4.0            # sesgo de esa propuesta: peso ∝ p^k
+  # Versión PROVISIONAL del calibrador de tickets: SOLO existe mientras no haya un backtest OOS real que produzca una
+  # VersionCalibradorTickets. NO es un valor calibrado (calibrado_con='no_calibrado' => techo CON_RESERVAS +
+  # modo_experimental). Lo reemplaza la versión que salga de calibracion_tickets.ajustar sobre cestas reales.
+  version_provisional:
+    c_global: 1.0                    # τ_i = c / sqrt(peso_efectivo). Placeholder; su valor lo fija el responsable del proyecto
+    sigma_liga: 0.0
+    sigma_g: 0.0
+
+# --- "Soñadoras": combinadas de ALTA VARIANZA y EV NEGATIVO por diseño (motor/sonadoras.py) · PROVISIONAL ---
+# NO forman parte de la estrategia de inversión principal: no usan Kelly, nunca son APROBADAS por Cerebro 2 y no entran a la exposición.
+# Los umbrales p_min_pierna, crs_max, n_min/n_max, cuota_objetivo y el stake simbólico los pidió el responsable (2026-11-09).
+sonadoras:
+  p_min_pierna: 0.75                 # p_conservadora (cuantil q de dependencia.py) ESTRICTAMENTE mayor
+  crs_max: 40                        # CRS estrictamente menor
+  n_min: 10
+  n_max: 15
+  cuota_objetivo: 100.0              # cuota combinada ESTRICTAMENTE mayor (x)
+  stake_pct_banca: 0.001             # stake fijo simbólico: 0.1 % de la banca (sin Kelly)
+  stake_max_u: 0.5                   # tope del monto definido por el usuario (mismo tope que un parlay: bankroll.stake_max_parlay_u)
+
+# --- Ligas femeniles (decisión 2026-11-10): Liga MX Femenil y UEFA Women's Champions League ---
+# Entran por el mecanismo de competiciones SOLO-MERCADO (config.yaml: competiciones_mercado.femeniles). NO se inventan datos: sin histórico de cuotas de
+# 3+ casas ni modelo propio => la ruta en vivo las muestra con su aviso «SOLO MERCADO», V3 no genera tickets para ellas (omisión `liga_solo_mercado`;
+# Cerebro 2 nunca recibe un ticket suyo) y quedan fuera del ajuste de calibración (el orquestador excluye las ligas solo-mercado).
+ligas_femeniles:
+  nombres: ["Liga MX Femenil", "UEFA Women's Champions League"]
+  modo: solo_mercado
+  techo_estado: CON_RESERVAS
+  entran_al_backtest: false
+
+# --- Orquestador del backtest OOS (integracion/backtest_oos.py, scripts/backtest_oos.py) · PROVISIONAL ---
+# Parámetros de PROTOCOLO y de esfuerzo; su origen y validación están en pre-registro §2.9 (v0.12). Los de `protocolo_sigma_g` marcados
+# [pre-registrado] son los de la decisión 13 de v3_incertidumbre_diseno.md; el resto los fijó el desarrollador (provisionales).
+backtest_oos:
+  n_folds: 4                         # bloques de test consecutivos (expanding window); el primer bloque solo entrena
+  embargo_dias: 1                    # una cesta entrena solo si su día de decisión es <= inicio_del_test - embargo (ya resuelta)
+  min_cestas_entrenamiento: 500      # menos => el fold se omite (no se ajusta con muestra chica)
+  folds_min_validos: 2               # (v0.14: el gate de cobertura por buckets pasó a INFORMATIVO; ya no decide el veredicto, ver pruebas A y B)
+  casa: pinnacle                     # casa de cuotas del histórico (parámetro explícito; sin respaldo a otra)
+  min_buckets_poblados: 8            # [decisión 12] solo para el gate de cobertura por buckets, que desde v0.14 es INFORMATIVO (inválido para la cota de un ticket de 5-8 piernas)
+  # --- ENMIENDA v0.14 (2026-11-10): las dos pruebas que DECIDEN el veredicto. Umbrales fijados ANTES de implementarlas y de validarlas con simulaciones
+  #     (pre-registro §2.12). Provisionales; cambiarlos es nueva versión. ---
+  prueba_calibracion_media:          # A: calibración de p_media, cestas de TODOS los folds OOS agregadas
+    p_media_minima: 0.01             # [v0.15] filtro de relevancia: solo se evalúan cestas con p_media >= 1 % (la app no recomendaría un ticket de ~1 %); filtra por la predicción, no por el resultado
+    n_grupos: 5                      # [v0.15] grupos de IGUAL número de EVENTOS ESPERADOS (Σ p_media ≈ total/5, ≈ 80 con los datos reales), no de igual número de cestas
+    min_cestas_por_grupo: 200
+    min_eventos_esperados_por_grupo: 20   # Σ p_media del grupo; menos => no_evaluable (aproximación normal no fiable)
+    nivel_intervalo: 0.95            # intervalo bilateral por grupo y global (varianza robusta por día: las cestas de un día comparten partidos)
+    min_grupos_dentro: 3             # de 5 grupos, al menos 3 dentro del intervalo 95 %   [iteración 2: la v1 pedía 4 de 5; ver pre-registro §2.12 (tamaño 13-14 % > 10 % en simulación)]
+    control_negativo_factores: [1.5, 0.6667]   # [v0.15] control negativo: A se re-evalúa con p_media × f sobre los mismos datos y DEBE marcarlo descalibrado
+    z_grosero: 4.0                   # ningún grupo con |z| > 4.0 [iteración 2: la v1 usaba 3.29 (IC 99.9 %); el estadístico robusto por día tiene colas más pesadas que la normal]
+  prueba_sobredispersion:            # B: sobredispersión de piernas por grupos de factores compartidos (día × liga)
+    min_partidos_por_grupo: 4
+    min_grupos: 100
+    alfa: 0.05                       # p-valor unilateral (sobredispersión) por simulación bajo independencia
+    n_simulaciones_nulo: 4000
+    r_latente_objetivo: 0.10         # correlación latente (cópula gaussiana) intra día×liga que la prueba DEBE poder detectar
+    potencia_min: 0.80               # si la potencia para r_latente_objetivo es menor => no_evaluable (que no pase por falta de potencia)
+    n_simulaciones_potencia: 300
+  protocolo_sigma_g:
+    grid: [0.05, 0.10]               # niveles de σ_g a probar (provisional: la decisión 13 no fijó los niveles)
+    min_cestas_entre_ligas: 2000     # [pre-registrado]
+    min_dias_cobertura: 600          # ≈ 2 temporadas [pre-registrado: >= 2 temporadas]; aproximado por días de calendario
+    reduccion_logloss_min: 0.01      # [pre-registrado] reducción relativa del log-loss OOS >= 1 %
+    ic_nivel: 0.99                   # [pre-registrado] bootstrap pareado IC 99 % (corregido por Bonferroni sobre el grid: nunca más laxo)
+    bootstrap_n: 2000
+    folds_estables_min: 2            # [pre-registrado] mejora en >= 2 folds
 
 # --- Muestras de validación (ver pre-registro §2.2) ---
 validacion:
@@ -55,3 +200,21 @@ validacion:
   discriminacion_min_por_lado: 200
   bootstrap_ic: 0.99
   wilson_ic: 0.95
+
+# --- Calibrador de NIVEL (modelos/calibracion_mercado.py) ---
+calibracion_mercado:
+  # selección de método por régimen de n_eff (partidos distintos)
+  n_min_platt: 200
+  n_min_isotonica: 1000
+  margen_logloss: 0.002              # mejora mínima para subir de complejidad (parsimonia)
+  # pooling seg -> liga -> global
+  n0: 150                            # fuerza de shrinkage: w = n_eff/(n_eff+n0)
+  # bordes de cuota del segmento (liga, mercado, rango_cuota). PROVISIONAL: no pre-registrado; lo fija el responsable
+  # del proyecto. Mismo valor para el pipeline en vivo y el histórico (modelos.calibracion_mercado.segmento_de).
+  rangos_cuota: [1.30, 1.60, 2.00, 3.00, 5.00]
+  # gate de despliegue (pre-registro §2.4, enmienda v0.2)
+  gate_bins: 10
+  gate_n_min_bin: 50
+  gate_z: 1.96                       # Wilson bilateral 95%
+  gate_fraccion_bins_ok: 0.8
+  gate_k_ece: 1.5                    # ECE <= k * suelo_de_ruido (relativo a n)
