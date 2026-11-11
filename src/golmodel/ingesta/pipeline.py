@@ -18,6 +18,7 @@ import pandas as pd
 
 from golmodel.ingesta.competiciones import elegir_competiciones
 from golmodel import db, repositorio as repo
+from golmodel.ingesta import estadisticas as est_partido
 from golmodel.ingesta import historico_api
 from golmodel.ingesta.normalizacion import ResolverEquipos
 from golmodel.ingesta.proveedores.cadena import Cadena
@@ -66,6 +67,14 @@ class Pipeline:
                  reloj: Callable[[], datetime] = ahora_utc, registrador=None):
         self.cfg, self.cadenas, self.dsn, self.reloj = cfg, cadenas, dsn, reloj
         self.registrador = registrador
+
+    def _http_football_data(self):
+        """Cliente HTTP de football-data.co.uk (el del proveedor de CSV de la cadena), o None si no está."""
+        for cad in self.cadenas.values():
+            for e in getattr(cad, "eslabones", []):
+                if getattr(e.proveedor, "nombre", "") == "football_data_csv":
+                    return e.proveedor.http
+        return None
 
     def _proveedor_mercado(self):
         """El proveedor de The Odds API (si la cadena lo trae) para las competiciones solo-mercado."""
@@ -174,6 +183,11 @@ class Pipeline:
             if hist is not None:
                 res.setdefault("historico_api", {})[codigo] = hist["temporadas"]
                 res["avisos"] += hist["avisos"]
+            # Córners/tiros/árbitro (mercados nuevos): tabla aparte, no toca los partidos ni el modelo de goles.
+            stats = est_partido.autocargar(st.conn, self._http_football_data(), self.cfg, liga, hoy, st.ahora)
+            if stats is not None:
+                res.setdefault("estadisticas", {})[codigo] = {k: stats[k] for k in ("guardadas", "sin_partido", "archivos")}
+                res["avisos"] += stats["avisos"]
             for cap in (Capacidad.FIXTURES, Capacidad.RESULTADOS):
                 r = self._obtener(cap, Solicitud(cap, codigo, temporada=temporada, desde=hoy - timedelta(days=7),
                                                  hasta=hoy + timedelta(days=7)))
@@ -264,11 +278,13 @@ class Pipeline:
                     ON CONFLICT (understat_id) DO UPDATE SET equipo_id = EXCLUDED.equipo_id, nombre = EXCLUDED.nombre
                     RETURNING id""", (j.jugador, eid, j.id_externo)).fetchone()["id"]
                 st.conn.execute("""
-                    INSERT INTO jugador_produccion (jugador_id, equipo_id, temporada, fuente, minutos, xg, xa)
-                    VALUES (%s, %s, %s, 'understat', %s, %s, %s)
+                    INSERT INTO jugador_produccion (jugador_id, equipo_id, temporada, fuente, minutos, xg, xa, partidos, tiros)
+                    VALUES (%s, %s, %s, 'understat', %s, %s, %s, %s, %s)
                     ON CONFLICT (jugador_id, equipo_id, temporada, fuente)
-                    DO UPDATE SET minutos = EXCLUDED.minutos, xg = EXCLUDED.xg, xa = EXCLUDED.xa""",
-                                (jid, eid, temporada, j.minutos, j.xg, j.xa))
+                    DO UPDATE SET minutos = EXCLUDED.minutos, xg = EXCLUDED.xg, xa = EXCLUDED.xa,
+                                  partidos = COALESCE(EXCLUDED.partidos, jugador_produccion.partidos),
+                                  tiros = COALESCE(EXCLUDED.tiros, jugador_produccion.tiros)""",
+                                (jid, eid, temporada, j.minutos, j.xg, j.xa, getattr(j, "partidos", None), getattr(j, "tiros", None)))
                 prod.setdefault((eid, temporada), []).append((j.jugador, j.minutos, j.xg, j.xa))
                 res["produccion_jugadores"] += 1
         c = self.cfg["contexto"]

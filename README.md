@@ -17,6 +17,10 @@ Aplicación analítica para apuestas de fútbol (12 ligas: Premier, La Liga, Ser
 | Tickets 5 equipos | Las combinaciones más probables que pagan ≈15-30x, con razones por pierna (modelo vs mercado, CRS) y «1 de cada N» |
 | CRS | Casinazo Risk Score: veto a las selecciones del favorito en riesgo; el ajuste de probabilidad queda en modo sombra hasta validarlo |
 | Banca | Kelly fraccional (0.25 en simples, 0.10 en parlays), topes de 2u / 0.5u y exposición diaria de 5u |
+| Córners y jugadores | Córners con Binomial Negativa (estilo de equipo, rival y árbitro); anota y tiros al arco desde xG/90, titularidad y rival |
+| SGP correlacionado | Simulación conjunta goles + córners + jugadores con cópula y reparto estructural de goles (`dependencia_mercados.py`) |
+| Soñadoras analíticas | El ticket más probable dentro de un rango de cuota, etiquetado «De Valor (+EV)» o «Entretenimiento» |
+| NFL | Paquete aparte (`motor_nfl/`): Elo + EPA con Normal; moneyline, spread y totales con push |
 | Validación | Walk-forward estricto, log-loss, Brier, calibración, CLV y regla de 300 partidos antes de usar dinero real |
 
 ![Módulo 2 · Parlays](docs/capturas/m2.png)
@@ -41,7 +45,7 @@ Guía completa: [`docs/operacion.md`](docs/operacion.md). Decisiones de diseño:
 ```bash
 pytest
 ```
-Corre 170 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
+Corre más de 1,000 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
 
 ```bash
 psql -f db/tests/test_schema.sql

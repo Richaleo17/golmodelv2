@@ -12,7 +12,7 @@ const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var
 const TOKEN = "golmodel.token";
 const LIGAS = { EPL: "Premier League", LL: "LaLiga", SA: "Serie A", BUN: "Bundesliga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", ERE: "Eredivisie", BEL: "Jupiler Pro", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "diario", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, boleto: null };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "diario", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, boleto: null, sa: { min: 20, max: 50 } };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -121,7 +121,7 @@ async function render() {
   $$("#nav button").forEach((b) => (b.dataset.v === S.vista ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
   const vista = $("#vista");
   vista.innerHTML = '<p class="vacio"><span class="spin"></span>Cargando…</p>';
-  const f = { diario: vDiario, meter: vMeter, sonadoras: vSonadoras, cuotas: vCuotas, datos: vDatos }[S.vista];
+  const f = { diario: vDiario, meter: vMeter, sonadoras: vSonadoras, nfl: vNfl, cuotas: vCuotas, datos: vDatos }[S.vista];
   const miVista = S.vista, miDia = S.dia;
   const html = await f();
   if (miVista !== S.vista || miDia !== S.dia) return;                    // el usuario ya cambió de pantalla/día: no pisar
@@ -208,8 +208,40 @@ function tarjetaDiario(p, nombres) {
     const j = p.jugadas[0];
     h += `<div class="jug">🎯 ${esc(j.jugada)} · ${pct(j.p)} · mete si paga ≥ <b>${num(j.cuota_min)}</b></div>`;
   }
+  if (!p.solo_mercado && p.estado === "programado") {
+    h += `<details class="mx" data-pid="${esc(p.partido_id)}"><summary>🚩 Córners y jugadores</summary><div class="mx-cuerpo meta">Abre para calcular…</div></details>`;
+  }
   return h + "</div>";
 }
+
+/* Córners (Binomial Negativa) y props de jugador: se calculan al abrir la tarjeta (GET /mercados/{id}). */
+function htmlMercadosExt(m) {
+  let h = "";
+  const c = m.corners;
+  if (c) {
+    h += `<div class="mx-t">CÓRNERS · esperados ${num(c.esperados_local, 1)} + ${num(c.esperados_visitante, 1)} = <b>${num(c.esperados_total, 1)}</b></div>` +
+      `<div class="mx-fila">${c.total.map((x) => `<span>Más ${esc(x.linea)} <b style="color:${colorP(x.mas)}">${pct(x.mas)}</b> · justa ${num(1 / x.mas)}</span>`).join("")}</div>` +
+      `<div class="mx-fila">${c.local.map((x) => `<span>${esc(m.local)} más ${esc(x.linea)} <b>${pct(x.mas)}</b></span>`).join("")}${c.visitante.map((x) => `<span>${esc(m.visitante)} más ${esc(x.linea)} <b>${pct(x.mas)}</b></span>`).join("")}</div>`;
+  }
+  if (m.jugadores && m.jugadores.length) {
+    h += `<div class="mx-t">JUGADORES (xG/90 de Understat, titularidad aproximada)</div>` + m.jugadores.map((j) =>
+      `<div class="mx-j"><b>${esc(j.nombre)}</b> <small>${esc(j.lado === "local" ? m.local : m.visitante)} · titular ${pct(j.titularidad)}</small><br>` +
+      `Anota <b style="color:${colorP(j.p_anota)}">${pct(j.p_anota)}</b> (justa ${num(1 / j.p_anota)})` +
+      (j.tiros_arco ? " · tiros al arco " + j.tiros_arco.map((t) => `${t.minimo}+ <b>${pct(t.p)}</b>`).join(" · ") : " · sin dato de tiros") + "</div>").join("");
+  }
+  if (m.avisos && m.avisos.length) h += m.avisos.map((a) => `<div class="meta">ℹ ${esc(a)}</div>`).join("");
+  return h || '<div class="meta">Sin mercados extra para este partido.</div>';
+}
+
+document.addEventListener("toggle", async (e) => {
+  const d = e.target;
+  if (!(d instanceof HTMLDetailsElement) || !d.classList.contains("mx") || !d.open || d.dataset.cargado) return;
+  d.dataset.cargado = "1";
+  const cuerpo = d.querySelector(".mx-cuerpo");
+  cuerpo.innerHTML = '<span class="spin"></span>Calculando…';
+  const r = await api("GET", "/mercados/" + d.dataset.pid);
+  cuerpo.innerHTML = r.ok ? htmlMercadosExt(r.data) : `<p class="error">${esc(r.error)}</p>`;
+}, true);
 
 const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
@@ -379,15 +411,89 @@ async function vSonadoras() {
         `<div class="meta" style="margin-top:8px">Stake ${num(son.stake_u)} u (${esc(son.stake_tipo)}) · Cerebro 2: <b>${esc(son.estado_cerebro2)}</b> (máximo permitido: CON_RESERVAS; nunca APROBADA) · no promovible</div></div>`;
     }
   }
+  const analitica = `<h3>🧠 Soñadoras analíticas</h3><div class="card"><p class="meta">Alto riesgo con análisis: elige un rango de cuota y se arma el ticket <b>más probable</b> dentro de él, mezclando goles, córners y jugadores, con la probabilidad conjunta real (las piernas del mismo partido que se ayudan suben la probabilidad).</p>` +
+    `<div class="fila-sa"><label for="sa-min">De</label><input id="sa-min" type="number" min="1.5" max="499" step="1" value="${S.sa.min}"><label for="sa-max">a</label><input id="sa-max" type="number" min="2" max="500" step="1" value="${S.sa.max}"><span>x</span>` +
+    `<button id="sa-ir" class="btn primario" type="button">Armar ticket</button></div><div id="sa-res"></div></div>`;
   return {
-    html: cab + monto + cuerpo,
+    html: cab + monto + cuerpo + analitica,
     alMontar: (v) => {
+      $("#sa-ir", v).addEventListener("click", async () => {
+        const lo = Number($("#sa-min", v).value), hi = Number($("#sa-max", v).value), zona = $("#sa-res", v);
+        S.sa = { min: lo, max: hi };
+        zona.innerHTML = '<p class="meta"><span class="spin"></span>Buscando la combinación más probable…</p>';
+        const r = await api("GET", `/sonadoras_analiticas/${S.dia}?cuota_min=${encodeURIComponent(lo)}&cuota_max=${encodeURIComponent(hi)}`);
+        zona.innerHTML = r.ok ? htmlAnalitica(r.data) : `<p class="error">${esc(r.error)}</p>`;
+      });
       const u = $("#son-usar", v), m = $("#son-monto", v);
       const recargar = () => { S.montoSon = u.checked ? Math.min(0.5, Math.max(0.01, Number(m.value) || 0.1)) : null; render(); };
       u.addEventListener("change", recargar);
       m.addEventListener("change", recargar);
     },
   };
+}
+
+function htmlTicketAnalitico(t, titulo) {
+  const valor = t.etiqueta.startsWith("De Valor");
+  return `<div class="sonadora"><h4>${titulo} · ${esc(t.piernas.length)} piernas en ${esc(t.n_partidos)} partidos · paga ≈ ${num(t.cuota_combinada, 1)}x</h4>` +
+    `<div><span class="chip ${valor ? "ok" : "viejo"}">${esc(t.etiqueta)}</span> <span class="meta">${esc(t.motivo_etiqueta)}</span></div>` +
+    `<div class="meta"><b>Probabilidad real: ${pct(t.p_media, 1)}</b> (1 de cada ${num(t.uno_de_cada, 0)}) · conservadora ${pct(t.p_conservadora, 1)} · si fueran independientes ${pct(t.p_independencia, 1)} · ` +
+    `correlación ×${num(t.lift)} · EV conservador ${(100 * t.ev_cons).toFixed(0)}%</div>` +
+    t.piernas.map((p) => `<div class="pierna">• <b>${esc(p.etiqueta)}</b> <span class="meta">${pct(p.p)} · ${p.cuota ? "cuota " + num(p.cuota) : "sin cuota de casa (justa " + num(1 / p.p) + ")"}</span></div>`).join("") + "</div>";
+}
+
+function htmlAnalitica(d) {
+  if (!d.ticket) {
+    const dg = d.diagnostico || {};
+    return `<p class="no">No hay ticket: ${esc(d.motivo)}.</p><p class="meta">Selecciones elegibles: ${esc(dg.n_elegibles)} (goles ${esc((dg.por_mercado || {}).goles)}, córners ${esc((dg.por_mercado || {}).corners)}, jugadores ${esc((dg.por_mercado || {}).props)}).</p>`;
+  }
+  return `<div class="aviso-prov">${esc(d.aviso)}</div>` + htmlTicketAnalitico(d.ticket, "🧠 El más probable") +
+    (d.alternativas || []).map((t, i) => htmlTicketAnalitico(t, `Alternativa ${i + 1}`)).join("") +
+    `<p class="meta">Stake simbólico ${num(d.stake_u)} u, sin Kelly. No pasa por Cerebro 2.</p>`;
+}
+
+// ------------------------------------------------------------------ NFL
+async function vNfl() {
+  const r = await api("GET", "/nfl/semana");
+  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">🏈</b> NFL</h2><p class="lead">Moneyline, spread y totales. Modelo propio (Elo + EPA, distribución Normal), separado del de fútbol.</p>`;
+  if (S.rol === "admin") h += `<div class="card"><button id="nfl-act" class="btn" type="button" style="width:100%">Actualizar NFL (calendario, EPA y cuotas ≈ 3 créditos)</button><div id="nfl-prog" class="meta"></div></div>`;
+  if (!r.ok) return { html: h + `<div class="card"><p class="error">${esc(r.error)}</p></div>`, alMontar: montarNfl };
+  const d = r.data, a = d.actualizacion || {};
+  h += `<div class="aviso-prov">${esc(d.aviso)}</div>`;
+  if (a.estado === "error") h += `<p class="error">Última actualización NFL: ${esc(a.error)}</p>`;
+  h += `<p class="meta">Historial: ${esc(d.n_juegos_historico)} juegos · σ margen ${num(d.sigma_margen, 1)} · σ total ${num(d.sigma_total, 1)}</p>`;
+  if (!d.juegos.length) h += `<div class="card meta">No hay juegos en los próximos días${d.n_juegos_historico ? "" : " (todavía no se cargan datos: usa «Actualizar NFL»)"}.</div>`;
+  h += d.juegos.map((j) => {
+    const fecha = j.inicio ? new Date(j.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "—";
+    const m = j.modelo;
+    return `<div class="mc"><div class="mc-top"><span>SEMANA ${esc(j.semana)}</span><span>${esc(fecha)}</span></div>` +
+      `<div class="mc-eq">${esc(j.visitante_nombre)} @ ${esc(j.local_nombre)}</div>` +
+      `<div class="meta">Margen esperado ${j.local} ${m.mu_margen >= 0 ? "+" : ""}${num(m.mu_margen, 1)} (Elo ${num(m.margen_elo, 1)}${m.margen_epa != null ? ", EPA " + num(m.margen_epa, 1) : ", sin EPA"}) · total ${num(m.mu_total, 1)}</div>` +
+      `<table class="nfl"><thead><tr><th>Mercado</th><th>Modelo</th><th>Mercado</th><th>Cuota</th><th>EV</th></tr></thead><tbody>` +
+      j.mercados.map((x) => `<tr class="${x.valor ? "valor" : ""}"><td>${esc(x.mercado)} ${esc(x.seleccion === "local" ? j.local : x.seleccion === "visitante" ? j.visitante : x.seleccion === "over" ? "Más" : "Menos")} ${x.linea != null ? esc((x.linea > 0 && x.mercado === "Spread" ? "+" : "") + x.linea) : ""}</td>` +
+        `<td><b style="color:${colorP(x.p_modelo)}">${pct(x.p_modelo)}</b>${x.p_push ? `<small> push ${pct(x.p_push, 1)}</small>` : ""}</td><td>${x.p_mercado != null ? pct(x.p_mercado) : "—"}</td>` +
+        `<td>${x.cuota ? num(x.cuota) : `<small>justa ${num(x.cuota_justa)}</small>`}</td><td>${x.ev != null ? (100 * x.ev).toFixed(1) + "%" : "—"}${x.valor ? " ✅" : ""}</td></tr>`).join("") +
+      `</tbody></table></div>`;
+  }).join("");
+  return { html: h, alMontar: montarNfl };
+}
+
+function montarNfl(v) {
+  const b = $("#nfl-act", v);
+  if (!b) return;
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    const zona = $("#nfl-prog", v);
+    zona.innerHTML = '<span class="spin"></span>Descargando datos NFL…';
+    const r = await api("POST", "/nfl/actualizar");
+    if (!r.ok) { zona.innerHTML = `<p class="error">${esc(r.error)}</p>`; b.disabled = false; return; }
+    for (let i = 0; i < 300; i++) {
+      await new Promise((res) => setTimeout(res, 3000));
+      const e = await api("GET", "/nfl/semana");
+      const est = e.ok ? (e.data.actualizacion || {}).estado : "error";
+      if (est !== "en_curso") { render(); return; }
+    }
+    b.disabled = false;
+  });
 }
 
 // ------------------------------------------------------------------ Cuotas

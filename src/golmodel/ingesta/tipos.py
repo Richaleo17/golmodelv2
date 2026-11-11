@@ -83,6 +83,8 @@ class XgJugador:
     xg: float
     xa: float
     id_externo: str | None = None
+    partidos: int | None = None                # partidos jugados (props: titularidad)
+    tiros: int | None = None                   # tiros totales (props: tiros al arco)
 
 
 @dataclass(frozen=True)

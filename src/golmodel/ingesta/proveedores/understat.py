@@ -54,8 +54,13 @@ def parse_partidos(fechas: list[dict], liga: str) -> list[XgPartido]:
 
 
 def parse_jugadores(jugadores: list[dict], liga: str, temporada: str) -> list[XgJugador]:
+    def _ent(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
     return [XgJugador("understat", FAMILIA, liga, temporada, j["player_name"], j["team_title"],
-                      int(j["time"]), float(j["xG"]), float(j["xA"]), str(j["id"]))
+                      int(j["time"]), float(j["xG"]), float(j["xA"]), str(j["id"]), _ent(j.get("games")), _ent(j.get("shots")))
             for j in jugadores]
 
 

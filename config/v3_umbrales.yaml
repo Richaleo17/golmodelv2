@@ -143,15 +143,37 @@ sonadoras:
   stake_pct_banca: 0.001             # stake fijo simbólico: 0.1 % de la banca (sin Kelly)
   stake_max_u: 0.5                   # tope del monto definido por el usuario (mismo tope que un parlay: bankroll.stake_max_parlay_u)
 
-# --- Ligas femeniles (decisión 2026-11-10): Liga MX Femenil y UEFA Women's Champions League ---
-# Entran por el mecanismo de competiciones SOLO-MERCADO (config.yaml: competiciones_mercado.femeniles). NO se inventan datos: sin histórico de cuotas de
-# 3+ casas ni modelo propio => la ruta en vivo las muestra con su aviso «SOLO MERCADO», V3 no genera tickets para ellas (omisión `liga_solo_mercado`;
-# Cerebro 2 nunca recibe un ticket suyo) y quedan fuera del ajuste de calibración (el orquestador excluye las ligas solo-mercado).
+# --- Ligas femeniles (decisión 2026-11-10, ENMENDADA 2026-11-11 por el responsable) ---
+# · UEFA Women's Champions League: SOLO-MERCADO (config.yaml: competiciones_mercado.femeniles). Sin histórico ni modelo: aviso «SOLO MERCADO»,
+#   V3 no genera tickets (omisión `liga_solo_mercado`) y queda fuera del ajuste de calibración.
+# · Liga MX Femenil (MXF): MODELO PROPIO desde 2026-11-11 (PR #3). The Odds API no la ofrece, así que «solo mercado» nunca la mostraría.
+#   Histórico: API-Football 2022–2024 + TheSportsDB. Sin cuotas de casa: sus piernas no tienen consenso de ≥3 casas, así que Cerebro 2
+#   las deja en AVISO (techo CON_RESERVAS) y no entran al backtest OOS (no hay cuotas de cierre que medir).
 ligas_femeniles:
-  nombres: ["Liga MX Femenil", "UEFA Women's Champions League"]
+  nombres: ["UEFA Women's Champions League"]        # las que siguen SOLO MERCADO (deben coincidir con config.yaml)
   modo: solo_mercado
   techo_estado: CON_RESERVAS
   entran_al_backtest: false
+  con_modelo_propio:
+    - {nombre: "Liga MX Femenil", codigo: MXF, desde: "2026-11-11", techo_estado: CON_RESERVAS, entran_al_backtest: false,
+       motivo: "The Odds API no ofrece la liga; histórico por API-Football (2022-2024) y TheSportsDB"}
+
+# --- «Soñadoras analíticas» (motor/sonadoras_analiticas.py) · 2026-11-11 · PROVISIONAL ---
+# Alto riesgo con valor analítico: el usuario pide un rango de cuota y se arma el ticket MÁS PROBABLE dentro de él, mezclando goles,
+# córners y props, con la conjunta real (dependencia_mercados.py). No usa Kelly, no pasa por Cerebro 2 y no entra a la exposición.
+sonadoras_analiticas:
+  p_min_pierna: 0.55               # piernas con menos probabilidad no entran (ruido)
+  cuota_min_pierna: 1.10
+  n_max_piernas: 10
+  max_por_partido: 3               # SGP de hasta 3 piernas del mismo partido
+  ancho_haz: 40
+  max_evaluadas: 25                # combinaciones que se re-evalúan con la conjunta real
+  sorteos_cribado: [120, 150]      # (parámetros, partidos) en el cribado; la final usa mercados_extendidos
+  alternativas: 2
+  umbral_ev_valor: 0.0             # «De Valor (+EV)» exige EV conservador > esto y cuotas reales en todas las piernas
+  cuota_max_permitida: 500
+  stake_pct_banca: 0.001           # igual que las Soñadoras: simbólico, sin Kelly
+  rango_por_defecto: [20, 50]
 
 # --- Orquestador del backtest OOS (integracion/backtest_oos.py, scripts/backtest_oos.py) · PROVISIONAL ---
 # Parámetros de PROTOCOLO y de esfuerzo; su origen y validación están en pre-registro §2.9 (v0.12). Los de `protocolo_sigma_g` marcados

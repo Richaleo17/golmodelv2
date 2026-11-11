@@ -256,6 +256,103 @@ def get_sonadoras(fecha: str, stake_u: float | None = None, s: Servicio = Depend
     return son.presentar(conn, dec, ZoneInfo(s.cfg["zona_horaria"]))
 
 
+@app.get("/mercados/{partido_id}")
+def get_mercados(partido_id: int, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Córners (Binomial Negativa) y props de jugador (anota / tiros al arco) de un partido. Modelos PARALELOS a Dixon-Coles:
+    usan sus λ pero no las cambian. Lo que no se puede calcular viene en `avisos`."""
+    from golmodel.integracion import mercados_extendidos as mx
+    try:
+        out = mx.mercados_partido(conn, partido_id, s.cfg, s.reloj())
+    except KeyError:
+        raise HTTPException(404, "partido no encontrado")
+    out.pop("partido_ext", None)
+    return out
+
+
+class SgpIn(BaseModel):
+    partido_id: int
+    selecciones: list[str] = Field(min_length=1, max_length=6)
+
+
+@app.post("/sgp/probabilidad")
+def post_sgp(body: SgpIn, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Probabilidad REAL de un SGP con goles, córners y props del mismo partido (cópula + reparto estructural; ver
+    motor/dependencia_mercados.py). Devuelve la conjunta, la ingenua por independencia y el lift (>1 = se ayudan entre sí)."""
+    from golmodel.integracion import mercados_extendidos as mx
+    from golmodel.modelos.incertidumbre import FactorSamplerJerarquico
+    from golmodel.motor import dependencia_mercados as dm
+    try:
+        m = mx.mercados_partido(conn, body.partido_id, s.cfg, s.reloj())
+    except KeyError:
+        raise HTTPException(404, "partido no encontrado")
+    if m["partido_ext"] is None:
+        raise HTTPException(409, " ".join(m["avisos"]) or "sin predicción")
+    cfg = {**cargar_v3(), "mercados_extendidos": {**s.cfg["mercados_extendidos"], "spearman_goles_corners": m.get("spearman", 0.0)}}
+    try:
+        r, marg = dm.probabilidad_conjunta([m["partido_ext"]], [dm.PiernaExt(body.partido_id, x) for x in body.selecciones],
+                                           FactorSamplerJerarquico(), cfg, semilla=body.partido_id)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    return {"p_conjunta": r.p_media, "p_conservadora": r.p_conservadora, "p_independencia": r.p_independencia, "lift": r.lift,
+            "marginales": {k.split("|", 1)[1]: v for k, v in marg.items()}, "cuota_justa": (1 / r.p_media) if r.p_media > 0 else None}
+
+
+@app.get("/sonadoras_analiticas/{fecha}")
+def get_sonadoras_analiticas(fecha: str, cuota_min: float | None = None, cuota_max: float | None = None,
+                             s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """«Soñadoras analíticas»: el ticket MÁS PROBABLE cuya cuota cae en [cuota_min, cuota_max], mezclando goles, córners y props con la
+    conjunta real. Etiqueta «De Valor (+EV)» o «Ticket de Entretenimiento». No usa Kelly ni pasa por Cerebro 2."""
+    from golmodel.integracion import mercados_extendidos as mx
+    cfg_v3 = cargar_v3()
+    lo, hi = cfg_v3["sonadoras_analiticas"]["rango_por_defecto"]
+    try:
+        return mx.sonadoras_analiticas_dia(conn, _dia(fecha, s), s.reloj(), s.cfg, cfg_v3,
+                                           cuota_min=float(cuota_min or lo), cuota_max=float(cuota_max or hi))
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+_NFL = {"estado": "inactivo", "resumen": None, "error": None, "inicio": None}
+
+
+@app.get("/nfl/semana")
+def get_nfl_semana(s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """NFL: juegos de los próximos días con moneyline, spread y totales (modelo Elo + EPA, Normal) frente a la cuota de una casa."""
+    from golmodel.motor_nfl import servicio as nfl
+    try:
+        out = nfl.semana(conn, s.cfg, s.reloj())
+    except psycopg.errors.UndefinedTable:
+        conn.rollback()
+        raise HTTPException(503, "Faltan las tablas NFL: reinicia la API para aplicar la migración 007.")
+    out["actualizacion"] = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in _NFL.items()}
+    return out
+
+
+@app.post("/nfl/actualizar", status_code=202)
+def post_nfl_actualizar(s: Servicio = Depends(servicio)):
+    """Descarga calendario y marcadores (nflverse), EPA (play-by-play, solo lo que falta) y cuotas (The Odds API, ≈ 3 créditos).
+    Corre en segundo plano; el avance se ve en GET /nfl/semana → actualizacion."""
+    from golmodel.motor_nfl import servicio as nfl
+    from golmodel.motor_nfl.datos import FuenteNFL
+    if _NFL["estado"] == "en_curso":
+        raise HTTPException(409, "Ya hay una actualización NFL en curso")
+    _NFL.update(estado="en_curso", error=None, inicio=s.reloj())
+
+    def correr():
+        c = db.conectar(s.dsn)
+        try:
+            kw = {"registrar": s.registrador} if s.registrador else {}
+            fuente = FuenteNFL(os.environ.get("ODDS_API_KEY"), s.cfg, **kw)
+            _NFL.update(resumen=nfl.actualizar(c, fuente, s.cfg, s.reloj()), estado="ok")
+        except Exception as e:                                                   # noqa: BLE001 — se muestra en la pestaña NFL
+            c.rollback()
+            _NFL.update(estado="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        finally:
+            c.close()
+    threading.Thread(target=correr, daemon=True).start()
+    return {"estado": "en_curso"}
+
+
 @app.get("/tickets/{fecha}")
 def get_tickets(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     """Decisión V3 del día (tickets.py + dependencia.py + Cerebro 2): ticket propuesto o ABSTENCIÓN con su motivo.

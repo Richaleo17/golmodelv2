@@ -48,10 +48,11 @@ def _claves(deportes, cm_, modeladas=frozenset({"soccer_epl", "soccer_mexico_lig
 
 
 # ------------------------------------------------------------------ reglas de selección (puras)
-def test_las_dos_femeniles_se_eligen_aunque_la_config_excluya_women(cm):
+def test_la_champions_femenil_se_elige_aunque_la_config_excluya_women(cm):
     assert "women" in cm["excluir"]                                         # la exclusión general sigue vigente
     k = _claves(CATALOGO, cm)
-    assert WCL in k and MXF in k
+    assert WCL in k
+    assert MXF not in k            # enmienda 2026-11-11: Liga MX Femenil tiene MODELO PROPIO (MXF), ya no entra como solo mercado
 
 
 def test_lo_que_no_es_ninguna_de_las_dos_sigue_excluido(cm):
@@ -82,8 +83,16 @@ def test_las_reglas_son_por_tokens_y_toleran_variantes_de_nombre(cm, clave):
 
 
 @pytest.mark.parametrize("clave", ["soccer_mexico_ligamx_women", "soccer_mexico_liga_mx_femenil", "soccer_ligamx_womens"])
-def test_liga_mx_femenil_variantes(cm, clave):
-    assert _claves([_d(clave)], cm) == [clave]
+def test_liga_mx_femenil_ya_no_es_solo_mercado(cm, clave):
+    """Enmienda 2026-11-11: con modelo propio, ninguna variante de su clave se crea como competición solo mercado."""
+    assert _claves([_d(clave)], cm) == []
+
+
+@pytest.mark.parametrize("clave", ["soccer_mexico_ligamx_women", "soccer_mexico_liga_mx_femenil", "soccer_ligamx_womens"])
+def test_las_reglas_por_tokens_siguen_funcionando_con_cualquier_competicion(cm, clave):
+    """El MECANISMO de reglas no cambió: una regla con sus grupos de tokens sigue eligiendo las variantes de nombre."""
+    con_regla = {**cm, "femeniles": [{"nombre": "Liga MX Femenil", "todos": [["ligamx", "liga_mx"], ["women", "womens", "femenil"]]}]}
+    assert _claves([_d(clave)], con_regla) == [clave]
 
 
 def test_una_regla_exige_todos_sus_grupos(cm):
@@ -95,8 +104,11 @@ def test_una_regla_exige_todos_sus_grupos(cm):
 def test_la_config_v3_y_la_config_general_declaran_las_mismas_ligas():
     v3 = yaml.safe_load(RUTA_V3.read_text(encoding="utf-8"))["ligas_femeniles"]
     nombres = [r["nombre"] for r in cargar()["competiciones_mercado"]["femeniles"]]
-    assert nombres == v3["nombres"] == ["Liga MX Femenil", "UEFA Women's Champions League"]
+    assert nombres == v3["nombres"] == ["UEFA Women's Champions League"]
     assert v3["modo"] == "solo_mercado" and v3["techo_estado"] == "CON_RESERVAS" and v3["entran_al_backtest"] is False
+    mxf = {x["codigo"]: x for x in v3["con_modelo_propio"]}["MXF"]                 # enmienda 2026-11-11
+    assert mxf["nombre"] == "Liga MX Femenil" and mxf["techo_estado"] == "CON_RESERVAS" and mxf["entran_al_backtest"] is False
+    assert "MXF" in cargar()["ligas_activas"]
 
 
 # ------------------------------------------------------------------ con PostgreSQL real y el pipeline real
@@ -162,14 +174,14 @@ def sin_femeniles():
     admin.close()
 
 
-def test_se_crean_las_dos_ligas_solo_mercado_con_sus_partidos_y_cuotas(con_femeniles):
+def test_solo_la_champions_femenil_se_crea_como_solo_mercado(con_femeniles):
     mundo, cfg, conn = con_femeniles
     ligas = {l["codigo"]: l for l in conn.execute("SELECT * FROM ligas WHERE solo_mercado")}
-    assert set(ligas) == {f"MK:{WCL}", f"MK:{MXF}"} and ligas[f"MK:{MXF}"]["nombre"] == "Liga MX Femenil"
+    assert set(ligas) == {f"MK:{WCL}"}                                    # MXF tiene modelo propio: aunque la API la ofrezca, no se duplica
     n = conn.execute("SELECT count(*) AS n FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE l.solo_mercado").fetchone()["n"]
-    assert n == 3
+    assert n == 2
     assert conn.execute("SELECT count(*) AS n FROM cuotas q JOIN partidos p ON p.id = q.partido_id JOIN ligas l ON l.id = p.liga_id "
-                        "WHERE l.solo_mercado").fetchone()["n"] == 3 * 5
+                        "WHERE l.solo_mercado").fetchone()["n"] == 2 * 5
 
 
 def test_no_hay_picks_ni_predicciones_del_modelo_para_las_femeniles(con_femeniles):
@@ -184,9 +196,9 @@ def test_el_panel_las_muestra_como_solo_mercado(con_femeniles):
     mundo, cfg, conn = con_femeniles
     dia = mundo.jornada.tz_convert("America/Mexico_City").date()
     pan = sugerencias.panel(conn, cfg, dia, mundo.ahora)
-    femeniles = [p for p in pan["partidos"] if p["liga"] in (f"MK:{WCL}", f"MK:{MXF}")]
-    assert len(femeniles) == 3 and all(p["solo_mercado"] for p in femeniles)
-    assert pan["resumen"]["nombres_liga"][f"MK:{MXF}"] == "Liga MX Femenil"
+    femeniles = [p for p in pan["partidos"] if p["liga"] == f"MK:{WCL}"]
+    assert len(femeniles) == 2 and all(p["solo_mercado"] for p in femeniles)
+    assert pan["resumen"]["nombres_liga"][f"MK:{WCL}"] == "UEFA Women's Champions League"
 
 
 def test_v3_las_omite_de_forma_explicita_y_no_arma_candidatas(con_femeniles, monkeypatch):
@@ -195,7 +207,7 @@ def test_v3_las_omite_de_forma_explicita_y_no_arma_candidatas(con_femeniles, mon
     dia = mundo.jornada.tz_convert("America/Mexico_City").date()
     r = cand.construir_candidatas(conn, dia, mundo.ahora, cfg, cargar_v3())
     fem = {o.liga: o for o in r.omisiones if o.motivo == "liga_solo_mercado"}
-    assert {f"MK:{WCL}", f"MK:{MXF}"} <= set(fem)
+    assert {f"MK:{WCL}"} <= set(fem)
     ids_fem = {r_["id"] for r_ in conn.execute("SELECT p.id FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE l.solo_mercado")}
     assert not {c.partido_id for c in r.candidatas} & ids_fem                # NINGUNA candidata (ni cuotas ni pesos las rescatan)
 

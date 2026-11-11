@@ -162,9 +162,70 @@ competiciones_mercado:
   # Femeniles INCLUIDAS por decisión del responsable (2026-11-10) aunque `excluir` tenga women/womens. Reglas de TOKENS sobre la clave del deporte de
   # The Odds API (cada grupo = alternativas; deben aparecer los 3 grupos/2 grupos). Las claves exactas NO están verificadas (sin acceso a GET /v4/sports):
   # si la API no ofrece la competición, no aparece. Sin histórico ni modelo: solo mercado, sin picks ni tickets V3, fuera de la calibración.
+  # Liga MX Femenil salió de aquí (2026-11-11): tiene modelo propio (ligas_activas: MXF) y The Odds API no la ofrece.
   femeniles:
-    - {nombre: "Liga MX Femenil", todos: [[ligamx, liga_mx], [women, womens, femenil]]}
     - {nombre: "UEFA Women's Champions League", todos: [[uefa], [champs], [women, womens]]}
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Mercados NUEVOS (2026-11-11). Modelos PARALELOS: no cambian Dixon-Coles, la matriz de goles ni los tickets V3.
+# Valores de diseño, PROVISIONALES hasta medirlos en walk-forward con datos reales.
+corners:
+  ligas: [EPL, LL, SA, BUN, L1, ERE, BEL, POR]   # las que traen córners en los CSV de football-data (HC/AC). Árbitro: solo EPL.
+  decaimiento_xi: 0.002            # mismo orden que el modelo de goles (vida media ≈ 1 año)
+  l2: 2.0                          # encogimiento de ataque/concede hacia el promedio
+  l2_arbitro: 20.0                 # el efecto árbitro se encoge mucho (es pequeño y ruidoso)
+  min_partidos_arbitro: 15
+  min_partidos_liga: 200           # con menos, la liga no ofrece córners
+  lineas_total: [7.5, 8.5, 9.5, 10.5, 11.5]
+  lineas_equipo: [3.5, 4.5, 5.5]
+
+props:
+  ligas: [EPL, SA, LL, BUN, L1]    # las que tienen xG por jugador (Understat)
+  minutos_min_temporada: 450       # menos minutos = sin prop (muestra chica)
+  minutos_titular: 85
+  minutos_suplente: 15
+  tasa_al_arco: 0.33               # Understat da tiros totales; ≈ 1/3 van al arco (promedio de ligas top). PROVISIONAL
+  factor_rival_limites: [0.6, 1.6]
+  max_jugadores_por_equipo: 4      # los de mayor xG/90
+  tiros_minimos: [1, 2, 3]
+
+mercados_extendidos:               # probabilidad conjunta con córners y props (motor/dependencia_mercados.py)
+  sorteos_parametros: 400          # sorteos de parámetros (incertidumbre)
+  sorteos_partido: 300             # partidos simulados por sorteo
+  spearman_goles_corners: 0.0      # se SOBREESCRIBE con la correlación medida en el histórico al calcular (0 = sin dato)
+  rho_tiros_goles: 0.30            # tiros al arco del jugador vs goles de su equipo (cópula). PROVISIONAL: sin dato por jugador y partido
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# NFL (motor_nfl/): paquete separado, no usa nada del modelo de fútbol.
+nfl:
+  activo: true
+  temporadas_historico: 4          # + la actual
+  dias: 8                          # juegos de los próximos N días
+  umbral_edge: 0.04
+  casas_preferidas: [pinnacle, draftkings, fanduel, betmgm]   # una sola casa por mercado (la mejor cuota entre casas infla el EV)
+  aviso: "NFL v1: Elo + EPA con distribución Normal. Los números clave (3 y 7) no se modelan aparte; sin validación walk-forward todavía."
+  cuotas:
+    sport_key: americanfootball_nfl
+    regiones: [us]                 # costo = mercados × regiones = 3 créditos por consulta (mismo presupuesto que el fútbol)
+    mercados: [h2h, spreads, totals]
+  epa:
+    activo: true                   # descarga el play-by-play de nflverse (≈ 25 MB por temporada, una vez; la actual se refresca)
+  modelo:
+    elo_inicial: 1505
+    elo_media: 1505
+    k_elo: 20
+    hfa_elo: 48                    # ventaja de local en puntos Elo (≈ 1.9 puntos de spread)
+    hfa_puntos: 1.5
+    elo_por_punto: 25
+    regresion_temporada: 0.333
+    epa_n0_jugadas: 300            # encogimiento de la EPA hacia 0
+    jugadas_por_partido: 62
+    peso_epa: 0.5                  # μ = (1 − w)·Elo + w·EPA (cuando hay EPA)
+    puntos_n0: 4                   # encogimiento de puntos a favor/en contra hacia la media de la liga
+    decaimiento_por_juego: 0.94
+    sigma_margen: 13.5             # respaldo; con ≥ min_juegos_sigma se estiman con los residuos
+    sigma_total: 10.0
+    min_juegos_sigma: 400
 
 valor:
   umbral_edge: 0.04
