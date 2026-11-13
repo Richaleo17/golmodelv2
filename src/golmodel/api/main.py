@@ -228,6 +228,13 @@ def get_panel(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion
     return pan
 
 
+@app.get("/parlays_usuario/{fecha}")
+def get_parlays_usuario(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Qué meter (2-3 parlays de 3-5 partidos) y Soñadoras (2-3 de 6-10), piernas «Gana» o «PA(1)», hasta 3 días."""
+    from golmodel.servicios import parlays_usuario
+    return parlays_usuario.armar(conn, s.cfg, _dia(fecha, s), s.reloj())
+
+
 @app.get("/aciertos")
 def get_aciertos(dias: int = 7, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     """Marcador de aciertos por mercado (Ganador 5/6, Ambos anotan 3/5…) de los últimos `dias`: decisión de la app vs mercado solo."""

@@ -52,3 +52,12 @@ A1–A10, tal como se propusieron, con sus valores por defecto. Detalle en la co
   Dixon-Coles ya absorbe parte del efecto de su estadio. Las bajas siguen en `ajuste_*` (la base exige <= 0); los factores solo entran a la matriz.
 * **Marcador de aciertos** (`servicios/aciertos.py`, `/aciertos`, `/diag/aciertos`, Diario): por KPI (Ganador 5/6, Ambos anotan 3/5…),
   con la predicción previa al partido, decisión de la app vs mercado solo. PA(1) solo se cuenta cuando se puede saber sin el minuto del gol.
+
+### 2026-11-13 (c) · «Qué meter» y «Soñadoras» = parlays del responsable
+Decisión del responsable: se quitan de esas pantallas el ticket V3, «Apuesta por esto hoy», «Con valor ahora», «Rompen parlays»,
+la soñadora 10-15 (>100x) y las soñadoras analíticas. En su lugar (`servicios/parlays_usuario.py`, `/parlays_usuario/{fecha}`):
+* Qué meter: 3 parlays de 3, 4 y 5 partidos. Soñadoras: 3 parlays de 6, 8 y 10.
+* Pierna = «Gana» o «PA(1)» (la más probable del partido), p ≥ 0.55, confianza ≥ 3.5, sin partidos que «rompen parlays» ni ya empezados.
+* Hasta 3 días y cualquier liga; cada pierna muestra día y hora. Las opciones de una sección no comparten partidos mientras alcancen.
+* Probabilidad = producto de las piernas (partidos distintos). Un equipo duplicado a la misma hora (dato malo de la fuente) se omite y se avisa.
+El backend del ticket V3 y las soñadoras sigue existiendo (API y Streamlit); solo dejó de mostrarse en la PWA.
