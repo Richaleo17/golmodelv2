@@ -169,7 +169,7 @@ def _cargar(conn, d: date) -> list[dict]:
                l.codigo AS liga, l.nombre AS liga_nombre, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante,
                pr.id AS prediccion_id, pr.version_id, pr.matriz, pr.lambda_local, pr.lambda_visitante, pr.rho,
                pr.lambda_mercado_local, pr.lambda_mercado_visitante, pr.ajuste_local, pr.ajuste_visitante,
-               pr.crs_total, pr.crs_alerta, pr.crs_veto, pr.crs_completo, pr.crs_selecciones_vetadas
+               pr.crs_total, pr.crs_alerta, pr.crs_veto, pr.crs_completo, pr.crs_selecciones_vetadas, pr.cr_scores
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
         JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
         LEFT JOIN LATERAL (SELECT * FROM predicciones x WHERE x.partido_id = p.id AND x.origen = 'produccion'
@@ -290,6 +290,9 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         alpha_calibrado=alpha_cal, crs_alerta=f["crs_alerta"] or "INSUFICIENTE",
         ajuste_bajas=min(f["ajuste_local"] or 0.0, f["ajuste_visitante"] or 0.0))
 
+    _sel = (f.get("cr_scores") or {}).get("_selecciones") if isinstance(f.get("cr_scores"), dict) else None
+    if _sel:                                              # selecciones con modelo propio + factores (altitud, clima, motivación, ambiente)
+        razones = list(razones) + ["modelo propio de selecciones"]
     pg_l, pg_v, pg_0 = primer_gol(f["lambda_local"], f["lambda_visitante"])
     pg_fav = pg_l if fav == "local" else pg_v
     s_otro = f"ANOTA:{riv}:si"
@@ -306,7 +309,8 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         "goles_esperados": {"local": f["lambda_local"], "visitante": f["lambda_visitante"]},
         "forma": {"local": forma.get(f["local_id"], ""), "visitante": forma.get(f["visitante_id"], "")},
         "confianza": conf, "razones": razones,
-        "fuente": "solo mercado" if solo else ("mercado + modelo" if mercado_ok else "solo modelo"),
+        "fuente": _sel["fuente"] if _sel else ("solo mercado" if solo else ("mercado + modelo" if mercado_ok else "solo modelo")),
+        "factores": _sel.get("razones", []) if _sel else [],
         "liga_nombre": f["liga_nombre"], "solo_mercado": solo,
         "crs": {"total": f["crs_total"], "alerta": f["crs_alerta"], "veto": f["crs_veto"]},
         "p_fav_mercado": pf_mk, "p_fav_modelo": pf_mod,

@@ -116,7 +116,7 @@ class Pipeline:
                     sumar(Capacidad.CUOTAS, liga=l)
                 cm = self.cfg.get("competiciones_mercado") or {}
                 if cm.get("activo") and self._proveedor_mercado() is not None and tipo != "snapshot_cierre":
-                    total["odds_api"] += int(cm.get("max_creditos_por_actualizacion", 0))   # cota superior
+                    total["odds_api"] += int(cm.get("max_creditos_por_actualizacion", 0)) + int(cm.get("max_creditos_resultados", 0))   # cota superior
             return dict(total)
         finally:
             conn.close()
@@ -430,7 +430,33 @@ class Pipeline:
             for (pid, casa, capt), filas in grupos.items():
                 repo.insertar_cuotas(st.conn, pid, repo.casa_id(st.conn, casa), filas, "actual", "odds_api", capt)
                 res["cuotas"] += len(filas)
+        res["resultados"] = self._resultados_selecciones(st, prov, deportes, cm, cache)
         return res
+
+    def _resultados_selecciones(self, st: Estado, prov, deportes: list[dict], cm: dict, cache: dict) -> int:
+        """Resultados de los últimos 3 días de las competiciones de SELECCIONES (2 créditos c/u, con su propio tope):
+        sin esto los partidos quedaban «programado» para siempre y el modelo de selecciones no veía un 7-0 o un 5-0."""
+        from golmodel.servicios.pronostico_selecciones import PATRONES_SELECCIONES
+        tope = int(cm.get("max_creditos_resultados", 6))
+        gastado, n = 0, 0
+        for d in deportes:
+            k = str(d["key"]).lower()
+            if not any(x in k for x in PATRONES_SELECCIONES) or "women" in k or gastado + 2 > tope:
+                continue
+            try:
+                partidos = prov.resultados_deporte(d["key"], 3)
+            except Exception:                                     # noqa: BLE001 — opcional
+                continue
+            gastado += 2
+            if not partidos:
+                continue
+            liga = repo.asegurar_liga_mercado(st.conn, d["key"], d.get("title") or d["key"])
+            for p in partidos:
+                lid = repo.equipo_mercado(st.conn, liga["id"], p.local, cache)
+                vid = repo.equipo_mercado(st.conn, liga["id"], p.visitante, cache)
+                _, accion = repo.upsert_partido(st.conn, liga, p, lid, vid)
+                n += accion in ("resultado", "nuevo")
+        return n
 
     def _etapa_recalculo_modulos(self, st: Estado) -> dict:
         if st.modelo is None:

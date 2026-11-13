@@ -155,6 +155,7 @@ sugerencias:
 competiciones_mercado:
   activo: true
   max_creditos_por_actualizacion: 16     # tope de créditos (2 por competición con partidos)
+  max_creditos_resultados: 6             # resultados de selecciones (/scores, 2 créditos c/u): sin esto el modelo de selecciones no ve los marcadores
   patrones: [uefa_champs, uefa_europa, uefa_conf, nations_league, friendl, qualif, world_cup, euro,
              efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan,
              libertadores, sudamericana, concacaf, copa]
@@ -268,3 +269,54 @@ normalizacion:
 operacion:
   picks_min_paper: 300
   criterio_go: cota_inferior_95_clv_ev_mayor_a_0
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# SELECCIONES NACIONALES con modelo PROPIO (2026-11-13). Antes eran «solo mercado» (α = 0) y no aprendían de sus resultados.
+# Histórico: martj42/international_results (incluye AMISTOSOS). Los resultados que el CSV aún no trae se agregan desde
+# config/selecciones_resultados_extra.csv (y desde The Odds API /scores en la etapa de cuotas). PROVISIONAL hasta el walk-forward.
+selecciones_modelo:
+  activo: true
+  url_historico: https://raw.githubusercontent.com/martj42/international_results/master/results.csv
+  anos_historial: 8
+  decaimiento_xi: 0.00095          # vida media ≈ 2 años (una selección juega ≈ 10 partidos al año)
+  tope_goles: 5                    # un 7-0 cuenta como 5-0 al ajustar (no deja que una goleada a un rival débil infle el rating)
+  l2: 2.0                          # pooling hacia el promedio
+  rho: -0.05
+  pesos_torneo:                    # patrón en el nombre del torneo → peso (el primero que coincide)
+    friendly: 0.6                  # amistosos: cuentan, pero menos (rotaciones)
+    world cup: 1.2
+    euro: 1.1
+    copa am: 1.1
+    nations league: 1.0
+    qualification: 1.0
+    otro: 0.9
+  alpha: 0.35                      # peso del modelo propio frente al mercado (sin calibrar: el mercado sigue mandando)
+  peso_min: 3.0                    # peso efectivo mínimo de cada selección para usar el modelo (si no: solo mercado)
+
+# FACTORES DE PARTIDO (modelos/factores_partido.py): altitud, clima, motivación, ambiente y sede neutral.
+# Sedes en config/sedes.yaml; motivación manual por partido en config/motivacion.yaml. Clima: Open-Meteo (gratis, sin llave).
+factores_partido:
+  activo: true
+  aplicar_sobre_mercado: 0.5       # fracción del ajuste que también se aplica a la λ del MERCADO (la casa ya descuenta parte)
+  tope_total: 0.30                 # ningún λ se mueve más de ±30% por factores
+  altitud:
+    umbral_m: 800                  # debajo de esta diferencia no hay efecto medible (McSharry: el efecto se nota desde ≈ 1000 m)
+    por_1000m_propio: 0.12         # el que sube mete 12% menos por cada 1000 m sobre el umbral
+    por_1000m_rival: 0.08          # y el local mete 8% más (el visitante se cansa)
+    tope: 0.30
+  clima:
+    umbral_delta_c: 8              # diferencia de temperatura con su ciudad ese día a partir de la cual pesa
+    por_grado: 0.01
+    tope: 0.10
+    calor_c: 28
+    calor_ambos: 0.04
+    frio_c: 0
+    frio_ambos: 0.03
+  motivacion:                      # cambio relativo de λ: propio (sus goles) y rival (los del rival)
+    necesita_ganar:  {propio: 0.06, rival: 0.04}
+    le_sirve_empate: {propio: -0.08, rival: -0.05}
+    nada_en_juego:   {propio: -0.05, rival: 0.02}
+    amistoso:        {propio: -0.04, rival: 0.0}
+  ambiente:                        # por cada 0.5 de desviación sobre el promedio del estadio
+    local: 0.03
+    visitante: 0.05

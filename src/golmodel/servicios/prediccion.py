@@ -22,7 +22,7 @@ from golmodel.modelos import devig
 from golmodel.modelos.combinacion import matriz_mercado, p_ajustada, p_ajustada_push
 from golmodel.modelos.contexto import ajuste_equipo
 from golmodel.modelos.dixon_coles import ModeloDC
-from golmodel.modelos.matriz import Matriz
+from golmodel.modelos.matriz import Matriz, matriz_marcadores
 from golmodel.modelos.mercados import CONDICIONES, GRUPO_DE, GRUPOS, PUSH, probabilidad, probabilidad_push
 from golmodel.motor.bankroll import (
     Apuesta,
@@ -150,6 +150,19 @@ def construir_mercado(conn, cfg: dict, modelo: ModeloDC, version_id: int, partid
     if mmk is None or not mmk.usable:
         return None
     m = mmk.matriz
+    # Selecciones nacionales: modelo PROPIO (histórico con amistosos) + factores de partido (altitud, clima, motivación, ambiente).
+    # Se mezcla con el mercado con α = selecciones_modelo.alpha. Si no aplica (clubes, sin historial), queda solo mercado como antes.
+    sel_info = None
+    try:
+        from golmodel.servicios import pronostico_selecciones as ps
+        sel_info = ps.para_partido(cfg, partido, (m.lambda_local, m.lambda_visitante), conn=conn)
+    except Exception:                                             # noqa: BLE001 — opcional: nunca tumba la predicción de mercado
+        sel_info = None
+    m_mod, alpha = None, 0.0
+    if sel_info is not None and sel_info.lambda_modelo is not None:
+        alpha = sel_info.alpha
+        m_mod = matriz_marcadores(*sel_info.lambda_modelo, m.rho, gmax)
+        m_fin = matriz_marcadores(*sel_info.lambda_final, m.rho, gmax)
     sel = {}
     for s in CONDICIONES:
         pw, pp = probabilidad(m, s), probabilidad_push(m, s)
@@ -159,22 +172,32 @@ def construir_mercado(conn, cfg: dict, modelo: ModeloDC, version_id: int, partid
             pm = pad = p_mk[s]
         else:
             pm, pad = None, None         # derivado de la matriz implícita: el panel lo calcula de lambda_mercado
+        if m_mod is not None:
+            pw, pp = probabilidad(m_mod, s), probabilidad_push(m_mod, s)
+            pad = alpha * pw + (1 - alpha) * pm if pm is not None else None
         sel[s] = (pw, pp, pm, pad)
+    lam_l, lam_v, mat_guardar = m.lambda_local, m.lambda_visitante, m
+    crs_json = {"_solo_mercado": True}
+    if m_mod is not None:
+        lam_l, lam_v, mat_guardar = m_fin.lambda_local, m_fin.lambda_visitante, m_fin
+        crs_json = {"_solo_mercado": False, "_selecciones": {
+            "fuente": sel_info.fuente, "alpha": alpha, "lambda_modelo": list(sel_info.lambda_modelo),
+            "razones": sel_info.factores.razones + sel_info.avisos, "factores": sel_info.factores.detalle}}
     pid = conn.execute("""
         INSERT INTO predicciones (partido_id, version_id, origen, creada_en, info_hasta, lambda_local, lambda_visitante,
             rho, ajuste_local, ajuste_visitante, matriz, masa_truncada, lambda_mercado_local, lambda_mercado_visitante,
             cr_scores, crs_completo, crs_alerta, crs_version, crs_modo_ajuste)
         VALUES (%s,%s,'produccion',%s,%s,%s,%s,%s,0,0,%s,%s,%s,%s,%s,false,'INSUFICIENTE',%s,%s)
         RETURNING id
-    """, (partido["id"], version_id, ahora, ahora, m.lambda_local, m.lambda_visitante, m.rho, m.aplanada(),
-          m.masa_truncada, m.lambda_local, m.lambda_visitante, _j({"_solo_mercado": True}),
+    """, (partido["id"], version_id, ahora, ahora, lam_l, lam_v, m.rho, mat_guardar.aplanada(),
+          mat_guardar.masa_truncada, m.lambda_local, m.lambda_visitante, _j(crs_json),
           cfg["crs"]["version"], cfg["crs"]["ajuste_favorito"]["modo"])).fetchone()["id"]
     with conn.cursor() as cur:
         cur.executemany("""
             INSERT INTO predicciones_seleccion (prediccion_id, seleccion, origen, p_modelo, p_modelo_sin_ajuste, p_push,
                 p_mercado, metodo_devig, p_mercado_consenso, alpha, alpha_calibrado, p_adj)
-            VALUES (%s, %s, 'produccion', %s, %s, %s, %s, %s, %s, 0.0, false, %s)
-        """, [(pid, s, pw, pw, pp, pm, cfg["mercado"]["metodo_devig"] if pm is not None else None, s in sust, pad)
+            VALUES (%s, %s, 'produccion', %s, %s, %s, %s, %s, %s, %s, false, %s)
+        """, [(pid, s, pw, pw, pp, pm, cfg["mercado"]["metodo_devig"] if pm is not None else None, s in sust, alpha, pad)
               for s, (pw, pp, pm, pad) in sel.items()])
     return pid
 

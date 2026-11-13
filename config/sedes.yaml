@@ -1,0 +1,123 @@
+# Sedes habituales (dónde juega de local cada equipo) para los FACTORES DE PARTIDO (modelos/factores_partido.py).
+#   lat, lon : coordenadas de la ciudad del estadio (clima del día del partido vía Open-Meteo)
+#   alt      : altitud en metros (la altitud cambia mucho el rendimiento del visitante no aclimatado)
+#   ambiente : 0..1, qué tan hostil/ruidoso es el estadio para el visitante (0.5 = promedio; ya va dentro de la ventaja de local)
+# Valores aproximados (ciudad, no el estadio exacto). Un equipo que falte simplemente no recibe ajuste de altitud/clima/ambiente.
+# El nombre es el de The Odds API / la base (inglés para selecciones).
+
+selecciones:
+  # --- UEFA ---
+  Albania:              {ciudad: Tirana,      lat: 41.33, lon: 19.82, alt: 110,  ambiente: 0.80}
+  Andorra:              {ciudad: Andorra la Vella, lat: 42.51, lon: 1.52, alt: 1023, ambiente: 0.30}
+  Armenia:              {ciudad: Yerevan,     lat: 40.18, lon: 44.51, alt: 990,  ambiente: 0.60}
+  Austria:              {ciudad: Vienna,      lat: 48.21, lon: 16.37, alt: 190,  ambiente: 0.60}
+  Azerbaijan:           {ciudad: Baku,        lat: 40.41, lon: 49.87, alt: -28,  ambiente: 0.45}
+  Belarus:              {ciudad: Minsk,       lat: 53.90, lon: 27.56, alt: 220,  ambiente: 0.35}
+  Belgium:              {ciudad: Brussels,    lat: 50.85, lon: 4.35,  alt: 60,   ambiente: 0.55}
+  Bosnia & Herzegovina: {ciudad: Zenica,      lat: 44.20, lon: 17.91, alt: 316,  ambiente: 0.85}
+  Bulgaria:             {ciudad: Sofia,       lat: 42.70, lon: 23.32, alt: 550,  ambiente: 0.50}
+  Croatia:              {ciudad: Zagreb,      lat: 45.81, lon: 15.98, alt: 120,  ambiente: 0.70}
+  Cyprus:               {ciudad: Limassol,    lat: 34.68, lon: 33.04, alt: 20,   ambiente: 0.50}
+  Czech Republic:       {ciudad: Prague,      lat: 50.08, lon: 14.44, alt: 230,  ambiente: 0.55}
+  Denmark:              {ciudad: Copenhagen,  lat: 55.68, lon: 12.57, alt: 10,   ambiente: 0.60}
+  England:              {ciudad: London,      lat: 51.56, lon: -0.28, alt: 40,   ambiente: 0.65}
+  Estonia:              {ciudad: Tallinn,     lat: 59.44, lon: 24.75, alt: 30,   ambiente: 0.30}
+  Faroe Islands:        {ciudad: Torshavn,    lat: 62.01, lon: -6.77, alt: 20,   ambiente: 0.45}
+  Finland:              {ciudad: Helsinki,    lat: 60.17, lon: 24.94, alt: 20,   ambiente: 0.45}
+  France:               {ciudad: Paris,       lat: 48.92, lon: 2.36,  alt: 40,   ambiente: 0.55}
+  Georgia:              {ciudad: Tbilisi,     lat: 41.72, lon: 44.79, alt: 490,  ambiente: 0.80}
+  Germany:              {ciudad: Dortmund,    lat: 51.49, lon: 7.45,  alt: 90,   ambiente: 0.60}
+  Gibraltar:            {ciudad: Gibraltar,   lat: 36.14, lon: -5.35, alt: 10,   ambiente: 0.20}
+  Greece:               {ciudad: Athens,      lat: 37.98, lon: 23.73, alt: 70,   ambiente: 0.80}
+  Hungary:              {ciudad: Budapest,    lat: 47.50, lon: 19.04, alt: 110,  ambiente: 0.80}
+  Iceland:              {ciudad: Reykjavik,   lat: 64.15, lon: -21.94, alt: 20,  ambiente: 0.55}
+  Israel:               {ciudad: Debrecen,    lat: 47.53, lon: 21.63, alt: 120,  ambiente: 0.20}   # juega como local en sede neutral (Hungría)
+  Italy:                {ciudad: Milan,       lat: 45.48, lon: 9.12,  alt: 120,  ambiente: 0.60}
+  Kazakhstan:           {ciudad: Astana,      lat: 51.17, lon: 71.43, alt: 350,  ambiente: 0.50}
+  Kosovo:               {ciudad: Pristina,    lat: 42.66, lon: 21.17, alt: 650,  ambiente: 0.80}
+  Latvia:               {ciudad: Riga,        lat: 56.95, lon: 24.11, alt: 10,   ambiente: 0.35}
+  Liechtenstein:        {ciudad: Vaduz,       lat: 47.14, lon: 9.52,  alt: 455,  ambiente: 0.20}
+  Lithuania:            {ciudad: Kaunas,      lat: 54.90, lon: 23.89, alt: 50,   ambiente: 0.35}
+  Luxembourg:           {ciudad: Luxembourg,  lat: 49.61, lon: 6.13,  alt: 300,  ambiente: 0.35}
+  Malta:                {ciudad: Ta' Qali,    lat: 35.89, lon: 14.42, alt: 100,  ambiente: 0.30}
+  Moldova:              {ciudad: Chisinau,    lat: 47.01, lon: 28.86, alt: 85,   ambiente: 0.35}
+  Montenegro:           {ciudad: Podgorica,   lat: 42.44, lon: 19.26, alt: 45,   ambiente: 0.70}
+  Netherlands:          {ciudad: Amsterdam,   lat: 52.31, lon: 4.94,  alt: 0,    ambiente: 0.60}
+  North Macedonia:      {ciudad: Skopje,      lat: 42.00, lon: 21.43, alt: 240,  ambiente: 0.60}
+  Northern Ireland:     {ciudad: Belfast,     lat: 54.58, lon: -5.96, alt: 20,   ambiente: 0.75}
+  Norway:               {ciudad: Oslo,        lat: 59.95, lon: 10.73, alt: 20,   ambiente: 0.55}
+  Poland:               {ciudad: Warsaw,      lat: 52.24, lon: 21.05, alt: 100,  ambiente: 0.65}
+  Portugal:             {ciudad: Lisbon,      lat: 38.75, lon: -9.18, alt: 90,   ambiente: 0.60}
+  Republic of Ireland:  {ciudad: Dublin,      lat: 53.34, lon: -6.23, alt: 10,   ambiente: 0.60}
+  Romania:              {ciudad: Bucharest,   lat: 44.44, lon: 26.15, alt: 80,   ambiente: 0.70}
+  San Marino:           {ciudad: Serravalle,  lat: 43.97, lon: 12.48, alt: 140,  ambiente: 0.15}
+  Scotland:             {ciudad: Glasgow,     lat: 55.83, lon: -4.25, alt: 30,   ambiente: 0.80}
+  Serbia:               {ciudad: Belgrade,    lat: 44.78, lon: 20.46, alt: 120,  ambiente: 0.85}
+  Slovakia:             {ciudad: Bratislava,  lat: 48.16, lon: 17.14, alt: 140,  ambiente: 0.55}
+  Slovenia:             {ciudad: Ljubljana,   lat: 46.06, lon: 14.51, alt: 295,  ambiente: 0.55}
+  Spain:                {ciudad: Madrid,      lat: 40.45, lon: -3.69, alt: 650,  ambiente: 0.60}
+  Sweden:               {ciudad: Solna,       lat: 59.37, lon: 18.00, alt: 20,   ambiente: 0.55}
+  Switzerland:          {ciudad: Basel,       lat: 47.54, lon: 7.62,  alt: 260,  ambiente: 0.55}
+  Turkey:               {ciudad: Istanbul,    lat: 41.07, lon: 28.77, alt: 100,  ambiente: 0.95}
+  Ukraine:              {ciudad: Leverkusen,  lat: 51.04, lon: 7.00,  alt: 50,   ambiente: 0.30}   # local fuera de su país por la guerra
+  Wales:                {ciudad: Cardiff,     lat: 51.48, lon: -3.19, alt: 10,   ambiente: 0.75}
+  # --- CONMEBOL (la altitud manda) ---
+  Argentina:            {ciudad: Buenos Aires, lat: -34.55, lon: -58.45, alt: 25,  ambiente: 0.85}
+  Bolivia:              {ciudad: El Alto,     lat: -16.50, lon: -68.19, alt: 4090, ambiente: 0.70}
+  Brazil:               {ciudad: Sao Paulo,   lat: -23.55, lon: -46.63, alt: 760,  ambiente: 0.65}
+  Chile:                {ciudad: Santiago,    lat: -33.46, lon: -70.61, alt: 570,  ambiente: 0.75}
+  Colombia:             {ciudad: Barranquilla, lat: 10.93, lon: -74.80, alt: 20,   ambiente: 0.85}  # calor y humedad
+  Ecuador:              {ciudad: Quito,       lat: -0.18, lon: -78.48, alt: 2850,  ambiente: 0.75}
+  Paraguay:             {ciudad: Asuncion,    lat: -25.29, lon: -57.62, alt: 90,   ambiente: 0.75}
+  Peru:                 {ciudad: Lima,        lat: -12.07, lon: -77.03, alt: 150,  ambiente: 0.70}
+  Uruguay:              {ciudad: Montevideo,  lat: -34.89, lon: -56.15, alt: 40,   ambiente: 0.80}
+  Venezuela:            {ciudad: Maturin,     lat: 9.75,  lon: -63.18, alt: 70,   ambiente: 0.65}
+  # --- CONCACAF ---
+  Mexico:               {ciudad: Mexico City, lat: 19.30, lon: -99.15, alt: 2240,  ambiente: 0.80}
+  USA:                  {ciudad: varias,      lat: 39.10, lon: -94.58, alt: 300,   ambiente: 0.45}
+  Canada:               {ciudad: Toronto,     lat: 43.63, lon: -79.42, alt: 80,    ambiente: 0.50}
+  Costa Rica:           {ciudad: San Jose,    lat: 9.94,  lon: -84.10, alt: 1170,  ambiente: 0.75}
+  Honduras:             {ciudad: San Pedro Sula, lat: 15.50, lon: -88.03, alt: 60, ambiente: 0.85}
+  Guatemala:            {ciudad: Guatemala City, lat: 14.63, lon: -90.51, alt: 1500, ambiente: 0.70}
+  Panama:               {ciudad: Panama City, lat: 8.98,  lon: -79.52, alt: 10,    ambiente: 0.70}
+  Jamaica:              {ciudad: Kingston,    lat: 18.00, lon: -76.79, alt: 50,    ambiente: 0.70}
+  Haiti:                {ciudad: Port-au-Prince, lat: 18.54, lon: -72.34, alt: 100, ambiente: 0.60}
+  El Salvador:          {ciudad: San Salvador, lat: 13.69, lon: -89.22, alt: 660,  ambiente: 0.75}
+  # --- Resto ---
+  Japan:                {ciudad: Tokyo,       lat: 35.68, lon: 139.69, alt: 40,    ambiente: 0.45}
+  South Korea:          {ciudad: Seoul,       lat: 37.57, lon: 126.98, alt: 40,    ambiente: 0.55}
+  Australia:            {ciudad: Sydney,      lat: -33.87, lon: 151.21, alt: 20,   ambiente: 0.50}
+  Iran:                 {ciudad: Tehran,      lat: 35.69, lon: 51.39, alt: 1190,   ambiente: 0.90}
+  Saudi Arabia:         {ciudad: Riyadh,      lat: 24.71, lon: 46.68, alt: 610,    ambiente: 0.65}
+  Qatar:                {ciudad: Doha,        lat: 25.29, lon: 51.53, alt: 10,     ambiente: 0.40}
+  Iraq:                 {ciudad: Basra,       lat: 30.51, lon: 47.78, alt: 5,      ambiente: 0.90}
+  Morocco:              {ciudad: Rabat,       lat: 34.02, lon: -6.84, alt: 50,     ambiente: 0.85}
+  Algeria:              {ciudad: Algiers,     lat: 36.75, lon: 3.06,  alt: 50,     ambiente: 0.85}
+  Egypt:                {ciudad: Cairo,       lat: 30.04, lon: 31.24, alt: 25,     ambiente: 0.75}
+  Senegal:              {ciudad: Dakar,       lat: 14.72, lon: -17.47, alt: 20,    ambiente: 0.75}
+  Nigeria:              {ciudad: Uyo,         lat: 5.04,  lon: 7.92,  alt: 60,     ambiente: 0.75}
+  Ghana:                {ciudad: Kumasi,      lat: 6.69,  lon: -1.62, alt: 270,    ambiente: 0.75}
+  Cameroon:             {ciudad: Yaounde,     lat: 3.87,  lon: 11.52, alt: 730,    ambiente: 0.75}
+  Ethiopia:             {ciudad: Addis Ababa, lat: 9.03,  lon: 38.74, alt: 2355,   ambiente: 0.60}
+  South Africa:         {ciudad: Johannesburg, lat: -26.20, lon: 28.05, alt: 1750, ambiente: 0.65}
+
+# Clubes donde la altitud es decisiva (Liga MX y Sudamérica). Nombre como lo guarda la base.
+clubes:
+  Toluca:               {ciudad: Toluca,      lat: 19.29, lon: -99.67, alt: 2660, ambiente: 0.70}
+  Club America:         {ciudad: Mexico City, lat: 19.30, lon: -99.15, alt: 2240, ambiente: 0.70}
+  Cruz Azul:            {ciudad: Mexico City, lat: 19.38, lon: -99.18, alt: 2240, ambiente: 0.60}
+  UNAM Pumas:           {ciudad: Mexico City, lat: 19.33, lon: -99.19, alt: 2240, ambiente: 0.65}
+  Pachuca:              {ciudad: Pachuca,     lat: 20.10, lon: -98.76, alt: 2400, ambiente: 0.55}
+  Puebla:               {ciudad: Puebla,      lat: 19.08, lon: -98.16, alt: 2150, ambiente: 0.50}
+  Queretaro:            {ciudad: Queretaro,   lat: 20.58, lon: -100.37, alt: 1820, ambiente: 0.50}
+  Guadalajara Chivas:   {ciudad: Guadalajara, lat: 20.68, lon: -103.46, alt: 1560, ambiente: 0.70}
+  Atlas:                {ciudad: Guadalajara, lat: 20.70, lon: -103.33, alt: 1560, ambiente: 0.65}
+  Club Leon:            {ciudad: Leon,        lat: 21.11, lon: -101.66, alt: 1815, ambiente: 0.60}
+  Atl. San Luis:        {ciudad: San Luis Potosi, lat: 22.16, lon: -100.98, alt: 1860, ambiente: 0.55}
+  Necaxa:               {ciudad: Aguascalientes, lat: 21.88, lon: -102.29, alt: 1880, ambiente: 0.45}
+  Mazatlan FC:          {ciudad: Mazatlan,    lat: 23.24, lon: -106.41, alt: 10,   ambiente: 0.45}
+  Monterrey:            {ciudad: Monterrey,   lat: 25.67, lon: -100.24, alt: 540,  ambiente: 0.75}
+  Tigres UANL:          {ciudad: San Nicolas, lat: 25.72, lon: -100.31, alt: 520,  ambiente: 0.85}
+  Santos Laguna:        {ciudad: Torreon,     lat: 25.55, lon: -103.40, alt: 1120, ambiente: 0.60}
+  Juarez:               {ciudad: Ciudad Juarez, lat: 31.74, lon: -106.48, alt: 1140, ambiente: 0.50}
+  Club Tijuana:         {ciudad: Tijuana,     lat: 32.51, lon: -117.01, alt: 30,   ambiente: 0.65}

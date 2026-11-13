@@ -66,6 +66,24 @@ def parse_eventos(cuerpo: Any, tipo: str, observada_en: datetime | None = None) 
     return salida
 
 
+def parse_resultados(cuerpo: Any, liga: str) -> list[PartidoExterno]:
+    """/scores → partidos finalizados con marcador (los no terminados se ignoran)."""
+    if not isinstance(cuerpo, list):
+        raise ErrorFormato("odds_api", "se esperaba una lista de resultados")
+    out = []
+    for ev in cuerpo:
+        if not ev.get("completed") or not ev.get("scores"):
+            continue
+        goles = {str(x.get("name")): x.get("score") for x in ev["scores"]}
+        try:
+            gl, gv = int(goles[ev["home_team"]]), int(goles[ev["away_team"]])
+        except (KeyError, TypeError, ValueError):
+            continue
+        out.append(PartidoExterno("odds_api", liga, _parse_iso(ev["commence_time"]), ev["home_team"], ev["away_team"],
+                                  "finalizado", goles_local=gl, goles_visitante=gv, id_externo=ev.get("id")))
+    return out
+
+
 def parse_calendario(cuerpo: Any, liga: str) -> list[PartidoExterno]:
     """Calendario de la liga a partir del listado de eventos (sin cuotas)."""
     if not isinstance(cuerpo, list):
@@ -146,6 +164,13 @@ class OddsApi(Proveedor):
             "commenceTimeTo": _iso(datetime.combine(hasta, datetime.min.time(), timezone.utc) + timedelta(days=1))}
         cuerpo = self.http.get_json(f"/v4/sports/{clave}/odds", params, costo=self._costo, restante=self._restante)
         return parse_eventos(cuerpo, "actual", observada_en=datetime.now(timezone.utc))
+
+    def resultados_deporte(self, clave: str, dias: int = 3) -> list[PartidoExterno]:
+        """GET /v4/sports/{clave}/scores?daysFrom=N (2 créditos): partidos TERMINADOS de los últimos N días (máx. 3).
+        Así las competiciones solo-mercado (selecciones) dejan de quedarse en «programado» y el modelo aprende del resultado."""
+        cuerpo = self.http.get_json(f"/v4/sports/{clave}/scores", {"apiKey": self.api_key, "daysFrom": max(1, min(int(dias), 3)),
+                                                                   "dateFormat": "iso"}, costo=self._costo, restante=self._restante)
+        return parse_resultados(cuerpo, clave)
 
     def obtener(self, s: Solicitud) -> list[Any]:
         ahora = datetime.now(timezone.utc)
