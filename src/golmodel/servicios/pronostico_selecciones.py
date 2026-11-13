@@ -42,10 +42,12 @@ def mercados(lh: float, la: float, rho: float, gmax: int = 10) -> dict[str, floa
     px = sum(m[i, i] for i in range(n))
     p2 = 1 - p1 - px
     o25 = sum(m[i, j] for i in range(n) for j in range(n) if i + j >= 3)
+    o15 = sum(m[i, j] for i in range(n) for j in range(n) if i + j >= 2)
+    u35 = sum(m[i, j] for i in range(n) for j in range(n) if i + j <= 3)
     btts = sum(m[i, j] for i in range(1, n) for j in range(1, n))
     pa_l, pa_v, nadie = primer_gol(lh, la)
     return {"1": p1, "X": px, "2": p2, "PA1_local": pa_l, "PA1_visitante": pa_v, "sin_goles": nadie,
-            "anota_local": 1 - math.exp(-lh), "anota_visitante": 1 - math.exp(-la), "over25": o25, "btts": btts}
+            "anota_local": 1 - math.exp(-lh), "anota_visitante": 1 - math.exp(-la), "over15": o15, "over25": o25, "under35": u35, "btts": btts}
 
 
 @dataclass

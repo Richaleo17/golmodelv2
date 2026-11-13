@@ -247,6 +247,28 @@ document.addEventListener("toggle", async (e) => {
 
 const sinAcentos = (t) => String(t || "").normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+/* Marcador de aciertos por mercado (últimos 7 días): lo que mostraba la app ANTES de cada partido vs el mercado solo. */
+async function pintarAciertos(box) {
+  if (!box) return;
+  if (!S.cache.aciertos) {
+    const r = await api("GET", "/aciertos?dias=7");
+    if (!r.ok) { box.innerHTML = `<p class="meta">Aciertos: ${esc(r.error || "sin datos")}</p>`; return; }
+    S.cache.aciertos = r.data;
+  }
+  const g = S.cache.aciertos.grupos.todos, d = g.decision, m = g.mercado;
+  if (!d.partidos) { box.innerHTML = `<p class="meta">🎯 Aciertos por mercado: todavía no hay partidos terminados con predicción previa en los últimos 7 días.</p>`; return; }
+  const filas = Object.entries(d.kpis).filter(([, v]) => v.total).map(([k, v]) => {
+    const mk = m.kpis[k] || {};
+    const flecha = mk.total ? (v.pct > mk.pct ? "▲" : v.pct < mk.pct ? "▼" : "=") : "";
+    return `<div class="ind"><span class="lab">${esc(k)}</span><span class="txt"><b>${v.aciertos}/${v.total}</b> <small>mercado ${mk.total ? mk.aciertos + "/" + mk.total : "—"} ${flecha}</small></span>` +
+      `<span class="pct" style="color:${colorP(v.pct)}">${pct(v.pct)}</span><div class="barra"><i style="width:${Math.max(2, 100 * v.pct).toFixed(0)}%;background:${colorP(v.pct)}"></i></div></div>`;
+  }).join("");
+  const ll = (x) => (x == null ? "—" : x.toFixed(3));
+  box.innerHTML = `<h3 style="margin:0 0 6px">🎯 Aciertos por mercado · últimos 7 días (${d.partidos} partidos)</h3>${filas}` +
+    `<p class="meta">Log-loss 1X2 (menos es mejor): app ${ll(d.log_loss_1x2)} · mercado ${ll(m.log_loss_1x2)}. ▲ la app acierta más que el mercado, ▼ menos. ` +
+    `PA(1) solo cuenta los partidos donde se puede saber quién anotó primero sin el minuto del gol.</p>`;
+}
+
 async function vDiario() {
   // Varios días seguidos (hoy y los próximos): un panel por día, pedidos en paralelo y cacheados.
   const dias = Array.from({ length: S.rango }, (_, i) => sumarDias(S.dia, i));
@@ -268,6 +290,7 @@ async function vDiario() {
     `<p class="lead">Los partidos de hoy y de los próximos días, con la opinión del modelo en cada mercado: quién gana, primer gol, más de 1.5 / 2.5, ambos anotan, menos de 3.5. ` +
     `Cada tarjeta trae su porcentaje, el nivel (ALTA / MEDIA / BAJA) y la <b>cuota mínima</b> a la que ya conviene meterlo.</p>` +
     `<div class="chips" id="chips-rango">${botonesRango}</div>` +
+    `<div class="card" id="aciertos-box"><p class="meta">Cargando aciertos por mercado…</p></div>` +
     (fallidos.length ? `<p class="error">No se pudieron cargar: ${fallidos.map(esc).join(", ")}.</p>` : "") +
     (part.length === 0 ? `<div class="card vacio">No hay partidos modelados entre ${esc(dias[0])} y ${esc(dias[dias.length - 1])}. ` +
       `Prueba «7 días», cambia la fecha o ve a <b>Datos → Actualizar datos</b> (puede haber descanso de selecciones o ligas sin jornada).</div>` :
@@ -280,6 +303,7 @@ async function vDiario() {
     html,
     alMontar: (v) => {
       $$("#chips-rango .chip", v).forEach((b) => b.addEventListener("click", () => { S.rango = Number(b.dataset.rango); render(); }));
+      pintarAciertos($("#aciertos-box", v));
       const pintar = () => {
         const q = sinAcentos(S.q);
         let lista = part.filter((p) => sel.has(p.liga) && (!q || sinAcentos(p.local).includes(q) || sinAcentos(p.visitante).includes(q)));
