@@ -217,6 +217,37 @@ def cuotas_ejecucion(cuotas: pd.DataFrame, partido: dict, ahora: datetime, cfg: 
     return ejec
 
 
+def _factores_club(cfg: dict, partido: dict):
+    """Factores de partido para CLUBES (Liga MX con altitud, etc.). Solo aplica si factores_partido.aplicar_clubes y si
+    algún equipo está en config/sedes.yaml o el partido tiene motivación cargada. Nunca tumba la predicción."""
+    cf = cfg.get("factores_partido") or {}
+    if not (cf.get("activo") and cf.get("aplicar_clubes")):
+        return None
+    try:
+        from golmodel.modelos import factores_partido as fp
+        from golmodel.servicios import pronostico_selecciones as ps
+        if ps._CACHE["sedes"] is None:
+            ps._CACHE["sedes"] = fp.cargar_sedes()
+        sedes = ps._CACHE["sedes"]
+        loc, vis = partido["local"], partido["visitante"]
+        mot = ps.cargar_motivacion().get(f"{loc} vs {vis}")
+        if loc not in sedes and vis not in sedes and not mot:
+            return None
+        t_sede = t_vis = None
+        if loc in sedes and vis in sedes and partido.get("inicio") is not None:
+            if ps._CACHE["clima"] is None:
+                from golmodel.ingesta.proveedores.clima import Clima
+                ps._CACHE["clima"] = Clima()
+            t_sede = ps._CACHE["clima"].temperatura(sedes[loc]["lat"], sedes[loc]["lon"], partido["inicio"])
+            t_vis = ps._CACHE["clima"].media_dia(sedes[vis]["lat"], sedes[vis]["lon"], partido["inicio"])
+        f = fp.calcular(loc, vis, sedes, cf, temp_sede=t_sede, temp_casa_visitante=t_vis, motivacion=mot)
+        k = float(cf.get("escala_clubes", 0.5))          # el Dixon-Coles del club ya absorbe parte (juega ahí cada 15 días)
+        f.mult_local, f.mult_visitante = 1 + (f.mult_local - 1) * k, 1 + (f.mult_visitante - 1) * k
+        return f if f.razones else None
+    except Exception:                                             # noqa: BLE001
+        return None
+
+
 def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, partido: dict,
               hist: pd.DataFrame, ahora: datetime) -> Contexto | None:
     kl, kv = str(partido["local_id"]), str(partido["visitante_id"])
@@ -225,8 +256,13 @@ def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, part
     gmax = cfg["modelo"]["goles_max"]
     aj_l, det_l = _ajuste_bajas(conn, partido, partido["local_id"], cfg)
     aj_v, det_v = _ajuste_bajas(conn, partido, partido["visitante_id"], cfg)
+    fac = _factores_club(cfg, partido)                     # altitud, clima, motivación y ambiente (si el club está en config/sedes.yaml)
+    # ajuste_* (bajas) se guarda tal cual (la base exige <= 0); los factores (pueden subir λ) solo entran a la matriz.
+    fl, fv = (fac.mult_local, fac.mult_visitante) if fac is not None else (1.0, 1.0)
+    if fac is not None:
+        det_l = {**det_l, "factores": fac.razones}
     base = modelo.matriz(kl, kv, gmax=gmax)
-    m = modelo.matriz(kl, kv, gmax=gmax, ajuste_local=aj_l, ajuste_visitante=aj_v)
+    m = modelo.matriz(kl, kv, gmax=gmax, ajuste_local=(1 + aj_l) * fl - 1, ajuste_visitante=(1 + aj_v) * fv - 1)
 
     cuotas = repo.cuotas_vigentes(conn, partido["id"])
     p_mk, sust, q_push = probs_mercado(cuotas, cfg)

@@ -74,7 +74,7 @@ SEDES = {"Bolivia": {"alt": 4090, "lat": -16.5, "lon": -68.2, "ambiente": 0.7},
 
 def test_altitud_castiga_al_que_sube(cfg):
     f = fp.calcular("Bolivia", "Argentina", SEDES, cfg["factores_partido"])
-    assert f.mult_visitante < 0.8 and f.mult_local > 1.1
+    assert f.mult_visitante < 0.8 and f.mult_local >= 1.0
     assert any("Altitud" in r for r in f.razones)
     g = fp.calcular("Argentina", "Bolivia", SEDES, cfg["factores_partido"])      # bajar no castiga
     assert not any("Altitud" in r for r in g.razones)
@@ -130,3 +130,21 @@ def test_sedes_yaml_valido():
     s = fp.cargar_sedes()
     assert s["Bolivia"]["alt"] > 3000 and s["Toluca"]["alt"] > 2500
     assert all(0 <= v["ambiente"] <= 1 for v in s.values())
+
+
+def test_factores_club_toluca_altitud(cfg):
+    from golmodel.servicios.prediccion import _factores_club
+    ps._CACHE["sedes"] = None
+    f = _factores_club(cfg, {"local": "Toluca", "visitante": "Mazatlan FC", "inicio": None})
+    assert f is not None and f.mult_visitante < 0.9 and any("Altitud" in r for r in f.razones)
+    assert _factores_club(cfg, {"local": "Equipo X", "visitante": "Equipo Y", "inicio": None}) is None
+
+
+def test_aciertos_evalua_kpis():
+    from golmodel.servicios import aciertos
+    p = {"1": 0.6, "X": 0.25, "2": 0.15, "btts": 0.4, "o15": 0.7, "o25": 0.45, "u35": 0.8, "al": 0.85, "av": 0.55}
+    r = aciertos.evaluar(p, 2, 0)
+    assert r["Ganador"] and r["Ambos anotan"] and r["Más de 1.5"] and r["Más de 2.5"] is True
+    assert r["PA(1) primer gol"] is True and r["El otro anota"] is False
+    assert aciertos.evaluar(p, 1, 1)["PA(1) primer gol"] is None
+    assert aciertos.evaluar(p, 0, 0)["PA(1) primer gol"] is False

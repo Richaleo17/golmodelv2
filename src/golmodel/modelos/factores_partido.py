@@ -124,7 +124,7 @@ def calcular(local: str, visitante: str, sedes: dict[str, dict], cfg: dict, *, n
         texto = {"necesita_ganar": "necesita ganar: sale a buscarlo (mete más, pero también se abre)",
                  "le_sirve_empate": "le sirve el empate: cierra el partido (menos goles)",
                  "nada_en_juego": "no se juega nada: baja la intensidad",
-                 "amistoso": "amistoso: rotaciones y poca intensidad (el resultado es menos predecible)"}[estado]
+                 "amistoso": "amistoso: rotaciones y defensas mezcladas (algo más de goles, resultado menos predecible)"}[estado]
         f.aplicar(f"motivacion_{lado}", fl, fv, f"Motivación: {nombre} {texto} ({_pct(1 + propio)} sus goles)")
 
     # ---------------- ambiente / ruido (solo lo que se aparta del promedio; la ventaja de local promedio ya está en el modelo)

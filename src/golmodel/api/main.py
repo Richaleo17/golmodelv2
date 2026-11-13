@@ -228,6 +228,16 @@ def get_panel(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion
     return pan
 
 
+@app.get("/aciertos")
+def get_aciertos(dias: int = 7, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Marcador de aciertos por mercado (Ganador 5/6, Ambos anotan 3/5…) de los últimos `dias`: decisión de la app vs mercado solo."""
+    from datetime import timedelta
+
+    from golmodel.servicios import aciertos
+    hoy = _dia("hoy", s)
+    return aciertos.marcador(conn, hoy - timedelta(days=max(1, min(dias, 120))), hoy)
+
+
 @app.get("/parlays/{fecha}")
 def get_parlays(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     filas = vistas.parlays(conn, _dia(fecha, s))

@@ -277,13 +277,13 @@ operacion:
 selecciones_modelo:
   activo: true
   url_historico: https://raw.githubusercontent.com/martj42/international_results/master/results.csv
-  anos_historial: 8
-  decaimiento_xi: 0.00095          # vida media ≈ 2 años (una selección juega ≈ 10 partidos al año)
-  tope_goles: 5                    # un 7-0 cuenta como 5-0 al ajustar (no deja que una goleada a un rival débil infle el rating)
-  l2: 2.0                          # pooling hacia el promedio
+  anos_historial: 16               # CALIBRADO 2026-11-13 (walk-forward 2022-2024, validado 2024-07→2026-10)
+  decaimiento_xi: 0.0006           # CALIBRADO: vida media ≈ 3.2 años
+  tope_goles: 6                    # CALIBRADO: un 7-0 cuenta como 6-0 al ajustar
+  l2: 0.1                          # CALIBRADO: pooling suave (las selecciones tienen mucho historial)
   rho: -0.05
   pesos_torneo:                    # patrón en el nombre del torneo → peso (el primero que coincide)
-    friendly: 0.6                  # amistosos: cuentan, pero menos (rotaciones)
+    friendly: 1.0                  # CALIBRADO: los amistosos informan tanto como los oficiales (0.4/0.6/0.8 daban peor log-loss)
     world cup: 1.2
     euro: 1.1
     copa am: 1.1
@@ -298,11 +298,13 @@ selecciones_modelo:
 factores_partido:
   activo: true
   aplicar_sobre_mercado: 0.5       # fracción del ajuste que también se aplica a la λ del MERCADO (la casa ya descuenta parte)
+  escala_clubes: 0.5               # en clubes se aplica la mitad: su modelo ya absorbe parte del efecto de su estadio
+  aplicar_clubes: true             # también a clubes que estén en config/sedes.yaml (Liga MX: altitud de Toluca, CDMX, Pachuca…). PROVISIONAL: coeficientes calibrados con selecciones
   tope_total: 0.30                 # ningún λ se mueve más de ±30% por factores
   altitud:
     umbral_m: 800                  # debajo de esta diferencia no hay efecto medible (McSharry: el efecto se nota desde ≈ 1000 m)
-    por_1000m_propio: 0.12         # el que sube mete 12% menos por cada 1000 m sobre el umbral
-    por_1000m_rival: 0.08          # y el local mete 8% más (el visitante se cansa)
+    por_1000m_propio: 0.20         # CALIBRADO: el que sube mete 20% menos por cada 1000 m sobre el umbral
+    por_1000m_rival: 0.0           # CALIBRADO: no se vio efecto en los goles del local
     tope: 0.30
   clima:
     umbral_delta_c: 8              # diferencia de temperatura con su ciudad ese día a partir de la cual pesa
@@ -316,7 +318,7 @@ factores_partido:
     necesita_ganar:  {propio: 0.06, rival: 0.04}
     le_sirve_empate: {propio: -0.08, rival: -0.05}
     nada_en_juego:   {propio: -0.05, rival: 0.02}
-    amistoso:        {propio: -0.04, rival: 0.0}
+    amistoso:        {propio: 0.04, rival: 0.0}    # CALIBRADO: en amistosos hay algo MÁS de goles (defensas mezcladas)
   ambiente:                        # por cada 0.5 de desviación sobre el promedio del estadio
-    local: 0.03
-    visitante: 0.05
+    local: 0.06                    # CALIBRADO
+    visitante: 0.15                # CALIBRADO: un estadio hostil pesa sobre todo en los goles del visitante
