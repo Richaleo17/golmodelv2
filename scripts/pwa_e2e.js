@@ -53,6 +53,14 @@ const PANEL = {
 const ESTADO = { llaves: { API_FOOTBALL_KEY: true, ODDS_API_KEY: true, FOOTBALL_DATA_ORG_KEY: false, ANTHROPIC_API_KEY: true }, ahora_local: "10/11/2026 07:30", alertas: ["Cuotas vencidas: los picks se marcan 'Cuota no vigente'."], frescura: { Cuotas: { minutos: 2178, local: "08/11 10:43", utc: "x" }, Resultados: { minutos: 30, local: "10/11 07:00", utc: "x" } },
   consumo_api: { odds_api: { periodo: "mes", limite: 500, usado: 120, restante_reportado: null } }, alias_pendientes: 3, conflictos_abiertos: 0, modelo: { version_id: 7, tipo: "semanal", creado: "09/11 10:00", calibrado: true },
   cobertura_ligas: [{ codigo: "EPL", finalizados: 2000, proximos: 0, pendientes: 1, problema: "Hay partidos sin guardar porque 1 nombres esperan revisión." }], ultima_ejecucion: { tipo: "recalcular", estado: "ok", etapas: [{ etapa: "recalculo_modulos", estado: "ok", error: null }] } };
+const PIERNA = (id, dia, hora, partido, jugada, p) => ({ partido_id: id, dia: "2026-11-14", dia_texto: dia, hora, inicio: "2026-11-14T" + hora, liga: "Premier League",
+  partido, tipo: "gana", jugada, detalle: "gana el partido (sin empate)", p, cuota_justa: 1 / p, cuota_min: 1.06 / p, confianza: 8 });
+const PU = { dias: ["2026-11-14", "2026-11-15", "2026-11-16"], piernas_disponibles: 9, nota: "Cada pierna es «Gana» o «PA(1)».",
+  repiten_partidos: { que_meter: false, sonadoras: true },
+  que_meter: [{ titulo: "Opción A · la más probable", n: 3, p: 0.42, cuota_justa: 2.38, uno_de_cada: 2.38, dias: ["2026-11-14"],
+    piernas: [PIERNA(1, "sáb 14/11", "10:30", "<b>Arsenal</b> vs Chelsea", "Gana <b>Arsenal</b>", 0.8), PIERNA(2, "dom 15/11", "12:00", "Lyon vs Nice", "PA(1) Lyon", 0.75), PIERNA(3, "lun 16/11", "13:00", "A vs B", "Gana A", 0.7)] }],
+  sonadoras: [{ titulo: "Soñadora 1", n: 6, p: 0.12, cuota_justa: 8.3, uno_de_cada: 8.3, dias: ["2026-11-14"],
+    piernas: [1, 2, 3, 4, 5, 6].map((k) => PIERNA(k, "sáb 14/11", "10:30", "E" + k + " vs F" + k, "Gana E" + k, 0.7)) }] };
 const SON = { aviso: "Producto de alto riesgo y EV negativo.", sonadora: null, motivo: "no hay 10 selecciones elegibles", diagnostico: { umbrales: { p_min_pierna: 0.75, crs_max: 40, cuota_objetivo: 100 }, n_selecciones_elegibles: 4, n_partidos_elegibles: 4, cuota_maxima_alcanzable: 6.2 }, stake_u: 0.1, stake_tipo: "simbólico", estado_cerebro2: "ABSTENCION" };
 const PARLAYS = [{ fuente: "v3", estado: "APROBADO", es_apuesta_del_dia: true, sello: "BETA", cuota_combinada: 18.4, cuota_justa: 12.3, p_parlay: 0.081, ev: 0.49, stake_u: 0.12, bloques: [BLOQUE("10:30", "Arsenal", "Chelsea", "x", 0.8, 1.35)] }];
 
@@ -100,6 +108,7 @@ async function simular(page) {
   await page.route(/\/catalogo\/alias$/, (r) => r.fulfill(j({ equipo_id: 1, equipo: "Brighton", alias: "BHA", nuevo: true })));
   await page.route(/\/estado$/, (r) => (r.request().url().includes("/auth/") ? r.fallback() : r.fulfill(j(ESTADO))));      // /auth/estado va al servidor real
   await page.route(/\/sonadoras\//, (r) => r.fulfill(j(SON)));
+  await page.route(/\/parlays_usuario\//, (r) => r.fulfill(j(PU)));
   await page.route(/\/parlays\//, (r) => r.fulfill(j(PARLAYS)));
   await page.route(/\/costo\//, (r) => r.fulfill(j({ tipo: "x", etapas: [], costo_estimado: { odds_api: 2 } })));
   await page.route(/\/cuotas\/manual\/texto$/, (r) => r.fulfill(j({ lineas: [{ texto: "a - b 2 3 4", ok: true, partido: "A vs B", valores: { "1X2:1": 2 }, local: "a", visitante: "b" }, { texto: "zzz", ok: false, error: "no entendí" }], guardadas: 0 })));
@@ -161,27 +170,21 @@ async function simular(page) {
 
   // --- Qué meter
   await page.click('#nav button[data-v="meter"]');
-  await page.waitForSelector(".ticket, #vista .card");
+  await page.waitForSelector("#vista .sonadora, #vista .card");
   const meter = await page.textContent("#vista");
-  ok(/Ticket V3/.test(meter), "Qué meter: aparece el bloque del ticket V3");
+  ok(/Qué meter/.test(meter) && !/Ticket V3/.test(meter) && !/Rompen parlays/.test(meter), "Qué meter: solo parlays (sin ticket V3 ni «rompen parlays»)");
   if (MODO === "mock") {
-    ok(await page.isVisible(".banner-beta"), "Qué meter: banner Beta visible");
-    const color = await page.$eval(".banner-beta", (e) => getComputedStyle(e).backgroundColor);
-    ok(color === "rgb(176, 0, 32)", "Qué meter: el banner Beta es ROJO (" + color + ")");
-    ok(/MODO BETA\. La probabilidad central pasó la prueba de calibración/.test(meter) && /bajo tu propio riesgo\./.test(meter), "Qué meter: el texto del banner está completo");
-    ok(/BETA/.test(await page.textContent(".ticket h4")) && /apuesta del día/.test(meter), "Qué meter: sello BETA y 'apuesta del día' en el ticket");
-    ok(/Rompen parlays/.test(meter) && /Doble oportunidad 1X/.test(meter), "Qué meter: sección de partidos que rompen parlays con su alternativa");
-  }
-  if (MODO === "real" && BETA === "beta") {
-    ok(await page.isVisible(".banner-beta") && (await page.$eval(".banner-beta", (e) => getComputedStyle(e).backgroundColor)) === "rgb(176, 0, 32)", "real: el banner Beta rojo viene de la API real");
-    ok(/BETA/.test(await page.textContent(".ticket h4")), "real: el ticket trae el sello BETA de la auditoría");
+    ok(/Opción A/.test(meter) && /3 partidos/.test(meter) && /sáb 14\/11/.test(meter) && /PA\(1\) Lyon/.test(meter), "Qué meter: parlay con día, hora y PA(1)");
+    ok(!(await page.$("#vista b b")), "Qué meter: el HTML de los nombres se escapa");
   }
   await page.screenshot({ path: `${OUT}/02-meter.png`, fullPage: true });
 
   // --- Soñadoras
   await page.click('#nav button[data-v="sonadoras"]');
-  await page.waitForSelector("#son-usar");
-  ok(/Soñadoras/.test(await page.textContent("#vista")), "Soñadoras: pantalla cargada");
+  await page.waitForSelector("#vista .sonadora, #vista .card");
+  const son = await page.textContent("#vista");
+  ok(/Soñadoras/.test(son) && !/Soñadoras analíticas/.test(son), "Soñadoras: pantalla cargada sin las analíticas");
+  if (MODO === "mock") ok(/Soñadora 1/.test(son) && /6 partidos/.test(son) && /comparte partido/.test(son), "Soñadoras: parlay de 6 y aviso de partidos repetidos");
   await page.screenshot({ path: `${OUT}/03-sonadoras.png`, fullPage: true });
 
   // --- Cuotas

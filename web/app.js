@@ -341,141 +341,54 @@ async function vDiario() {
 }
 
 // ------------------------------------------------------------------ Qué meter
-function filaJugada(x) {
-  let ver = "";
-  if (x.cuota_casa) {
-    const vale = x.cuota_casa >= x.cuota_min;
-    ver = vale ? `<div class="ok">✅ ${esc(x.casa)} paga ${num(x.cuota_casa)}: vale la pena (EV ${(100 * x.ev).toFixed(1)}%)</div>`
-      : `<div class="no">❌ ${esc(x.casa)} paga ${num(x.cuota_casa)}: NO vale (necesita ≥ ${num(x.cuota_min)})</div>`;
+
+
+/* Parlays del responsable (2026-11-13): piernas «Gana» o «PA(1)», hasta 3 días, sin repetir partidos entre opciones. */
+async function parlaysUsuario() {
+  const k = "pu:" + S.dia;
+  if (!S.cache[k]) {
+    const r = await api("GET", "/parlays_usuario/" + S.dia);
+    if (!r.ok) return { error: r.error };
+    S.cache[k] = r.data;
   }
-  const sosp = x.ev_sospechoso ? '<div class="no">⚠ EV muy alto: desconfía. Casi siempre es error del modelo o una cuota mal capturada; verifícala antes de apostar.</div>' : "";
-  const etiq = { segura: "🛡️ Segura", equilibrada: "⚖️ Equilibrada", arriesgada: "🎲 Arriesgada" }[x.categoria] || "";
-  return `<div class="jug-fila ${esc(x.categoria)}"><div class="meta">${esc(x.hora)} · ${esc(LIGAS[x.liga] || x.liga)} · ${esc(x.partido)}</div>` +
-    `<div class="jug-nom">${esc(x.jugada)}<small>${esc(x.detalle)}</small></div>` +
-    `<div class="jug-num"><b style="color:${colorP(x.p)}">${pct(x.p)}</b> de acertar · cuota justa ${num(x.cuota_justa)} · <b>mete si paga ≥ ${num(x.cuota_min)}</b> · ${etiq} · confianza ${esc(x.confianza)}/10</div>${ver}${sosp}</div>`;
+  return { d: S.cache[k] };
 }
 
-function bloqueV3(v3) {
-  if (!v3) return `<div class="card vacio">Todavía no hay decisión V3 para este día (se genera al actualizar/recalcular).</div>`;
-  if (!v3.ticket) {
-    return `<div class="card"><b>V3: abstención</b> — ${esc(v3.motivo || "sin ticket")}.<br><span class="meta">El sistema prefiere no proponer ticket antes que inventar una probabilidad (no se usa independencia como respaldo).</span></div>`;
-  }
-  const t = v3.ticket;
-  const aviso = v3.sello ? `<div class="banner-beta" role="alert">${esc(v3.advertencia)}</div>` : `<div class="aviso-prov">⚠️ ${esc(v3.advertencia)}</div>`;
-  const piernas = (t.bloques || []).map((b) =>
-    `<div class="pierna">• <b>${esc(b.jugada)}</b><br><span class="meta">${esc(b.hora)} · ${esc(b.local)} vs ${esc(b.visitante)} · ${pct(b.p_calibrada)} · cuota ${num(b.cuota)}` +
-    `${b.crs_alerta === "MEDIA" || b.crs_alerta === "ALTA" ? ` · <span class="chip ${b.crs_alerta === "ALTA" ? "rojo" : "viejo"}">CRS ${esc(b.crs_total)}</span>` : ""}</span></div>`).join("");
-  const pie = v3.sello
-    ? `Stake propuesto ${num(t.stake_u)} u (Kelly fraccional sobre la probabilidad conservadora, con tope) · sello ${esc(v3.sello)}.`
-    : `Stake propuesto ${num(t.stake_u)} u — NO promovido a paper/real mientras la calibración sea provisional.`;
-  return aviso + `<div class="ticket"><h4>🎫 Ticket V3${v3.sello ? ` <span class="chip rojo">${esc(v3.sello)}</span>` : ""} · ${esc(v3.estado)}${t.es_apuesta_del_dia ? " · apuesta del día" : ""}</h4>` +
-    `<div class="chips"><span class="chip">${esc(t.n_bloques)} partidos</span><span class="chip">techo ${esc(v3.techo_estado)}</span><span class="chip">calibrado: ${esc(v3.calibrado_con)}</span></div>` +
-    `<div class="kpis"><div class="kpi"><div class="v">${num(t.cuota_combinada, 1)}x</div><div class="l">Cuota casa</div></div>` +
-    `<div class="kpi"><div class="v">${pct(t.p_parlay, 1)}</div><div class="l">Prob. conservadora</div></div>` +
-    `<div class="kpi"><div class="v">${pct(t.p_media, 1)}</div><div class="l">Prob. media</div></div>` +
-    `<div class="kpi"><div class="v">${num(t.cuota_justa, 1)}x</div><div class="l">Cuota justa</div></div>` +
-    `<div class="kpi"><div class="v">${(100 * t.ev).toFixed(1)}%</div><div class="l">EV (cota)</div></div>` +
-    `<div class="kpi"><div class="v">${num(t.lift)}</div><div class="l">Factor dependencia</div></div></div>` +
-    `<div class="meta">Si los partidos fueran independientes: ${pct(t.p_independencia, 1)}.</div>${piernas}<div class="meta" style="margin-top:8px">${pie}</div></div>`;
+function htmlParlay(x) {
+  const n1 = Number(x.uno_de_cada).toLocaleString("es-MX", { maximumFractionDigits: 1 });
+  return `<div class="sonadora"><h4>${esc(x.titulo)} · ${esc(x.n)} partidos · ${pct(x.p, 1)} (1 de cada ${n1}) · cuota justa ${num(x.cuota_justa)}x</h4>` +
+    x.piernas.map((p) => `<div class="pierna">• <b>${esc(p.jugada)}</b> <span class="meta">${pct(p.p)} · mete si paga ≥ ${num(p.cuota_min)}</span><br>` +
+      `<span class="meta">📅 ${esc(p.dia_texto)} ${esc(p.hora)} · ${esc(p.liga)} · ${esc(p.partido)} · ${esc(p.detalle)}</span></div>`).join("") + "</div>";
+}
+
+function htmlSeccionParlays(d, clave, vacio) {
+  const lista = d[clave] || [];
+  if (!lista.length) return `<div class="card vacio">${vacio} (piernas disponibles: ${esc(d.piernas_disponibles)}). Ve a <b>Datos → Actualizar datos</b>.</div>`;
+  const rep = d.repiten_partidos && d.repiten_partidos[clave] ? `<p class="meta">⚠ No alcanzaron los partidos para que las opciones no se repitan: alguna comparte partido con otra.</p>` : "";
+  const av = (d.avisos || []).length ? `<p class="meta">⚠ ${d.avisos.map(esc).join("<br>⚠ ")}</p>` : "";
+  return lista.map(htmlParlay).join("") + rep + av + `<p class="meta">${esc(d.nota)} Días: ${d.dias.map(esc).join(", ")}.</p>`;
 }
 
 async function vMeter() {
-  const { pan, error } = await panel();
-  if (error) return fallo("Qué meter", "No se pudieron armar las sugerencias: " + error);
-  const mejores = pan.mejores || [];
-  const top = mejores.filter((x) => x.categoria === "segura").slice(0, 3);
-  const arriba = top.length ? top : mejores.slice(0, 3);
-  const resto = mejores.filter((x) => !arriba.includes(x));
-  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Qué meter</h2>` +
-    `<p class="lead"><b>Cuota mínima</b> = la cuota más baja a la que la jugada deja ganancia a la larga. Si tu casa paga menos, no la metas aunque sea probable. Ninguna jugada es segura: un 80% falla 1 de cada 5 veces.</p>`;
-  h += `<h3>🎫 Ticket V3 del día</h3>` + bloqueV3(pan.v3);
-  h += `<h3>🎯 Apuesta por esto hoy</h3>`;
-  h += arriba.length ? arriba.map(filaJugada).join("") : `<div class="card vacio">Todavía no hay jugadas: faltan predicciones o cuotas de referencia. Ve a <b>Datos → Actualizar datos</b>.</div>`;
-  if ((pan.valor || []).length) h += `<h3>💎 Con valor ahora</h3><p class="meta">Solo jugadas con al menos 30% de probabilidad. Un valor esperado muy alto casi nunca es real.</p>` + pan.valor.slice(0, 6).map(filaJugada).join("");
-  else h += `<p class="meta">💎 «Con valor ahora» aparece cuando captures las cuotas de tu casa en la pestaña Cuotas.</p>`;
-  if (resto.length) h += `<details><summary>Más jugadas del día (${resto.length})</summary>${resto.map(filaJugada).join("")}</details>`;
-  h += `<h3>💥 Rompen parlays: evítalos en combinadas</h3>`;
-  h += (pan.rompe || []).length ? pan.rompe.map((r) =>
-    `<div class="jug-fila arriesgada"><div class="meta">${esc(r.hora)} · ${esc(LIGAS[r.liga] || r.liga)} · ${esc(r.partido)}</div>` +
-    `<div class="jug-num">${esc((r.razones || []).join("; "))}</div>` +
-    `${r.alternativa ? `<div class="ok">Mejor úsalo así: ${esc(r.alternativa.jugada)} · ${pct(r.alternativa.p)} · mete si paga ≥ ${num(r.alternativa.cuota_min)}</div>` : ""}</div>`).join("")
-    : `<p class="meta">Hoy ningún partido muestra señales de riesgo claras.</p>`;
-  h += `<details><summary>📋 Copiar este resumen</summary><textarea id="resumen" readonly>${esc(pan.texto || "")}</textarea><button id="copiar" class="btn" type="button">Copiar</button></details>`;
-  return {
-    html: h,
-    alMontar: (v) => {
-      const b = $("#copiar", v);
-      if (b) b.addEventListener("click", async () => {
-        try { await navigator.clipboard.writeText($("#resumen", v).value); b.textContent = "¡Copiado!"; } catch (e) { $("#resumen", v).select(); b.textContent = "Selecciona y copia"; }
-      });
-    },
-  };
+  const { d, error } = await parlaysUsuario();
+  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Qué meter</h2>` +
+    `<p class="lead">2 a 3 parlays de 3 a 5 partidos. Cada pierna es <b>Gana</b> o <b>PA(1)</b> (anota el primer gol), la más probable de su partido; ` +
+    `se mezclan ligas y hasta 3 días. Las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
+  if (error) return fallo("Qué meter", "No se pudieron armar los parlays: " + error);
+  return { html: cab + htmlSeccionParlays(d, "que_meter", "Todavía no hay suficientes partidos para armar parlays") };
 }
 
 // ------------------------------------------------------------------ Soñadoras
 async function vSonadoras() {
-  const q = S.montoSon ? "?stake_u=" + encodeURIComponent(S.montoSon) : "";
-  const r = await api("GET", "/sonadoras/" + S.dia + q);
-  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">03</b> Soñadoras</h2><p class="lead">Combinadas de alto riesgo y EV negativo: de 10 a 15 selecciones con cuota mayor a 100x. No forman parte de la estrategia de inversión.</p>`;
-  const monto = `<div class="card"><label for="son-usar" style="display:flex;gap:8px;align-items:center;text-transform:none;font-size:13px"><input id="son-usar" type="checkbox" ${S.montoSon ? "checked" : ""}> Definir mi propio monto (unidades; 1 u = 1% de la banca)</label>` +
-    `<input id="son-monto" type="number" min="0.01" max="0.5" step="0.05" value="${S.montoSon || 0.1}" ${S.montoSon ? "" : "hidden"} aria-label="Monto en unidades"></div>`;
-  let cuerpo;
-  if (!r.ok) cuerpo = `<div class="card"><p class="error">No se pudieron calcular las soñadoras: ${esc(r.error)}</p></div>`;
-  else {
-    const son = r.data;
-    cuerpo = `<div class="aviso-prov">${esc(son.aviso)}</div>`;
-    if (!son.sonadora) {
-      const dg = son.diagnostico || {}, um = dg.umbrales || {};
-      cuerpo += `<div class="card"><b>Hoy no hay soñadora</b> — ${esc(son.motivo)}.<br><span class="meta">Selecciones elegibles (p conservadora > ${pct(um.p_min_pierna)} y CRS < ${esc(um.crs_max)}): ${esc(dg.n_selecciones_elegibles)} en ${esc(dg.n_partidos_elegibles)} partidos; ` +
-        `cuota máxima alcanzable ${num(dg.cuota_maxima_alcanzable, 1)}x (objetivo > ${esc(um.cuota_objetivo)}x). No se relajan los umbrales para forzar una combinada.</span></div>`;
-    } else {
-      const x = son.sonadora;
-      cuerpo += `<div class="sonadora"><h4>🎰 ${esc(x.n)} selecciones · paga ≈ ${num(x.cuota_combinada, 0)}x</h4>` +
-        `<div class="meta"><b>Probabilidad real: ${esc(x.probabilidad_real_texto)}</b> (1 de cada ${Number(x.uno_de_cada).toLocaleString("es-MX", { maximumFractionDigits: 0 })}) · EV según el modelo ${(100 * x.ev_real).toFixed(0)}% por unidad apostada · si fueran independientes: ${pct(x.p_independencia, 2)}</div>` +
-        `<div class="no">⚠ Ese EV es optimista: una soñadora solo existe cuando el modelo cree que las cuotas superan a las justas, y eso casi siempre es error del modelo, no valor.</div>` +
-        x.piernas.map((p) => `<div class="pierna">• <b>${esc(p.jugada)}</b><br><span class="meta">${esc(p.hora)} · ${esc(p.local)} vs ${esc(p.visitante)} · cuota ${num(p.cuota)} · p cons. ${pct(p.p_conservadora)}</span></div>`).join("") +
-        `<div class="meta" style="margin-top:8px">Stake ${num(son.stake_u)} u (${esc(son.stake_tipo)}) · Cerebro 2: <b>${esc(son.estado_cerebro2)}</b> (máximo permitido: CON_RESERVAS; nunca APROBADA) · no promovible</div></div>`;
-    }
-  }
-  const analitica = `<h3>🧠 Soñadoras analíticas</h3><div class="card"><p class="meta">Alto riesgo con análisis: elige un rango de cuota y se arma el ticket <b>más probable</b> dentro de él, mezclando goles, córners y jugadores, con la probabilidad conjunta real (las piernas del mismo partido que se ayudan suben la probabilidad).</p>` +
-    `<div class="fila-sa"><label for="sa-min">De</label><input id="sa-min" type="number" min="1.5" max="499" step="1" value="${S.sa.min}"><label for="sa-max">a</label><input id="sa-max" type="number" min="2" max="500" step="1" value="${S.sa.max}"><span>x</span>` +
-    `<button id="sa-ir" class="btn primario" type="button">Armar ticket</button></div><div id="sa-res"></div></div>`;
-  return {
-    html: cab + monto + cuerpo + analitica,
-    alMontar: (v) => {
-      $("#sa-ir", v).addEventListener("click", async () => {
-        const lo = Number($("#sa-min", v).value), hi = Number($("#sa-max", v).value), zona = $("#sa-res", v);
-        S.sa = { min: lo, max: hi };
-        zona.innerHTML = '<p class="meta"><span class="spin"></span>Buscando la combinación más probable…</p>';
-        const r = await api("GET", `/sonadoras_analiticas/${S.dia}?cuota_min=${encodeURIComponent(lo)}&cuota_max=${encodeURIComponent(hi)}`);
-        zona.innerHTML = r.ok ? htmlAnalitica(r.data) : `<p class="error">${esc(r.error)}</p>`;
-      });
-      const u = $("#son-usar", v), m = $("#son-monto", v);
-      const recargar = () => { S.montoSon = u.checked ? Math.min(0.5, Math.max(0.01, Number(m.value) || 0.1)) : null; render(); };
-      u.addEventListener("change", recargar);
-      m.addEventListener("change", recargar);
-    },
-  };
+  const { d, error } = await parlaysUsuario();
+  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">03</b> Soñadoras</h2>` +
+    `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas: <b>Gana</b> o <b>PA(1)</b>, hasta 3 días, sin repetir partidos entre opciones. ` +
+    `Son de alto riesgo: juega montos chicos.</p>`;
+  if (error) return fallo("Soñadoras", "No se pudieron armar las soñadoras: " + error);
+  return { html: cab + htmlSeccionParlays(d, "sonadoras", "Todavía no hay suficientes partidos para una soñadora de 6+") };
 }
 
-function htmlTicketAnalitico(t, titulo) {
-  const valor = t.etiqueta.startsWith("De Valor");
-  return `<div class="sonadora"><h4>${titulo} · ${esc(t.piernas.length)} piernas en ${esc(t.n_partidos)} partidos · paga ≈ ${num(t.cuota_combinada, 1)}x</h4>` +
-    `<div><span class="chip ${valor ? "ok" : "viejo"}">${esc(t.etiqueta)}</span> <span class="meta">${esc(t.motivo_etiqueta)}</span></div>` +
-    `<div class="meta"><b>Probabilidad real: ${pct(t.p_media, 1)}</b> (1 de cada ${num(t.uno_de_cada, 0)}) · conservadora ${pct(t.p_conservadora, 1)} · si fueran independientes ${pct(t.p_independencia, 1)} · ` +
-    `correlación ×${num(t.lift)} · EV conservador ${(100 * t.ev_cons).toFixed(0)}%</div>` +
-    t.piernas.map((p) => `<div class="pierna">• <b>${esc(p.etiqueta)}</b> <span class="meta">${pct(p.p)} · ${p.cuota ? "cuota " + num(p.cuota) : "sin cuota de casa (justa " + num(1 / p.p) + ")"}</span></div>`).join("") + "</div>";
-}
 
-function htmlAnalitica(d) {
-  if (!d.ticket) {
-    const dg = d.diagnostico || {};
-    return `<p class="no">No hay ticket: ${esc(d.motivo)}.</p><p class="meta">Selecciones elegibles: ${esc(dg.n_elegibles)} (goles ${esc((dg.por_mercado || {}).goles)}, córners ${esc((dg.por_mercado || {}).corners)}, jugadores ${esc((dg.por_mercado || {}).props)}).</p>`;
-  }
-  return `<div class="aviso-prov">${esc(d.aviso)}</div>` + htmlTicketAnalitico(d.ticket, "🧠 El más probable") +
-    (d.alternativas || []).map((t, i) => htmlTicketAnalitico(t, `Alternativa ${i + 1}`)).join("") +
-    `<p class="meta">Stake simbólico ${num(d.stake_u)} u, sin Kelly. No pasa por Cerebro 2.</p>`;
-}
 
 // ------------------------------------------------------------------ NFL
 async function vNfl() {

@@ -322,3 +322,12 @@ factores_partido:
   ambiente:                        # por cada 0.5 de desviación sobre el promedio del estadio
     local: 0.06                    # CALIBRADO
     visitante: 0.15                # CALIBRADO: un estadio hostil pesa sobre todo en los goles del visitante
+
+# Parlays pedidos por el responsable (2026-11-13) para «Qué meter» y «Soñadoras» (servicios/parlays_usuario.py).
+# Piernas: «Gana» o «PA(1)» (anota el primer gol), la más probable de cada partido; hasta 3 días; sin repetir partidos entre opciones.
+parlays_usuario:
+  dias: 3
+  que_meter: [3, 4, 5]             # 3 opciones: 3, 4 y 5 partidos
+  sonadoras: [6, 8, 10]            # 3 opciones: 6, 8 y 10 partidos
+  p_min: 0.55                      # pierna mínima
+  confianza_min: 3.5               # confianza de datos mínima (0-10)
