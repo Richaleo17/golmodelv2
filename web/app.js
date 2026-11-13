@@ -193,16 +193,18 @@ function tarjetaDiario(p, nombres) {
     `<div class="mc-eq">${esc(p.local)} vs ${esc(p.visitante)}</div><div class="mc-badges">${badges}</div>`;
   if (p.mercados && p.mercados.length) {
     h += `<div class="tiles">${p.mercados.map(mosaico).join("")}</div>`;
+    h += filaInd("PA(1) · PRIMER GOL", `${esc(pg.equipo)} <small>anota el primer gol del partido</small>`, pg.p);
     h += filaInd("EL OTRO ANOTA", `${esc(ot.equipo)} <small>aunque pierda, ≥1 gol</small>`, ot.p);
   } else {
     h += filaInd("GANA", `${esc(g.favorito)} <small>empate ${pct(g.empate)}</small>`, g.p);
-    h += filaInd("PRIMER GOL", `${esc(pg.equipo)} <small>(aprox.)</small>`, pg.p);
+    h += filaInd("PA(1) · PRIMER GOL", `${esc(pg.equipo)} <small>anota el primer gol (aprox.)</small>`, pg.p);
     h += filaInd("EL OTRO ANOTA", `${esc(ot.equipo)} <small>aunque pierda, ≥1 gol</small>`, ot.p);
   }
   const ge = p.goles_esperados || {};
   h += `<div class="dia-foot">Empate ${pct(g.empate)} · Forma ${esc(p.local)} <span class="forma">${htmlForma(p.forma && p.forma.local)}</span> · ${esc(p.visitante)} ` +
     `<span class="forma">${htmlForma(p.forma && p.forma.visitante)}</span><br>Ventaja del favorito +${(100 * g.margen).toFixed(0)} pts sobre ${esc(g.rival)} · ` +
     `Goles esperados ${num(ge.local, 1)}–${num(ge.visitante, 1)}</div>`;
+  if (p.factores && p.factores.length) h += `<div class="meta">🏔️ ${p.factores.map(esc).join("<br>")}</div>`;
   if (p.rompe) h += `<div class="rompe">💥 ${esc((p.rompe.razones || []).join("; "))}</div>`;
   if (p.jugadas && p.jugadas.length) {
     const j = p.jugadas[0];

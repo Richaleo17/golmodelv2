@@ -1,0 +1,5 @@
+# Motivación por partido (la cargas tú cuando conoces la tabla del grupo). Estados: necesita_ganar, le_sirve_empate, nada_en_juego, normal.
+# Clave: "Local vs Visitante" tal como aparece en la app (nombres en inglés para selecciones). Ejemplo:
+#   "Germany vs Netherlands": {local: necesita_ganar, visitante: le_sirve_empate}
+# Los amistosos se detectan solos (torneo «Friendly» o liga de amistosos) y no hace falta ponerlos aquí.
+partidos: {}
