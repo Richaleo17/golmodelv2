@@ -194,3 +194,9 @@ def test_bajas_confirmadas(cfg):
     muchas = fp.calcular("A", "B", {}, c, bajas={"local": [{"jugador": str(i), "rol": "delantero", "peso": "estrella"} for i in range(9)]})
     assert abs(muchas.mult_local - (1 - c["bajas"]["tope"])) < 1e-9
     assert "Northern Ireland vs Ukraine" in ps.cargar_bajas()
+
+
+def test_config_se_puede_guardar_como_json(cfg):
+    """El reajuste guarda la config con json.dumps(default=float): una fecha sin comillas en el YAML lo tumba."""
+    import json
+    json.dumps(cfg, default=float)
