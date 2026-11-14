@@ -67,7 +67,9 @@ const KPI = (clave, titulo, pct, delta, base) => ({ clave, titulo, aciertos: Mat
   pct_7d: pct, total_7d: 40, pct_mercado: pct - 0.01, vs_mercado: 0.01, linea_base: base, vs_base: base == null ? null : pct - base, serie: SERIE(pct - 4 * delta, delta),
   rangos: [{ rango: "30-50%", aciertos: 2, total: 5, pct: 0.4, esperado: 0.44 }, { rango: "51-60%", aciertos: 0, total: 0, pct: null, esperado: null },
     { rango: "61-70%", aciertos: 6, total: 10, pct: 0.6, esperado: 0.66 }, { rango: "71-80%", aciertos: 10, total: 12, pct: 0.83, esperado: 0.75 },
-    { rango: "81-90%", aciertos: 3, total: 3, pct: 1, esperado: 0.85 }, { rango: "91-100%", aciertos: 0, total: 0, pct: null, esperado: null }] });
+    { rango: "81-90%", aciertos: 3, total: 3, pct: 1, esperado: 0.85 }, { rango: "91-100%", aciertos: 0, total: 0, pct: null, esperado: null }],
+  laboratorio: clave === "Ganador" ? { version: 4, n: 240, n_ajuste: 170, n_prueba: 70, a: -0.05, b: 0.82, sesgo: 0.04, brier_antes: 0.231, brier_despues: 0.224,
+    estado: "activa", lectura: "Ajuste activo: Brier 0.231 → 0.224 en los días recientes; la app promete 4.0 pts de más." } : null });
 const DASH = { hoy: "2026-11-14", dias: ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14"], partidos: 40, log_loss_app: 0.95, log_loss_mercado: 0.96,
   mensajes: ["Gana: 1.2 pts más de acierto que ayer (62.5%)"],
   kpis: [KPI("Ganador", "Gana", 0.625, 0.012, 0.605), KPI("PA(1) primer gol", "PA(1) · Primer gol", 0.58, -0.005, null), KPI("Ambos anotan", "Ambos <b>anotan</b>", 0.55, 0.0, 0.575),
@@ -189,6 +191,8 @@ async function simular(page) {
     ok((await page.$$("#vista svg.curva")).length === 6 && /▲ \+1\.2 pts vs ayer/.test(dash) && !(await page.$("#vista .kpi-tit b")), "Dashboard: curvas, delta y HTML escapado");
   }
   if (MODO === "mock") ok((await page.$$("#vista .kpi .rangos")).length === 6 && /71-80%/.test(dash) && /10\/12/.test(dash), "Dashboard: aciertos por rango de probabilidad en cada KPI");
+  if (MODO === "mock") ok(/Subrama v4/.test(dash) && /ACTIVA en el Diario/.test(dash) && /b = 0\.82/.test(dash), "Dashboard: subrama de calibración por KPI con sus parámetros");
+  ok(!(await page.isVisible(".fechabar")), "Dashboard: sin filtro de fecha (histórico acumulado)");
   await page.screenshot({ path: `${OUT}/07-dashboard.png`, fullPage: true });
 
   // --- Qué meter

@@ -244,7 +244,10 @@ def get_dashboard(dias: int = 60, s: Servicio = Depends(servicio), conn=Depends(
     out = aciertos.dashboard(conn, _dia("hoy", s), max(7, min(dias, 365)),
                              desde=_date.fromisoformat(str(cd["desde"])) if cd.get("desde") else None)
     base = (s.cfg.get("dashboard") or {}).get("linea_base") or {}
+    from golmodel.servicios import calibracion_kpi
+    lab = calibracion_kpi.vigentes(conn)
     for k in out["kpis"]:
+        k["laboratorio"] = {x: (str(v) if x == "creada_en" else v) for x, v in (lab.get(k["clave"]) or {}).items()} or None
         k["linea_base"] = base.get(k["clave"])
         k["vs_base"] = (k["pct"] - k["linea_base"]) if (k["pct"] is not None and k["linea_base"] is not None) else None
     return out
@@ -260,8 +263,10 @@ def post_dashboard_cierre(s: Servicio = Depends(servicio), conn=Depends(conexion
     hoy = _dia("hoy", s)
     desde = _date.fromisoformat(str(cd["desde"])) if cd.get("desde") else hoy
     n = aciertos.registrar(conn, desde, hoy)
+    from golmodel.servicios import calibracion_kpi
+    lab = calibracion_kpi.correr(conn, s.cfg)
     conn.commit()
-    return {"registrados": n, "desde": str(desde), "hasta": str(hoy)}
+    return {"registrados": n, "desde": str(desde), "hasta": str(hoy), "laboratorio": lab}
 
 
 @app.get("/aciertos")

@@ -192,3 +192,7 @@ nav button{font-size:8.5px;letter-spacing:0;overflow:hidden;text-overflow:ellips
 .rg-b em{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;opacity:.85}
 .rg-p{text-align:right;font-weight:700}
 .rg .ok{color:var(--hi);font-size:10.5px}.rg .no{color:var(--lo);font-size:10.5px}
+/* ---- Laboratorio por KPI */
+.lab{border-top:1px dashed var(--line);padding-top:8px;display:flex;flex-direction:column;gap:4px}
+.lab-top{display:flex;justify-content:space-between;align-items:center;gap:8px;font:600 12px var(--mono)}
+.tile .cal{font:500 9.5px var(--mono);color:var(--accent);margin-left:4px}
