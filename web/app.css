@@ -180,3 +180,15 @@ nav button{font-size:8.5px;letter-spacing:0;overflow:hidden;text-overflow:ellips
 .c-base{stroke:var(--mid);stroke-width:1;stroke-dasharray:2 4;opacity:.8}
 .c-punto{fill:var(--accent);stroke:#fff;stroke-width:1.2}
 .kpi-chips{display:flex;flex-wrap:wrap;gap:6px}
+
+/* ---- Rangos de probabilidad por KPI */
+.rangos{border-top:1px dashed var(--line);padding-top:8px}
+.rangos summary{font:600 11px var(--mono);color:var(--text-2);letter-spacing:.04em;cursor:pointer;margin-bottom:6px}
+.rg{display:grid;grid-template-columns:58px 46px 1fr 40px 20px;gap:6px;align-items:center;font:500 11.5px var(--mono);margin:5px 0;line-height:1.2}
+.rg.rg-vacia{opacity:.45}
+.rg-a{text-align:right}.rg-e{text-align:center;font-size:12px}
+.rg-b{position:relative;height:9px;background:var(--track);border-radius:5px;overflow:visible}
+.rg-b i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+.rg-b em{position:absolute;top:-3px;bottom:-3px;width:2px;background:#fff;opacity:.85}
+.rg-p{text-align:right;font-weight:700}
+.rg .ok{color:var(--hi);font-size:10.5px}.rg .no{color:var(--lo);font-size:10.5px}

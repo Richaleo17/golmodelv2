@@ -164,3 +164,20 @@ def test_dashboard_delta_vs_ayer_y_serie():
     assert abs(k["delta_ayer"] - 0.25) < 1e-9 and abs(k["vs_mercado"] - (-0.25)) < 1e-9
     assert [x["pct"] for x in k["serie"]] == [0.5, 0.75] and d["mensajes"][0].startswith("Gana: 25.0 pts más")
     assert {x["clave"]: x for x in d["kpis"]}["Ambos anotan"]["pct"] is None and d["log_loss_app"] == 0.9
+
+
+def test_picks_y_rangos():
+    import math
+
+    from golmodel.servicios import aciertos
+    p = aciertos._probs({}, (2.0, 0.5), "p_adj")
+    assert abs(p["pa_l"] - 2.0 / 2.5 * (1 - math.exp(-2.5))) < 1e-9          # PA(1) incluye P(hay al menos un gol)
+    pk = aciertos.picks(p, "Spain", "Malta")
+    assert pk["Ganador"][0] == "Gana Spain" and 0.5 < pk["Ganador"][1] < 1 and pk["PA(1) primer gol"][0] == "PA(1) Spain"
+    assert all(0.5 <= v[1] <= 1 for k, v in pk.items() if k not in ("Ganador", "PA(1) primer gol"))
+    det = [{"decision": {"Ganador": True}, "p": {"decision": {"Ganador": 0.75}}},
+           {"decision": {"Ganador": False}, "p": {"decision": {"Ganador": 0.72}}},
+           {"decision": {"Ganador": True}, "p": {"decision": {"Ganador": 0.45}}}]
+    r = {x["rango"]: x for x in aciertos.rangos(det, "Ganador")}
+    assert (r["71-80%"]["aciertos"], r["71-80%"]["total"]) == (1, 2) and abs(r["71-80%"]["esperado"] - 0.735) < 1e-9
+    assert r["30-50%"]["total"] == 1 and r["91-100%"]["total"] == 0 and aciertos.rango_de(0.95) == "91-100%"

@@ -415,7 +415,23 @@ function tarjetaKpi(k) {
     `<div class="kpi-txt"><div class="kpi-tit">${esc(k.titulo)}</div><div class="kpi-num">${k.aciertos}/${k.total} acertados</div>` +
     `<div class="delta ${claseDelta(k.delta_ayer)}">${k.delta_ayer == null ? "sin dato de ayer" : signoPts(k.delta_ayer) + " vs ayer"}</div>` +
     `<div class="meta">desde el inicio ${signoPts(k.delta_inicio)} · últimos 7 días ${pct(k.pct_7d, 1)} (${k.total_7d})</div></div></div>` +
-    curva(k.serie || [], k.linea_base) + `<div class="kpi-chips">${vsMk}${vsBase}</div></div>`;
+    curva(k.serie || [], k.linea_base) + `<div class="kpi-chips">${vsMk}${vsBase}</div>` + tablaRangos(k.rangos || []) + `</div>`;
+}
+
+/* Aciertos por rango de probabilidad: «cuando la app dijo 71-80%, acertó 18/22». Si el % real queda cerca del esperado, la app está bien calibrada. */
+function tablaRangos(rs) {
+  const con = rs.filter((r) => r.total);
+  if (!con.length) return `<div class="rangos meta">Los rangos aparecen cuando haya partidos terminados.</div>`;
+  const fila = (r) => {
+    if (!r.total) return `<div class="rg rg-vacia"><span class="rg-n">${esc(r.rango)}</span><span class="rg-a">0</span><span class="rg-b"></span><span class="rg-p">—</span><span></span></div>`;
+    const dif = r.pct - r.esperado;
+    const est = r.total < 5 ? `<span class="rg-e" title="menos de 5 partidos: todavía no dice mucho">·</span>` : dif >= -0.05 ? `<span class="rg-e" title="cumple lo esperado">✅</span>` : `<span class="rg-e" title="acierta menos de lo esperado">⚠️</span>`;
+    return `<div class="rg"><span class="rg-n">${esc(r.rango)}</span><span class="rg-a"><b>${r.aciertos}/${r.total}</b></span>` +
+      `<span class="rg-b"><i style="width:${Math.max(3, 100 * r.pct).toFixed(0)}%;background:${colorP(r.pct)}"></i><em style="left:${(100 * r.esperado).toFixed(0)}%"></em></span>` +
+      `<span class="rg-p" style="color:${colorP(r.pct)}">${pct(r.pct)}</span>${est}</div>`;
+  };
+  return `<details class="rangos" open><summary>Por rango de probabilidad (lo que dijo la app → lo que pasó)</summary>${rs.map(fila).join("")}` +
+    `<p class="meta">Raya blanca = lo esperado (el promedio que dijo la app en ese rango). ✅ cumple · ⚠️ acierta menos de lo esperado · «·» menos de 5 partidos.</p></details>`;
 }
 
 async function vDashboard() {
