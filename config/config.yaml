@@ -346,7 +346,7 @@ parlays_usuario:
 # el punto de partida contra el que se mide si la app va mejorando. PA(1) no tiene línea base (el CSV no trae el minuto de los goles).
 dashboard:
   dias: 60
-  desde: 2026-11-06               # arranque de la app: el histórico del dashboard se rellena desde aquí
+  desde: "2026-11-06"              # arranque de la app: el histórico del dashboard se rellena desde aquí
   linea_base:
     Ganador: 0.605
     Ambos anotan: 0.575
