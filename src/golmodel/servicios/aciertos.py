@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from datetime import date
+from datetime import date, timedelta
 
 KPIS = ("Ganador", "Ambos anotan", "Más de 1.5", "Más de 2.5", "Menos de 3.5", "PA(1) primer gol", "El otro anota")
 
@@ -68,7 +68,7 @@ def evaluar(p: dict[str, float], gl: int, gv: int) -> dict[str, bool | None]:
 
 def _filas(conn, desde: date, hasta: date) -> list[dict]:
     return [dict(r) for r in conn.execute("""
-        SELECT p.id, p.inicio, p.goles_local, p.goles_visitante, l.codigo AS liga, l.solo_mercado,
+        SELECT p.id, p.inicio, dia_mx(p.inicio) AS dia, p.goles_local, p.goles_visitante, l.codigo AS liga, l.solo_mercado,
                el.nombre AS local, ev.nombre AS visitante, pr.id AS prediccion_id, pr.lambda_local, pr.lambda_visitante,
                pr.lambda_mercado_local, pr.lambda_mercado_visitante, pr.cr_scores
         FROM partidos p JOIN ligas l ON l.id = p.liga_id JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
@@ -97,7 +97,8 @@ def marcador(conn, desde: date, hasta: date) -> dict:
         lam = (f["lambda_local"], f["lambda_visitante"])
         lam_mk = (f["lambda_mercado_local"], f["lambda_mercado_visitante"]) if f["lambda_mercado_local"] else None
         s = sels.get(f["prediccion_id"], {})
-        fila = {"partido": f"{f['local']} {f['goles_local']}-{f['goles_visitante']} {f['visitante']}", "liga": f["liga"]}
+        fila = {"partido": f"{f['local']} {f['goles_local']}-{f['goles_visitante']} {f['visitante']}", "liga": f["liga"],
+                "dia": str(f.get("dia") or f["inicio"].date()), "grupo": g2, "ll": {}}
         for col, columna, l_ in (("decision", "p_adj", lam), ("mercado", "p_mercado", lam_mk)):
             p = _probs(s, l_, columna)
             if p is None:
@@ -113,6 +114,7 @@ def marcador(conn, desde: date, hasta: date) -> dict:
                         tab[g][col][k][1] += 1
                 ll[g][col][0] -= math.log(max(p[res] / tot1x2, 1e-12))
                 ll[g][col][1] += 1
+            fila["ll"][col] = -math.log(max(p[res] / tot1x2, 1e-12))
         detalle.append(fila)
     salida = {}
     for g in grupos:
@@ -128,3 +130,60 @@ def marcador(conn, desde: date, hasta: date) -> dict:
 def texto(m: dict, grupo: str = "todos", columna: str = "decision") -> str:
     k = m["grupos"][grupo][columna]["kpis"]
     return " · ".join(f"{n} {v['aciertos']}/{v['total']}" for n, v in k.items() if v["total"])
+
+
+# ------------------------------------------------------------------ Dashboard: cuánto vamos acertando y cómo cambia día a día
+KPIS_DASHBOARD = (("Ganador", "Gana"), ("PA(1) primer gol", "PA(1) · Primer gol"), ("Ambos anotan", "Ambos anotan"),
+                  ("Más de 1.5", "Más de 1.5"), ("Más de 2.5", "Más de 2.5"), ("Menos de 3.5", "Menos de 3.5"))
+
+
+def construir_dashboard(detalle: list[dict], hoy: date) -> dict:
+    """De los partidos evaluados arma, por KPI: % de acierto acumulado, cambio vs ayer y vs el primer día, últimos 7 días,
+    serie diaria acumulada (la curva de aprendizaje) y comparación contra el mercado."""
+    dias = sorted({f["dia"] for f in detalle})
+    kpis = []
+    for clave, titulo in KPIS_DASHBOARD:
+        serie, a, t, am, tm = [], 0, 0, 0, 0
+        for d in dias:
+            ad = td = 0
+            for f in detalle:
+                if f["dia"] != d:
+                    continue
+                v = (f.get("decision") or {}).get(clave)
+                if v is not None:
+                    ad += int(v)
+                    td += 1
+                w = (f.get("mercado") or {}).get(clave)
+                if w is not None:
+                    am += int(w)
+                    tm += 1
+            a, t = a + ad, t + td
+            serie.append({"dia": d, "aciertos_dia": ad, "total_dia": td, "aciertos": a, "total": t,
+                          "pct": a / t if t else None, "pct_mercado": am / tm if tm else None})
+        con = [x for x in serie if x["pct"] is not None]
+        actual = con[-1]["pct"] if con else None
+        ayer = con[-2]["pct"] if len(con) >= 2 else None
+        inicio = con[0]["pct"] if con else None
+        u7 = [x for x in serie if x["dia"] > str(hoy - timedelta(days=7))]
+        a7, t7 = sum(x["aciertos_dia"] for x in u7), sum(x["total_dia"] for x in u7)
+        mk = con[-1]["pct_mercado"] if con else None
+        kpis.append({"clave": clave, "titulo": titulo, "aciertos": a, "total": t, "pct": actual,
+                     "delta_ayer": (actual - ayer) if (actual is not None and ayer is not None) else None,
+                     "delta_inicio": (actual - inicio) if (actual is not None and inicio is not None and len(con) > 1) else None,
+                     "pct_7d": a7 / t7 if t7 else None, "total_7d": t7, "pct_mercado": mk,
+                     "vs_mercado": (actual - mk) if (actual is not None and mk is not None) else None, "serie": serie})
+    ll_app = [f["ll"]["decision"] for f in detalle if "decision" in f.get("ll", {})]
+    ll_mk = [f["ll"]["mercado"] for f in detalle if "mercado" in f.get("ll", {})]
+    con_delta = [k for k in kpis if k["delta_ayer"] is not None]
+    mensajes = []
+    for k in sorted(con_delta, key=lambda k: -abs(k["delta_ayer"]))[:3]:
+        signo = "más" if k["delta_ayer"] >= 0 else "menos"
+        mensajes.append(f"{k['titulo']}: {abs(100 * k['delta_ayer']):.1f} pts {signo} de acierto que ayer ({100 * k['pct']:.1f}%)")
+    return {"hoy": str(hoy), "dias": dias, "partidos": len(detalle), "kpis": kpis,
+            "log_loss_app": sum(ll_app) / len(ll_app) if ll_app else None,
+            "log_loss_mercado": sum(ll_mk) / len(ll_mk) if ll_mk else None, "mensajes": mensajes}
+
+
+def dashboard(conn, hoy: date, dias: int = 60) -> dict:
+    m = marcador(conn, hoy - timedelta(days=dias), hoy)
+    return construir_dashboard(m["detalle"], hoy)

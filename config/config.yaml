@@ -331,3 +331,14 @@ parlays_usuario:
   sonadoras: [6, 8, 10]            # 3 opciones: 6, 8 y 10 partidos
   p_min: 0.55                      # pierna mínima
   confianza_min: 3.5               # confianza de datos mínima (0-10)
+
+# Dashboard de aprendizaje (servicios/aciertos.py, /dashboard). Línea base = walk-forward de selecciones 2024-07→2026-10 (2,420 partidos):
+# el punto de partida contra el que se mide si la app va mejorando. PA(1) no tiene línea base (el CSV no trae el minuto de los goles).
+dashboard:
+  dias: 60
+  linea_base:
+    Ganador: 0.605
+    Ambos anotan: 0.575
+    Más de 1.5: 0.728
+    Más de 2.5: 0.593
+    Menos de 3.5: 0.698
