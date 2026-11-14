@@ -231,7 +231,8 @@ def _factores_club(cfg: dict, partido: dict):
         sedes = ps._CACHE["sedes"]
         loc, vis = partido["local"], partido["visitante"]
         mot = ps.cargar_motivacion().get(f"{loc} vs {vis}")
-        if loc not in sedes and vis not in sedes and not mot:
+        baj = ps.cargar_bajas().get(f"{loc} vs {vis}")
+        if loc not in sedes and vis not in sedes and not mot and not baj:
             return None
         t_sede = t_vis = None
         if loc in sedes and vis in sedes and partido.get("inicio") is not None:
@@ -240,7 +241,7 @@ def _factores_club(cfg: dict, partido: dict):
                 ps._CACHE["clima"] = Clima()
             t_sede = ps._CACHE["clima"].temperatura(sedes[loc]["lat"], sedes[loc]["lon"], partido["inicio"])
             t_vis = ps._CACHE["clima"].media_dia(sedes[vis]["lat"], sedes[vis]["lon"], partido["inicio"])
-        f = fp.calcular(loc, vis, sedes, cf, temp_sede=t_sede, temp_casa_visitante=t_vis, motivacion=mot)
+        f = fp.calcular(loc, vis, sedes, cf, temp_sede=t_sede, temp_casa_visitante=t_vis, motivacion=mot, bajas=baj)
         k = float(cf.get("escala_clubes", 0.5))          # el Dixon-Coles del club ya absorbe parte (juega ahí cada 15 días)
         f.mult_local, f.mult_visitante = 1 + (f.mult_local - 1) * k, 1 + (f.mult_visitante - 1) * k
         return f if f.razones else None

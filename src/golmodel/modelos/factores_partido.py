@@ -59,7 +59,8 @@ def _pct(x: float) -> str:
 
 def calcular(local: str, visitante: str, sedes: dict[str, dict], cfg: dict, *, neutral: bool = False,
              sede: dict | None = None, temp_sede: float | None = None, temp_casa_visitante: float | None = None,
-             temp_casa_local: float | None = None, motivacion: dict | None = None, amistoso: bool = False) -> Factores:
+             temp_casa_local: float | None = None, motivacion: dict | None = None, amistoso: bool = False,
+             bajas: dict | None = None) -> Factores:
     """sede: {alt, lat, lon, ambiente} si se juega fuera de la sede habitual del local (por defecto la del local).
     temp_*: °C previstos a la hora del partido (sede) y ese día en la ciudad de cada equipo (lo que acostumbra).
     motivacion: {'local': estado, 'visitante': estado} con estados de ESTADOS_MOTIVACION."""
@@ -138,6 +139,30 @@ def calcular(local: str, visitante: str, sedes: dict[str, dict], cfg: dict, *, n
 
     if neutral:
         f.razones.append("Sede neutral: sin ventaja de local")
+
+    # ---------------- bajas confirmadas (config/bajas.yaml): un delantero menos baja tus goles; un defensa o portero menos sube los del rival
+    cb = c.get("bajas") or {}
+    if bajas and cb:
+        for lado, nombre in (("local", local), ("visitante", visitante)):
+            lista = bajas.get(lado) or []
+            if not lista:
+                continue
+            propio = rival = 0.0
+            nombres = []
+            for b in lista:
+                regla = (cb.get("roles") or {}).get(str(b.get("rol", "")).lower())
+                if not regla:
+                    continue
+                k = float(cb.get("peso", {}).get(str(b.get("peso", "titular")).lower(), 1.0))
+                propio += float(regla.get("propio", 0.0)) * k
+                rival += float(regla.get("rival", 0.0)) * k
+                nombres.append(str(b.get("jugador", "?")))
+            t = float(cb.get("tope", 0.15))
+            propio, rival = max(propio, -t), min(rival, t)
+            fl, fv = (1 + propio, 1 + rival) if lado == "local" else (1 + rival, 1 + propio)
+            if nombres:
+                otro = visitante if lado == "local" else local
+                f.aplicar(f"bajas_{lado}", fl, fv, f"Bajas de {nombre}: {', '.join(nombres)} → {nombre} {_pct(1 + propio)} goles, {otro} {_pct(1 + rival)}")
 
     # ---------------- tope total
     t = c["tope_total"]

@@ -181,3 +181,16 @@ def test_picks_y_rangos():
     r = {x["rango"]: x for x in aciertos.rangos(det, "Ganador")}
     assert (r["71-80%"]["aciertos"], r["71-80%"]["total"]) == (1, 2) and abs(r["71-80%"]["esperado"] - 0.735) < 1e-9
     assert r["30-50%"]["total"] == 1 and r["91-100%"]["total"] == 0 and aciertos.rango_de(0.95) == "91-100%"
+
+
+def test_bajas_confirmadas(cfg):
+    c = cfg["factores_partido"]
+    sin = fp.calcular("A", "B", {}, c)
+    con = fp.calcular("A", "B", {}, c, bajas={"local": [{"jugador": "9", "rol": "delantero", "peso": "estrella"},
+                                                        {"jugador": "1", "rol": "portero", "peso": "titular"}],
+                                              "visitante": [{"jugador": "x", "rol": "inventado"}]})
+    assert sin.mult_local == 1.0 and con.mult_local < 0.92 and con.mult_visitante > 1.04
+    assert any(r.startswith("Bajas de A") for r in con.razones) and not any("Bajas de B" in r for r in con.razones)
+    muchas = fp.calcular("A", "B", {}, c, bajas={"local": [{"jugador": str(i), "rol": "delantero", "peso": "estrella"} for i in range(9)]})
+    assert abs(muchas.mult_local - (1 - c["bajas"]["tope"])) < 1e-9
+    assert "Northern Ireland vs Ukraine" in ps.cargar_bajas()
