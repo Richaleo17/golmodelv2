@@ -67,3 +67,17 @@ Nueva pestaña «Dashboard» en la PWA (`/dashboard`, `/diag/dashboard`, `aciert
 +1.5, +2.5, −3.5) el % de acierto acumulado con la predicción previa al partido, el cambio vs ayer y vs el primer día, últimos 7 días,
 la curva diaria (app vs mercado vs línea base histórica) y la «seguridad promedio». Línea base = walk-forward de selecciones (`dashboard.linea_base`).
 Con pocos partidos los cambios diarios son ruido: un «+1 pt» sobre 40 partidos no es significativo todavía.
+
+### 2026-11-14 · Dashboard: cierre diario guardado y aciertos por rango de probabilidad
+* `dashboard_registro` (migración 008): por partido, KPI y fuente (app/mercado) se GUARDA el pick que mostró la app antes del partido,
+  su probabilidad y si se cumplió. Se llena al final de cada recálculo (`pipeline._cierre_dashboard`) y con `POST /dashboard/cierre`,
+  desde `dashboard.desde` (2026-11-06, arranque de la app). Idempotente.
+* Cada KPI del Dashboard muestra aciertos por rango de probabilidad (30-50, 51-60, 61-70, 71-80, 81-90, 91-100%) contra lo esperado:
+  si en el rango 71-80% acierta ~75%, ese rango es confiable (calibración).
+* Corrección: la probabilidad de PA(1) en el marcador ahora incluye P(hay al menos un gol): λ_e/(λ_l+λ_v)·(1−e^−(λ_l+λ_v)).
+
+### 2026-11-14 (b) · Bajas confirmadas en el modelo
+`config/bajas.yaml` (por partido: jugador, rol y peso) → factor «bajas» en `factores_partido.calcular`, aplicado a selecciones
+(`pronostico_selecciones`) y a clubes (`prediccion._factores_club`). Reglas en `factores_partido.bajas`: un delantero/extremo menos
+baja los goles propios; un defensa/lateral/portero menos sube los del rival; peso estrella 1.6 / titular 1.0 / rotación 0.4; tope 15%.
+PROVISIONAL (sin calibrar). Cargadas las bajas de la jornada del 14-11-2026 y la motivación de Portugal (le basta el empate).

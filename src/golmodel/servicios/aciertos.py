@@ -39,8 +39,27 @@ def _probs(sel: dict[str, dict], lam: tuple[float, float] | None, columna: str) 
     if any(v is None for v in p.values()) or lam is None:
         return None
     t = lam[0] + lam[1]
-    p["pa_l"], p["pa_v"] = (lam[0] / t, lam[1] / t) if t > 0 else (0.5, 0.5)
+    alguno = 1 - math.exp(-t) if t > 0 else 0.0               # PA(1) = anota primero = λ_e/(λ_l+λ_v) · P(hay gol)
+    p["pa_l"], p["pa_v"] = (lam[0] / t * alguno, lam[1] / t * alguno) if t > 0 else (0.0, 0.0)
     return p
+
+
+def picks(p: dict[str, float], local: str = "local", visitante: str = "visitante") -> dict[str, tuple[str, float]]:
+    """Lo que mostraba la tarjeta: el lado elegido de cada KPI y SU probabilidad (la que se clasifica en rangos)."""
+    fav_l = p["1"] >= p["2"]
+    s1x2 = p["1"] + p["X"] + p["2"]
+    fav, riv = (local, visitante) if fav_l else (visitante, local)
+    sino = lambda q, si, no: (si, q) if q >= 0.5 else (no, 1 - q)                       # noqa: E731
+    otro = p["av"] if fav_l else p["al"]
+    return {
+        "Ganador": (f"Gana {fav}", (p["1"] if fav_l else p["2"]) / s1x2),
+        "PA(1) primer gol": (f"PA(1) {fav}", p["pa_l"] if fav_l else p["pa_v"]),
+        "Ambos anotan": sino(p["btts"], "Ambos anotan: Sí", "Ambos anotan: No"),
+        "Más de 1.5": sino(p["o15"], "Más de 1.5: Sí", "Más de 1.5: No"),
+        "Más de 2.5": sino(p["o25"], "Más de 2.5: Sí", "Más de 2.5: No"),
+        "Menos de 3.5": sino(p["u35"], "Menos de 3.5: Sí", "Menos de 3.5: No"),
+        "El otro anota": sino(otro, f"{riv} anota: Sí", f"{riv} anota: No"),
+    }
 
 
 def evaluar(p: dict[str, float], gl: int, gv: int) -> dict[str, bool | None]:
@@ -105,6 +124,9 @@ def marcador(conn, desde: date, hasta: date) -> dict:
                 continue
             r = evaluar(p, f["goles_local"], f["goles_visitante"])
             fila[col] = r
+            fila.setdefault("picks", {})[col] = picks(p, f["local"], f["visitante"])
+            fila.setdefault("p", {})[col] = {k: v[1] for k, v in fila["picks"][col].items()}
+            fila["partido_id"], fila["prediccion_id"] = f["id"], f["prediccion_id"]
             res = "1" if f["goles_local"] > f["goles_visitante"] else ("2" if f["goles_visitante"] > f["goles_local"] else "X")
             tot1x2 = p["1"] + p["X"] + p["2"]
             for g in ("todos", g2):
@@ -167,7 +189,7 @@ def construir_dashboard(detalle: list[dict], hoy: date) -> dict:
         u7 = [x for x in serie if x["dia"] > str(hoy - timedelta(days=7))]
         a7, t7 = sum(x["aciertos_dia"] for x in u7), sum(x["total_dia"] for x in u7)
         mk = con[-1]["pct_mercado"] if con else None
-        kpis.append({"clave": clave, "titulo": titulo, "aciertos": a, "total": t, "pct": actual,
+        kpis.append({"clave": clave, "titulo": titulo, "aciertos": a, "total": t, "pct": actual, "rangos": rangos(detalle, clave),
                      "delta_ayer": (actual - ayer) if (actual is not None and ayer is not None) else None,
                      "delta_inicio": (actual - inicio) if (actual is not None and inicio is not None and len(con) > 1) else None,
                      "pct_7d": a7 / t7 if t7 else None, "total_7d": t7, "pct_mercado": mk,
@@ -184,6 +206,83 @@ def construir_dashboard(detalle: list[dict], hoy: date) -> dict:
             "log_loss_mercado": sum(ll_mk) / len(ll_mk) if ll_mk else None, "mensajes": mensajes}
 
 
-def dashboard(conn, hoy: date, dias: int = 60) -> dict:
-    m = marcador(conn, hoy - timedelta(days=dias), hoy)
-    return construir_dashboard(m["detalle"], hoy)
+def dashboard(conn, hoy: date, dias: int = 60, desde: date | None = None) -> dict:
+    """Lee lo GUARDADO al cierre de cada día (dashboard_registro). Si la tabla aún está vacía (antes del primer cierre),
+    calcula al vuelo para no mostrar la pantalla en blanco."""
+    ini = desde or (hoy - timedelta(days=dias))
+    try:
+        with conn.transaction():
+            det = detalle_guardado(conn, ini, hoy)
+    except Exception:                                             # noqa: BLE001 — tabla aún no migrada
+        det = []
+    fuente = "cierre diario guardado"
+    if not det:
+        det, fuente = marcador(conn, ini, hoy)["detalle"], "calculado al vuelo (aún sin cierre guardado)"
+    out = construir_dashboard(det, hoy)
+    out["fuente_datos"], out["desde"] = fuente, str(ini)
+    return out
+
+
+# ------------------------------------------------------------------ Cierre diario: se GUARDA lo que mostró la app y si se cumplió
+RANGOS = ((0.30, 0.50, "30-50%"), (0.50, 0.60, "51-60%"), (0.60, 0.70, "61-70%"), (0.70, 0.80, "71-80%"),
+          (0.80, 0.90, "81-90%"), (0.90, 1.0001, "91-100%"))
+
+
+def rango_de(p: float) -> str | None:
+    for lo, hi, nombre in RANGOS:
+        if lo <= p < hi:
+            return nombre
+    return None
+
+
+def registrar(conn, desde: date, hasta: date) -> int:
+    """Guarda (o actualiza) en dashboard_registro cada pick de los partidos terminados del rango. Idempotente: se puede
+    correr cada actualización y para rellenar el histórico (desde que arrancó la app)."""
+    m = marcador(conn, desde, hasta)
+    filas = []
+    for f in m["detalle"]:
+        for fuente in ("decision", "mercado"):
+            if fuente not in f or fuente not in f.get("picks", {}):
+                continue
+            for kpi, (pick, prob) in f["picks"][fuente].items():
+                filas.append((f["partido_id"], kpi, fuente, f["dia"], f["prediccion_id"], pick, min(max(prob, 0.0), 1.0),
+                              f[fuente].get(kpi), f["grupo"], f["ll"].get(fuente)))
+    if filas:
+        with conn.cursor() as cur:
+            cur.executemany("""
+                INSERT INTO dashboard_registro (partido_id, kpi, fuente, dia, prediccion_id, pick, p, acierto, grupo, log_loss_1x2)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                ON CONFLICT (partido_id, kpi, fuente) DO UPDATE SET dia = EXCLUDED.dia, prediccion_id = EXCLUDED.prediccion_id,
+                    pick = EXCLUDED.pick, p = EXCLUDED.p, acierto = EXCLUDED.acierto, grupo = EXCLUDED.grupo,
+                    log_loss_1x2 = EXCLUDED.log_loss_1x2, registrado_en = now()""", filas)
+    return len(filas)
+
+
+def detalle_guardado(conn, desde: date, hasta: date) -> list[dict]:
+    """Reconstruye el «detalle» del dashboard desde la tabla (lo guardado al cierre de cada día)."""
+    por: dict[int, dict] = {}
+    for r in conn.execute("""SELECT r.partido_id, r.kpi, r.fuente, r.dia, r.pick, r.p, r.acierto, r.grupo, r.log_loss_1x2
+                             FROM dashboard_registro r WHERE r.dia BETWEEN %s AND %s""", (desde, hasta)).fetchall():
+        f = por.setdefault(r["partido_id"], {"dia": str(r["dia"]), "grupo": r["grupo"], "ll": {}, "p": {}})
+        f.setdefault(r["fuente"], {})[r["kpi"]] = r["acierto"]
+        f["p"].setdefault(r["fuente"], {})[r["kpi"]] = r["p"]
+        if r["log_loss_1x2"] is not None:
+            f["ll"][r["fuente"]] = r["log_loss_1x2"]
+    return list(por.values())
+
+
+def rangos(detalle: list[dict], kpi: str) -> list[dict]:
+    """Aciertos por rango de probabilidad que mostró la app: si dijo 71-80% y acierta ~75%, la app está bien calibrada."""
+    out = []
+    for lo, hi, nombre in RANGOS:
+        a = t = 0
+        suma_p = 0.0
+        for f in detalle:
+            v = (f.get("decision") or {}).get(kpi)
+            pr = ((f.get("p") or {}).get("decision") or {}).get(kpi)
+            if v is None or pr is None or not (lo <= pr < hi):
+                continue
+            a, t, suma_p = a + int(v), t + 1, suma_p + pr
+        out.append({"rango": nombre, "aciertos": a, "total": t, "pct": a / t if t else None,
+                    "esperado": suma_p / t if t else None})
+    return out

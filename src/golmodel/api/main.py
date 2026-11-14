@@ -239,12 +239,29 @@ def get_parlays_usuario(fecha: str, s: Servicio = Depends(servicio), conn=Depend
 def get_dashboard(dias: int = 60, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     """Dashboard de aprendizaje: % de acierto por KPI (Gana, PA(1), Ambos anotan, +1.5, +2.5, −3.5), cambio vs ayer y vs el inicio."""
     from golmodel.servicios import aciertos
-    out = aciertos.dashboard(conn, _dia("hoy", s), max(7, min(dias, 365)))
+    from datetime import date as _date
+    cd = s.cfg.get("dashboard") or {}
+    out = aciertos.dashboard(conn, _dia("hoy", s), max(7, min(dias, 365)),
+                             desde=_date.fromisoformat(str(cd["desde"])) if cd.get("desde") else None)
     base = (s.cfg.get("dashboard") or {}).get("linea_base") or {}
     for k in out["kpis"]:
         k["linea_base"] = base.get(k["clave"])
         k["vs_base"] = (k["pct"] - k["linea_base"]) if (k["pct"] is not None and k["linea_base"] is not None) else None
     return out
+
+
+@app.post("/dashboard/cierre")
+def post_dashboard_cierre(s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Cierre manual (y relleno histórico): guarda lo que mostró la app desde dashboard.desde y si se cumplió."""
+    from datetime import date as _date
+
+    from golmodel.servicios import aciertos
+    cd = s.cfg.get("dashboard") or {}
+    hoy = _dia("hoy", s)
+    desde = _date.fromisoformat(str(cd["desde"])) if cd.get("desde") else hoy
+    n = aciertos.registrar(conn, desde, hoy)
+    conn.commit()
+    return {"registrados": n, "desde": str(desde), "hasta": str(hoy)}
 
 
 @app.get("/aciertos")

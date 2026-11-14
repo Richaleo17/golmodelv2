@@ -319,6 +319,16 @@ factores_partido:
     le_sirve_empate: {propio: -0.08, rival: -0.05}
     nada_en_juego:   {propio: -0.05, rival: 0.02}
     amistoso:        {propio: 0.04, rival: 0.0}    # CALIBRADO: en amistosos hay algo MÁS de goles (defensas mezcladas)
+  bajas:                           # bajas confirmadas por partido en config/bajas.yaml. PROVISIONAL (diseño, sin calibrar)
+    tope: 0.15                     # ningún equipo pierde más de 15% de goles ni le suma más de 15% al rival por bajas
+    peso: {estrella: 1.6, titular: 1.0, rotacion: 0.4}
+    roles:                         # cambio relativo por cada baja: propio (sus goles) y rival (goles que le meten)
+      delantero: {propio: -0.06, rival: 0.0}
+      extremo:   {propio: -0.04, rival: 0.0}
+      medio:     {propio: -0.025, rival: 0.015}
+      lateral:   {propio: -0.01, rival: 0.025}
+      defensa:   {propio: 0.0, rival: 0.035}
+      portero:   {propio: 0.0, rival: 0.05}
   ambiente:                        # por cada 0.5 de desviación sobre el promedio del estadio
     local: 0.06                    # CALIBRADO
     visitante: 0.15                # CALIBRADO: un estadio hostil pesa sobre todo en los goles del visitante
@@ -336,6 +346,7 @@ parlays_usuario:
 # el punto de partida contra el que se mide si la app va mejorando. PA(1) no tiene línea base (el CSV no trae el minuto de los goles).
 dashboard:
   dias: 60
+  desde: 2026-11-06               # arranque de la app: el histórico del dashboard se rellena desde aquí
   linea_base:
     Ganador: 0.605
     Ambos anotan: 0.575

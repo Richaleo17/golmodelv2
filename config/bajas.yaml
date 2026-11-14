@@ -1,0 +1,41 @@
+# Bajas CONFIRMADAS por partido (lesión, suspensión o retiro). Se cargan a mano antes de «Actualizar datos».
+# Clave: "Local vs Visitante" como en la app (selecciones en inglés). rol: delantero | extremo | medio | lateral | defensa | portero
+# peso: estrella | titular | rotacion. Reglas de impacto en config.yaml → factores_partido.bajas.
+# Fuentes de la jornada 14-11-2026: Sports Mole, Racing Post, thefalse9, Forebet, balls.ie, TechRadar, TribalFootball (previas del partido).
+partidos:
+  "Norway vs Wales":
+    local:
+      - {jugador: Jørgen Strand Larsen, rol: delantero, peso: rotacion}
+      - {jugador: Fredrik Aursnes, rol: medio, peso: titular}
+    visitante:
+      - {jugador: Ben Cabango, rol: defensa, peso: titular}      # suspendido
+      - {jugador: Sorba Thomas, rol: extremo, peso: rotacion}     # suspendido
+      - {jugador: Kieffer Moore, rol: delantero, peso: titular}
+  "Sweden vs Bosnia & Herzegovina":
+    local:
+      - {jugador: Besfort Zeneli, rol: medio, peso: rotacion}
+    visitante:
+      - {jugador: Tarik Muharemović, rol: defensa, peso: titular}  # suspendido
+      - {jugador: Dennis Hadžikadunić, rol: defensa, peso: titular}
+      - {jugador: Edin Džeko, rol: delantero, peso: estrella}     # retirado de la selección
+  "Northern Ireland vs Ukraine":
+    local:
+      - {jugador: Conor Bradley, rol: lateral, peso: estrella}
+      - {jugador: Daniel Ballard, rol: defensa, peso: titular}
+      - {jugador: Eoin Toal, rol: defensa, peso: titular}
+      - {jugador: Ali McCann, rol: medio, peso: titular}
+    visitante:
+      - {jugador: Oleksandr Zubkov, rol: extremo, peso: titular}
+      - {jugador: Matviy Ponomarenko, rol: delantero, peso: rotacion}
+  "Portugal vs Denmark":
+    local:
+      - {jugador: João Cancelo, rol: lateral, peso: titular}      # suspendido
+      - {jugador: Francisco Conceição, rol: extremo, peso: titular}  # suspendido
+      - {jugador: Cristiano Ronaldo, rol: delantero, peso: rotacion}  # retirado; ya no era titular fijo
+  "Austria vs Republic of Ireland":
+    local:
+      - {jugador: Maximilian Wöber, rol: defensa, peso: titular}
+      - {jugador: Patrick Wimmer, rol: extremo, peso: titular}
+      - {jugador: Marco Grüll, rol: extremo, peso: rotacion}
+    visitante:
+      - {jugador: Gavin Bazunu, rol: portero, peso: titular}

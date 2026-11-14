@@ -64,6 +64,17 @@ class Pronostico:
     avisos: list[str] = field(default_factory=list)
 
 
+RUTA_BAJAS = RAIZ / "config" / "bajas.yaml"
+
+
+def cargar_bajas(ruta: Path = RUTA_BAJAS) -> dict[str, dict]:
+    """Bajas confirmadas por partido ("Local vs Visitante" → {local: [...], visitante: [...]})."""
+    try:
+        return (yaml.safe_load(ruta.read_text(encoding="utf-8")) or {}).get("partidos") or {}
+    except FileNotFoundError:
+        return {}
+
+
 def cargar_motivacion(ruta: Path = RUTA_MOTIVACION) -> dict[str, dict]:
     try:
         return (yaml.safe_load(ruta.read_text(encoding="utf-8")) or {}).get("partidos") or {}
@@ -86,7 +97,8 @@ def entrenar(cfg: dict, texto_csv: str, extra: pd.DataFrame | None = None, ahora
 
 def pronosticar(modelo: sm.ModeloSelecciones | None, cfg: dict, local: str, visitante: str, *, inicio: datetime | None = None,
                 neutral: bool = False, amistoso: bool = False, lambda_mercado: tuple[float, float] | None = None,
-                sedes: dict | None = None, clima=None, motivacion: dict | None = None) -> Pronostico | None:
+                sedes: dict | None = None, clima=None, motivacion: dict | None = None,
+                bajas: dict | None = None) -> Pronostico | None:
     cs, cf = cfg["selecciones_modelo"], cfg["factores_partido"]
     sedes = sedes if sedes is not None else fp.cargar_sedes()
     loc, vis = sm.nombre_canonico(local), sm.nombre_canonico(visitante)
@@ -103,8 +115,9 @@ def pronosticar(modelo: sm.ModeloSelecciones | None, cfg: dict, local: str, visi
         if t_sede is None:
             avisos.append("sin dato de clima")
     mot = motivacion if motivacion is not None else cargar_motivacion().get(f"{loc} vs {vis}")
+    baj = bajas if bajas is not None else cargar_bajas().get(f"{loc} vs {vis}")
     fac = fp.calcular(loc, vis, sedes, cf, neutral=neutral, temp_sede=t_sede, temp_casa_visitante=t_vis,
-                      temp_casa_local=t_loc, motivacion=mot, amistoso=amistoso) if cf.get("activo") else fp.Factores()
+                      temp_casa_local=t_loc, motivacion=mot, amistoso=amistoso, bajas=baj) if cf.get("activo") else fp.Factores()
 
     lam_mod = None
     if modelo is not None and modelo.tiene(loc) and modelo.tiene(vis):

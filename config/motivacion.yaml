@@ -2,4 +2,5 @@
 # Clave: "Local vs Visitante" tal como aparece en la app (nombres en inglés para selecciones). Ejemplo:
 #   "Germany vs Netherlands": {local: necesita_ganar, visitante: le_sirve_empate}
 # Los amistosos se detectan solos (torneo «Friendly» o liga de amistosos) y no hace falta ponerlos aquí.
-partidos: {}
+partidos:
+  "Portugal vs Denmark": {local: le_sirve_empate}     # 14-11-2026: a Portugal le basta un punto para ser 1.º del grupo A4 (Sports Mole)

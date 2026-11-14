@@ -458,6 +458,21 @@ class Pipeline:
                 n += accion in ("resultado", "nuevo")
         return n
 
+    def _cierre_dashboard(self, st: Estado) -> int | str:
+        """Guarda lo que mostró la app y si se cumplió (dashboard_registro), desde dashboard.desde (arranque de la app).
+        Idempotente; un error aquí no tumba el recálculo (savepoint)."""
+        from datetime import date as _date
+
+        from golmodel.servicios import aciertos
+        cd = self.cfg.get("dashboard") or {}
+        hoy = st.hoy()
+        desde = _date.fromisoformat(str(cd["desde"])) if cd.get("desde") else hoy - timedelta(days=int(cd.get("dias", 60)))
+        try:
+            with st.conn.transaction():
+                return aciertos.registrar(st.conn, desde, hoy)
+        except Exception as e:                                    # noqa: BLE001
+            return f"error: {type(e).__name__}"
+
     def _etapa_recalculo_modulos(self, st: Estado) -> dict:
         if st.modelo is None:
             cargado = svc_modelo.cargar_modelo(st.conn)
@@ -467,6 +482,7 @@ class Pipeline:
         vid, modelo, hp = st.modelo
         edad = st.ahora - modelo.datos_hasta
         r = prediccion.recalcular(st.conn, self.cfg, modelo, vid, hp, st.dias(), st.ahora)
+        r["dashboard_registrados"] = self._cierre_dashboard(st)
         if edad > timedelta(days=self.cfg["frescura"]["modelo_max_dias"]):
             r["avisos"].append(f"Modelo con {edad.days} días sin reajuste")
         return r
