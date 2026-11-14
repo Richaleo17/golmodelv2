@@ -119,6 +119,8 @@ function ir(v) {
 
 async function render() {
   $$("#nav button").forEach((b) => (b.dataset.v === S.vista ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
+  const fb = $(".fechabar");
+  if (fb) fb.hidden = S.vista === "dashboard";                            // el Dashboard es histórico acumulado: la fecha no aplica
   const vista = $("#vista");
   vista.innerHTML = '<p class="vacio"><span class="spin"></span>Cargando…</p>';
   const f = { diario: vDiario, dashboard: vDashboard, meter: vMeter, sonadoras: vSonadoras, nfl: vNfl, cuotas: vCuotas, datos: vDatos }[S.vista];
@@ -168,7 +170,7 @@ const nombreDia = (d) => new Date(d + "T12:00:00").toLocaleDateString("es-MX", {
 /* Tarjeta de un mercado (como en el v1): lo más probable, su probabilidad, el nivel y la cuota mínima para tener valor. */
 function mosaico(m) {
   const col = colorP(m.p);
-  return `<div class="tile${m.clave === "primer_gol" ? " ancho" : ""}"><div class="tt">${esc(m.titulo)}${m.aprox ? " <small>(aprox.)</small>" : ""}</div><div class="tp">${esc(m.pick)}</div>` +
+  return `<div class="tile${m.clave === "primer_gol" ? " ancho" : ""}"><div class="tt">${esc(m.titulo)}${m.aprox ? " <small>(aprox.)</small>" : ""}${m.calibrado ? `<span class="cal" title="ajustado por la subrama de su KPI (antes ${pct(m.p_original)})">🧪 ${esc(m.calibrado)}</span>` : ""}</div><div class="tp">${esc(m.pick)}</div>` +
     `<div class="tv"><b style="color:${col}">${pct(m.p)}</b><span class="nv ${esc(m.nivel)}">${esc(m.nivel)}</span></div>` +
     `<div class="barra"><i style="width:${Math.max(2, Math.min(100, 100 * m.p)).toFixed(0)}%;background:${col}"></i></div><div class="tm">CUOTA MÍN. ${num(m.cuota_min)}×</div></div>`;
 }
@@ -407,7 +409,9 @@ function curva(serie, base) {
 
 function tarjetaKpi(k) {
   const col = k.pct == null ? "var(--line-3)" : colorP(k.pct);
-  const vsMk = k.vs_mercado == null ? "" : `<span class="chip ${k.vs_mercado >= 0 ? "ok" : "rojo"}">${k.vs_mercado >= 0 ? "le gana" : "pierde"} al mercado ${signoPts(k.vs_mercado)}</span>`;
+  const vsMk = k.vs_mercado == null ? "" : Math.abs(k.vs_mercado) < 0.0005
+    ? `<span class="chip" title="en partidos «solo mercado» la app ES el mercado: no puede ganarle ni perderle">igual al mercado</span>`
+    : `<span class="chip ${k.vs_mercado > 0 ? "ok" : "rojo"}">${k.vs_mercado > 0 ? "le gana" : "pierde"} al mercado ${signoPts(k.vs_mercado)}</span>`;
   const vsBase = k.vs_base == null ? (k.linea_base != null ? `<span class="chip">base histórica ${pct(k.linea_base, 1)}</span>` : "")
     : `<span class="chip ${k.vs_base >= 0 ? "ok" : "rojo"}">vs base ${pct(k.linea_base, 1)}: ${signoPts(k.vs_base)}</span>`;
   return `<div class="kpi">` +
@@ -415,7 +419,19 @@ function tarjetaKpi(k) {
     `<div class="kpi-txt"><div class="kpi-tit">${esc(k.titulo)}</div><div class="kpi-num">${k.aciertos}/${k.total} acertados</div>` +
     `<div class="delta ${claseDelta(k.delta_ayer)}">${k.delta_ayer == null ? "sin dato de ayer" : signoPts(k.delta_ayer) + " vs ayer"}</div>` +
     `<div class="meta">desde el inicio ${signoPts(k.delta_inicio)} · últimos 7 días ${pct(k.pct_7d, 1)} (${k.total_7d})</div></div></div>` +
-    curva(k.serie || [], k.linea_base) + `<div class="kpi-chips">${vsMk}${vsBase}</div>` + tablaRangos(k.rangos || []) + `</div>`;
+    curva(k.serie || [], k.linea_base) + `<div class="kpi-chips">${vsMk}${vsBase}</div>` + tablaRangos(k.rangos || []) + cajaLaboratorio(k.laboratorio) + `</div>`;
+}
+
+/* Subrama de calibración del KPI: con el histórico guardado se ajusta p' = σ(a + b·logit p); solo se aplica si mejora en los días recientes. */
+function cajaLaboratorio(l) {
+  if (!l) return `<div class="lab meta">🧪 Subrama de calibración: se activa con la primera actualización después de tener partidos guardados.</div>`;
+  const est = { activa: ["ok", "ACTIVA en el Diario"], sin_mejora: ["viejo", "probada, sin mejora"], insuficiente: ["", "juntando datos"] }[l.estado] || ["", l.estado];
+  const conf = l.b > 1.02 ? "la app es tímida: sus % deberían ser más extremos" : l.b < 0.98 ? "la app es demasiado segura: sus % deberían acercarse al 50%" : "confianza bien calibrada";
+  const brier = l.brier_antes == null ? "" : ` · Brier ${l.brier_antes.toFixed(3)} → ${l.brier_despues.toFixed(3)}`;
+  return `<div class="lab"><div class="lab-top"><b>🧪 Subrama v${esc(l.version)}</b><span class="chip ${est[0]}">${esc(est[1])}</span></div>` +
+    `<div class="meta">${esc(l.lectura)}</div>` +
+    (l.estado === "insuficiente" ? "" : `<div class="meta">Parámetros: a = ${num(l.a, 2)} · b = ${num(l.b, 2)} (${esc(conf)})${brier} · ajuste ${esc(l.n_ajuste)} / prueba ${esc(l.n_prueba)}</div>`) +
+    `</div>`;
 }
 
 /* Aciertos por rango de probabilidad: «cuando la app dijo 71-80%, acertó 18/22». Si el % real queda cerca del esperado, la app está bien calibrada. */
@@ -448,7 +464,7 @@ async function vDashboard() {
   const gana = conDato.filter((k) => k.vs_mercado != null && k.vs_mercado > 0).length;
   const hero = `<div class="hero"><div class="hero-num"><span class="meta">SEGURIDAD PROMEDIO</span><b style="color:${media == null ? "var(--muted)" : colorP(media)}">${media == null ? "—" : pct(media, 1)}</b>` +
     `<span class="delta ${claseDelta(mediaDelta)}">${mediaDelta == null ? "esperando el 2.º día de resultados" : signoPts(mediaDelta) + " vs ayer"}</span></div>` +
-    `<div class="hero-stats"><div><b>${d.partidos}</b><span>partidos evaluados</span></div><div><b>${(d.dias || []).length}</b><span>días aprendiendo</span></div>` +
+    `<div class="hero-stats"><div><b>${d.partidos}</b><span>partidos acumulados</span></div><div><b>${(d.dias || []).length}</b><span>días aprendiendo</span></div>` +
     `<div><b>${conDato.length ? gana + "/" + conDato.length : "—"}</b><span>KPIs arriba del mercado</span></div></div>` +
     ((d.mensajes || []).length ? `<div class="hero-msg">${d.mensajes.map((m) => "🧠 " + esc(m)).join("<br>")}</div>` : "") + `</div>`;
   const vacio = d.partidos ? "" : `<div class="card"><b>Todavía no hay partidos terminados con predicción previa.</b><br><span class="meta">Se llena solo: cada partido que termine entra aquí. ` +

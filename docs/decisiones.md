@@ -81,3 +81,12 @@ Con pocos partidos los cambios diarios son ruido: un «+1 pt» sobre 40 partidos
 (`pronostico_selecciones`) y a clubes (`prediccion._factores_club`). Reglas en `factores_partido.bajas`: un delantero/extremo menos
 baja los goles propios; un defensa/lateral/portero menos sube los del rival; peso estrella 1.6 / titular 1.0 / rotación 0.4; tope 15%.
 PROVISIONAL (sin calibrar). Cargadas las bajas de la jornada del 14-11-2026 y la motivación de Portugal (le basta el empate).
+
+### 2026-11-14 (c) · Histórico completo y laboratorio por KPI («subramas»)
+* Resultados: `/scores` ahora se pide para TODAS las competiciones solo-mercado con partidos pendientes de cerrar (Serie B, Segunda,
+  Copa del Rey…), no solo selecciones (`max_creditos_resultados: 16`). Antes esos partidos nunca se cerraban y el Dashboard evaluaba
+  solo una parte del Diario.
+* Laboratorio por KPI (`servicios/calibracion_kpi.py`, migración 009): por KPI, p' = σ(a + b·logit p) ajustado con los días viejos y
+  probado con los recientes (30%), penalizado hacia la identidad; se activa solo con ≥ 80 partidos y si mejora el Brier ≥ 0.002.
+  Cada corrida guarda una versión (auditable/revertible). Las subramas activas se aplican a las tarjetas del Diario (🧪 vN).
+* Dashboard sin filtro de fecha (es histórico acumulado).

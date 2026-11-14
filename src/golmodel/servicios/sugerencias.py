@@ -424,6 +424,25 @@ def panel_v3(conn, d: date, zona: ZoneInfo) -> dict | None:
             "advertencia": dec["advertencia"], "beta": dec.get("beta"), "sello": dec.get("sello"), "ticket": ticket}
 
 
+TARJETA_KPI = {"ganador": "Ganador", "primer_gol": "PA(1) primer gol", "ambos": "Ambos anotan", "mas15": "Más de 1.5",
+               "mas25": "Más de 2.5", "menos35": "Menos de 3.5"}
+
+
+def _calibrar_tarjetas(info: dict, cal_kpi: dict[str, dict], cfg: dict) -> None:
+    """Aplica a las tarjetas del Diario la subrama de calibración ACTIVA de su KPI (laboratorio por KPI)."""
+    if not cal_kpi:
+        return
+    from golmodel.servicios.calibracion_kpi import aplicar
+    u = float(cfg["valor"]["umbral_edge"])
+    for m in info.get("mercados") or []:
+        c = cal_kpi.get(TARJETA_KPI.get(m["clave"], ""))
+        if not c:
+            continue
+        p = aplicar(m["p"], c["a"], c["b"])
+        m.update(p_original=m["p"], p=p, cuota_min=(1 + u) / p if p > 0 else None, calibrado=f"v{c['version']}",
+                 nivel="ALTA" if p >= 0.80 else "MEDIA" if p >= 0.55 else "BAJA")
+
+
 def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
     zona = ZoneInfo(cfg["zona_horaria"])
     cs = cfg["sugerencias"]
@@ -450,6 +469,8 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
         SELECT l.codigo FROM ligas l WHERE NOT EXISTS (SELECT 1 FROM partidos p WHERE p.liga_id = l.id
                                                        AND p.estado = 'finalizado')""")}
     casa_ej = cfg["mercado"]["casa_ejecucion"]
+    from golmodel.servicios import calibracion_kpi
+    cal_kpi = {k: v for k, v in calibracion_kpi.vigentes(conn).items() if v.get("estado") == "activa"}
 
     partidos, piernas_todas, rompe = [], [], []
     for f in filas:
@@ -472,6 +493,7 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
                                              "casa_nombre": cfg["mercado"].get("casa_manual_nombre", "Tu casa")
                                              if casa == "manual" else casa.capitalize()}
         info = analizar_partido(f, sels.get(f["prediccion_id"], {}), pesos_v.get(f["version_id"], {}), forma, ejec, cfg, zona)
+        _calibrar_tarjetas(info, cal_kpi, cfg)
         if f["estado"] == "programado":
             piernas_todas.extend(info["_piernas"])
             r_ = riesgo_del_favorito(info, cfg)

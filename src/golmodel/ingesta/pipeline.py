@@ -437,11 +437,24 @@ class Pipeline:
         """Resultados de los últimos 3 días de las competiciones de SELECCIONES (2 créditos c/u, con su propio tope):
         sin esto los partidos quedaban «programado» para siempre y el modelo de selecciones no veía un 7-0 o un 5-0."""
         from golmodel.servicios.pronostico_selecciones import PATRONES_SELECCIONES
-        tope = int(cm.get("max_creditos_resultados", 6))
+        tope = int(cm.get("max_creditos_resultados", 16))
         gastado, n = 0, 0
-        for d in deportes:
+        # TODAS las competiciones solo-mercado con partidos de los últimos 3 días que siguen sin resultado (Serie B, Segunda,
+        # Copa del Rey, selecciones…): sin esto nunca se cerraban y el Dashboard solo evaluaba una parte del Diario.
+        try:
+            with st.conn.transaction():
+                pendientes = {r["clave"] for r in st.conn.execute("""
+                    SELECT DISTINCT l.odds_api_sport_key AS clave FROM partidos p JOIN ligas l ON l.id = p.liga_id
+                    WHERE l.solo_mercado AND l.odds_api_sport_key IS NOT NULL AND p.estado = 'programado'
+                      AND p.inicio < now() - interval '2 hours' AND p.inicio > now() - interval '3 days'""").fetchall()}
+        except Exception:                                         # noqa: BLE001
+            pendientes = set()
+        orden = sorted(deportes, key=lambda d: (d["key"] not in pendientes,
+                                                not any(x in str(d["key"]).lower() for x in PATRONES_SELECCIONES)))
+        for d in orden:
             k = str(d["key"]).lower()
-            if not any(x in k for x in PATRONES_SELECCIONES) or "women" in k or gastado + 2 > tope:
+            relevante = d["key"] in pendientes or any(x in k for x in PATRONES_SELECCIONES)
+            if not relevante or ("women" in k and d["key"] not in pendientes) or gastado + 2 > tope:
                 continue
             try:
                 partidos = prov.resultados_deporte(d["key"], 3)
@@ -469,9 +482,16 @@ class Pipeline:
         desde = _date.fromisoformat(str(cd["desde"])) if cd.get("desde") else hoy - timedelta(days=int(cd.get("dias", 60)))
         try:
             with st.conn.transaction():
-                return aciertos.registrar(st.conn, desde, hoy)
+                n = aciertos.registrar(st.conn, desde, hoy)
         except Exception as e:                                    # noqa: BLE001
             return f"error: {type(e).__name__}"
+        try:                                                      # laboratorio por KPI: re-ajusta cada subrama con el histórico nuevo
+            from golmodel.servicios import calibracion_kpi
+            with st.conn.transaction():
+                calibracion_kpi.correr(st.conn, self.cfg)
+        except Exception:                                         # noqa: BLE001
+            pass
+        return n
 
     def _etapa_recalculo_modulos(self, st: Estado) -> dict:
         if st.modelo is None:
