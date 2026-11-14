@@ -121,7 +121,7 @@ async function render() {
   $$("#nav button").forEach((b) => (b.dataset.v === S.vista ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
   const vista = $("#vista");
   vista.innerHTML = '<p class="vacio"><span class="spin"></span>Cargando…</p>';
-  const f = { diario: vDiario, meter: vMeter, sonadoras: vSonadoras, nfl: vNfl, cuotas: vCuotas, datos: vDatos }[S.vista];
+  const f = { diario: vDiario, dashboard: vDashboard, meter: vMeter, sonadoras: vSonadoras, nfl: vNfl, cuotas: vCuotas, datos: vDatos }[S.vista];
   const miVista = S.vista, miDia = S.dia;
   const html = await f();
   if (miVista !== S.vista || miDia !== S.dia) return;                    // el usuario ya cambió de pantalla/día: no pisar
@@ -371,17 +371,83 @@ function htmlSeccionParlays(d, clave, vacio) {
 
 async function vMeter() {
   const { d, error } = await parlaysUsuario();
-  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Qué meter</h2>` +
+  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">03</b> Qué meter</h2>` +
     `<p class="lead">2 a 3 parlays de 3 a 5 partidos. Cada pierna es <b>Gana</b> o <b>PA(1)</b> (anota el primer gol), la más probable de su partido; ` +
     `se mezclan ligas y hasta 3 días. Las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
   if (error) return fallo("Qué meter", "No se pudieron armar los parlays: " + error);
   return { html: cab + htmlSeccionParlays(d, "que_meter", "Todavía no hay suficientes partidos para armar parlays") };
 }
 
+// ------------------------------------------------------------------ Dashboard
+/* Cuánto acierta la app por KPI y cómo cambia día a día (la curva de aprendizaje). Solo cuenta lo que mostraba ANTES de cada partido. */
+const signoPts = (x) => (x == null ? "—" : `${x >= 0 ? "▲ +" : "▼ "}${(100 * x).toFixed(1)} pts`);
+const claseDelta = (x) => (x == null ? "" : x > 0.0005 ? "sube" : x < -0.0005 ? "baja" : "igual");
+
+function anillo(p, col) {
+  const r = 34, c = 2 * Math.PI * r, v = p == null ? 0 : Math.max(0, Math.min(1, p));
+  return `<svg class="anillo" viewBox="0 0 84 84" aria-hidden="true"><circle cx="42" cy="42" r="${r}" class="pista"/>` +
+    `<circle cx="42" cy="42" r="${r}" class="valor" style="stroke:${col};stroke-dasharray:${(c * v).toFixed(1)} ${c.toFixed(1)}"/></svg>`;
+}
+
+function curva(serie, base) {
+  const pts = serie.filter((x) => x.pct != null);
+  if (pts.length < 2) return `<div class="curva-vacia meta">La curva aparece con 2 días de resultados</div>`;
+  const W = 260, H = 64, n = pts.length;
+  const vals = pts.flatMap((x) => [x.pct, x.pct_mercado]).concat(base != null ? [base] : []).filter((v) => v != null);
+  let lo = Math.min(...vals) - 0.03, hi = Math.max(...vals) + 0.03;
+  if (hi - lo < 0.1) { const m = (hi + lo) / 2; lo = m - 0.05; hi = m + 0.05; }
+  const X = (i) => (6 + (i * (W - 12)) / (n - 1)).toFixed(1), Y = (v) => (H - 6 - ((v - lo) * (H - 12)) / (hi - lo)).toFixed(1);
+  const linea = (k) => pts.map((x, i) => (x[k] == null ? null : `${X(i)},${Y(x[k])}`)).filter(Boolean).join(" ");
+  const area = `${X(0)},${H} ${linea("pct")} ${X(n - 1)},${H}`;
+  const b = base != null ? `<line x1="0" x2="${W}" y1="${Y(base)}" y2="${Y(base)}" class="c-base"/>` : "";
+  return `<svg class="curva" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img" aria-label="Acierto acumulado por día">${b}` +
+    `<polygon points="${area}" class="c-area"/><polyline points="${linea("pct_mercado")}" class="c-mk"/><polyline points="${linea("pct")}" class="c-app"/>` +
+    `<circle cx="${X(n - 1)}" cy="${Y(pts[n - 1].pct)}" r="3.5" class="c-punto"/></svg>`;
+}
+
+function tarjetaKpi(k) {
+  const col = k.pct == null ? "var(--line-3)" : colorP(k.pct);
+  const vsMk = k.vs_mercado == null ? "" : `<span class="chip ${k.vs_mercado >= 0 ? "ok" : "rojo"}">${k.vs_mercado >= 0 ? "le gana" : "pierde"} al mercado ${signoPts(k.vs_mercado)}</span>`;
+  const vsBase = k.vs_base == null ? (k.linea_base != null ? `<span class="chip">base histórica ${pct(k.linea_base, 1)}</span>` : "")
+    : `<span class="chip ${k.vs_base >= 0 ? "ok" : "rojo"}">vs base ${pct(k.linea_base, 1)}: ${signoPts(k.vs_base)}</span>`;
+  return `<div class="kpi">` +
+    `<div class="kpi-top"><div class="kpi-anillo">${anillo(k.pct, col)}<b style="color:${col}">${k.pct == null ? "—" : pct(k.pct, 1)}</b></div>` +
+    `<div class="kpi-txt"><div class="kpi-tit">${esc(k.titulo)}</div><div class="kpi-num">${k.aciertos}/${k.total} acertados</div>` +
+    `<div class="delta ${claseDelta(k.delta_ayer)}">${k.delta_ayer == null ? "sin dato de ayer" : signoPts(k.delta_ayer) + " vs ayer"}</div>` +
+    `<div class="meta">desde el inicio ${signoPts(k.delta_inicio)} · últimos 7 días ${pct(k.pct_7d, 1)} (${k.total_7d})</div></div></div>` +
+    curva(k.serie || [], k.linea_base) + `<div class="kpi-chips">${vsMk}${vsBase}</div></div>`;
+}
+
+async function vDashboard() {
+  const r = await api("GET", "/dashboard?dias=60");
+  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Dashboard</h2>` +
+    `<p class="lead">Qué tan seguido se cumple lo que te muestra la app, KPI por KPI, y cómo va mejorando cada día que el modelo aprende. ` +
+    `Solo cuenta la predicción que viste <b>antes</b> de cada partido.</p>`;
+  if (!r.ok) return fallo("Dashboard", "No se pudo armar el dashboard: " + r.error);
+  const d = r.data, ks = d.kpis || [];
+  const conDato = ks.filter((k) => k.pct != null);
+  const media = conDato.length ? conDato.reduce((a, k) => a + k.pct, 0) / conDato.length : null;
+  const deltas = conDato.filter((k) => k.delta_ayer != null);
+  const mediaDelta = deltas.length ? deltas.reduce((a, k) => a + k.delta_ayer, 0) / deltas.length : null;
+  const gana = conDato.filter((k) => k.vs_mercado != null && k.vs_mercado > 0).length;
+  const hero = `<div class="hero"><div class="hero-num"><span class="meta">SEGURIDAD PROMEDIO</span><b style="color:${media == null ? "var(--muted)" : colorP(media)}">${media == null ? "—" : pct(media, 1)}</b>` +
+    `<span class="delta ${claseDelta(mediaDelta)}">${mediaDelta == null ? "esperando el 2.º día de resultados" : signoPts(mediaDelta) + " vs ayer"}</span></div>` +
+    `<div class="hero-stats"><div><b>${d.partidos}</b><span>partidos evaluados</span></div><div><b>${(d.dias || []).length}</b><span>días aprendiendo</span></div>` +
+    `<div><b>${conDato.length ? gana + "/" + conDato.length : "—"}</b><span>KPIs arriba del mercado</span></div></div>` +
+    ((d.mensajes || []).length ? `<div class="hero-msg">${d.mensajes.map((m) => "🧠 " + esc(m)).join("<br>")}</div>` : "") + `</div>`;
+  const vacio = d.partidos ? "" : `<div class="card"><b>Todavía no hay partidos terminados con predicción previa.</b><br><span class="meta">Se llena solo: cada partido que termine entra aquí. ` +
+    `Mientras, cada tarjeta muestra la <b>línea base histórica</b> (walk-forward de 2,420 partidos) contra la que se medirá la mejora.</span></div>`;
+  const ll = (x) => (x == null ? "—" : x.toFixed(3));
+  const pie = `<div class="card"><div class="ind"><span class="lab">ERROR DE PROBABILIDAD (LOG-LOSS 1X2 · MENOS ES MEJOR)</span>` +
+    `<span class="txt">App <b>${ll(d.log_loss_app)}</b> · Mercado <b>${ll(d.log_loss_mercado)}</b></span><span class="pct">${d.log_loss_app != null && d.log_loss_mercado != null ? (d.log_loss_app <= d.log_loss_mercado ? "✅" : "⚠️") : ""}</span></div>` +
+    `<p class="meta">Línea sólida = app (acumulado) · punteada = mercado · horizontal = línea base histórica. «PA(1)» solo cuenta los partidos donde se sabe quién anotó primero sin el minuto del gol.</p></div>`;
+  return { html: cab + hero + vacio + `<div class="kpis">${ks.map(tarjetaKpi).join("")}</div>` + pie };
+}
+
 // ------------------------------------------------------------------ Soñadoras
 async function vSonadoras() {
   const { d, error } = await parlaysUsuario();
-  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">03</b> Soñadoras</h2>` +
+  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">04</b> Soñadoras</h2>` +
     `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas: <b>Gana</b> o <b>PA(1)</b>, hasta 3 días, sin repetir partidos entre opciones. ` +
     `Son de alto riesgo: juega montos chicos.</p>`;
   if (error) return fallo("Soñadoras", "No se pudieron armar las soñadoras: " + error);
@@ -604,7 +670,7 @@ function montarBoleto(v) {
 
 async function vCuotas() {
   const r = await api("GET", "/parlays/" + S.dia);
-  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">04</b> Cuotas</h2><p class="lead">Sube la captura de tu boleto para que el modelo lo analice, mira el ticket V3 con las cuotas de tu casa o captura cuotas a mano.</p>`;
+  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">05</b> Cuotas</h2><p class="lead">Sube la captura de tu boleto para que el modelo lo analice, mira el ticket V3 con las cuotas de tu casa o captura cuotas a mano.</p>`;
   if (S.rol === "admin") {
     h += `<h3>📷 Analizar mi boleto</h3><div class="card"><p class="meta">Toma o sube la captura de tu boleto (selecciones y cuotas). El modelo lee la imagen, tú la confirmas y se calcula la probabilidad de que <b>todo</b> se cumpla, ` +
       `con la dependencia entre partidos y qué pasa si quitas alguno.</p><label for="bol-arch">Captura del boleto</label>` +
@@ -718,7 +784,7 @@ function montarCompeticiones(v) {
 
 async function vDatos() {
   const r = await api("GET", "/estado");
-  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">05</b> Datos</h2>`;
+  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">06</b> Datos</h2>`;
   if (!r.ok) return fallo("Datos", r.error);
   const e = r.data;
   (e.alertas || []).forEach((a) => (h += `<div class="aviso-prov">⚠️ ${esc(a)}</div>`));

@@ -235,6 +235,18 @@ def get_parlays_usuario(fecha: str, s: Servicio = Depends(servicio), conn=Depend
     return parlays_usuario.armar(conn, s.cfg, _dia(fecha, s), s.reloj())
 
 
+@app.get("/dashboard")
+def get_dashboard(dias: int = 60, s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Dashboard de aprendizaje: % de acierto por KPI (Gana, PA(1), Ambos anotan, +1.5, +2.5, −3.5), cambio vs ayer y vs el inicio."""
+    from golmodel.servicios import aciertos
+    out = aciertos.dashboard(conn, _dia("hoy", s), max(7, min(dias, 365)))
+    base = (s.cfg.get("dashboard") or {}).get("linea_base") or {}
+    for k in out["kpis"]:
+        k["linea_base"] = base.get(k["clave"])
+        k["vs_base"] = (k["pct"] - k["linea_base"]) if (k["pct"] is not None and k["linea_base"] is not None) else None
+    return out
+
+
 @app.get("/aciertos")
 def get_aciertos(dias: int = 7, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     """Marcador de aciertos por mercado (Ganador 5/6, Ambos anotan 3/5…) de los últimos `dias`: decisión de la app vs mercado solo."""

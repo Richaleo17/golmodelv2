@@ -148,3 +148,19 @@ def test_aciertos_evalua_kpis():
     assert r["PA(1) primer gol"] is True and r["El otro anota"] is False
     assert aciertos.evaluar(p, 1, 1)["PA(1) primer gol"] is None
     assert aciertos.evaluar(p, 0, 0)["PA(1) primer gol"] is False
+
+
+def test_dashboard_delta_vs_ayer_y_serie():
+    from datetime import date
+
+    from golmodel.servicios import aciertos
+    det = []
+    for dia, gan in (("2026-11-12", [True, False]), ("2026-11-13", [True, True])):
+        for g in gan:
+            det.append({"dia": dia, "decision": {"Ganador": g, "Ambos anotan": None}, "mercado": {"Ganador": True}, "ll": {"decision": 0.9, "mercado": 1.0}})
+    d = aciertos.construir_dashboard(det, date(2026, 11, 13))
+    k = {x["clave"]: x for x in d["kpis"]}["Ganador"]
+    assert (k["aciertos"], k["total"]) == (3, 4) and abs(k["pct"] - 0.75) < 1e-9
+    assert abs(k["delta_ayer"] - 0.25) < 1e-9 and abs(k["vs_mercado"] - (-0.25)) < 1e-9
+    assert [x["pct"] for x in k["serie"]] == [0.5, 0.75] and d["mensajes"][0].startswith("Gana: 25.0 pts más")
+    assert {x["clave"]: x for x in d["kpis"]}["Ambos anotan"]["pct"] is None and d["log_loss_app"] == 0.9

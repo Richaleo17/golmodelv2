@@ -61,3 +61,9 @@ la soñadora 10-15 (>100x) y las soñadoras analíticas. En su lugar (`servicios
 * Hasta 3 días y cualquier liga; cada pierna muestra día y hora. Las opciones de una sección no comparten partidos mientras alcancen.
 * Probabilidad = producto de las piernas (partidos distintos). Un equipo duplicado a la misma hora (dato malo de la fuente) se omite y se avisa.
 El backend del ticket V3 y las soñadoras sigue existiendo (API y Streamlit); solo dejó de mostrarse en la PWA.
+
+### 2026-11-13 (d) · Dashboard de aprendizaje
+Nueva pestaña «Dashboard» en la PWA (`/dashboard`, `/diag/dashboard`, `aciertos.construir_dashboard`): por KPI (Gana, PA(1), Ambos anotan,
++1.5, +2.5, −3.5) el % de acierto acumulado con la predicción previa al partido, el cambio vs ayer y vs el primer día, últimos 7 días,
+la curva diaria (app vs mercado vs línea base histórica) y la «seguridad promedio». Línea base = walk-forward de selecciones (`dashboard.linea_base`).
+Con pocos partidos los cambios diarios son ruido: un «+1 pt» sobre 40 partidos no es significativo todavía.

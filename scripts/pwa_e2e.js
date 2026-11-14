@@ -61,6 +61,14 @@ const PU = { dias: ["2026-11-14", "2026-11-15", "2026-11-16"], piernas_disponibl
     piernas: [PIERNA(1, "sáb 14/11", "10:30", "<b>Arsenal</b> vs Chelsea", "Gana <b>Arsenal</b>", 0.8), PIERNA(2, "dom 15/11", "12:00", "Lyon vs Nice", "PA(1) Lyon", 0.75), PIERNA(3, "lun 16/11", "13:00", "A vs B", "Gana A", 0.7)] }],
   sonadoras: [{ titulo: "Soñadora 1", n: 6, p: 0.12, cuota_justa: 8.3, uno_de_cada: 8.3, dias: ["2026-11-14"],
     piernas: [1, 2, 3, 4, 5, 6].map((k) => PIERNA(k, "sáb 14/11", "10:30", "E" + k + " vs F" + k, "Gana E" + k, 0.7)) }] };
+const SERIE = (base, paso) => ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14"].map((dia, i) => ({ dia, aciertos_dia: 3, total_dia: 5,
+  aciertos: 3 * (i + 1), total: 5 * (i + 1), pct: base + paso * i, pct_mercado: base + 0.01 }));
+const KPI = (clave, titulo, pct, delta, base) => ({ clave, titulo, aciertos: Math.round(pct * 40), total: 40, pct, delta_ayer: delta, delta_inicio: delta * 3,
+  pct_7d: pct, total_7d: 40, pct_mercado: pct - 0.01, vs_mercado: 0.01, linea_base: base, vs_base: base == null ? null : pct - base, serie: SERIE(pct - 4 * delta, delta) });
+const DASH = { hoy: "2026-11-14", dias: ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14"], partidos: 40, log_loss_app: 0.95, log_loss_mercado: 0.96,
+  mensajes: ["Gana: 1.2 pts más de acierto que ayer (62.5%)"],
+  kpis: [KPI("Ganador", "Gana", 0.625, 0.012, 0.605), KPI("PA(1) primer gol", "PA(1) · Primer gol", 0.58, -0.005, null), KPI("Ambos anotan", "Ambos <b>anotan</b>", 0.55, 0.0, 0.575),
+    KPI("Más de 1.5", "Más de 1.5", 0.75, 0.01, 0.728), KPI("Más de 2.5", "Más de 2.5", 0.6, 0.02, 0.593), KPI("Menos de 3.5", "Menos de 3.5", 0.7, -0.01, 0.698)] };
 const SON = { aviso: "Producto de alto riesgo y EV negativo.", sonadora: null, motivo: "no hay 10 selecciones elegibles", diagnostico: { umbrales: { p_min_pierna: 0.75, crs_max: 40, cuota_objetivo: 100 }, n_selecciones_elegibles: 4, n_partidos_elegibles: 4, cuota_maxima_alcanzable: 6.2 }, stake_u: 0.1, stake_tipo: "simbólico", estado_cerebro2: "ABSTENCION" };
 const PARLAYS = [{ fuente: "v3", estado: "APROBADO", es_apuesta_del_dia: true, sello: "BETA", cuota_combinada: 18.4, cuota_justa: 12.3, p_parlay: 0.081, ev: 0.49, stake_u: 0.12, bloques: [BLOQUE("10:30", "Arsenal", "Chelsea", "x", 0.8, 1.35)] }];
 
@@ -109,6 +117,7 @@ async function simular(page) {
   await page.route(/\/estado$/, (r) => (r.request().url().includes("/auth/") ? r.fallback() : r.fulfill(j(ESTADO))));      // /auth/estado va al servidor real
   await page.route(/\/sonadoras\//, (r) => r.fulfill(j(SON)));
   await page.route(/\/parlays_usuario\//, (r) => r.fulfill(j(PU)));
+  await page.route(/\/dashboard\?/, (r) => r.fulfill(j(DASH)));
   await page.route(/\/parlays\//, (r) => r.fulfill(j(PARLAYS)));
   await page.route(/\/costo\//, (r) => r.fulfill(j({ tipo: "x", etapas: [], costo_estimado: { odds_api: 2 } })));
   await page.route(/\/cuotas\/manual\/texto$/, (r) => r.fulfill(j({ lineas: [{ texto: "a - b 2 3 4", ok: true, partido: "A vs B", valores: { "1X2:1": 2 }, local: "a", visitante: "b" }, { texto: "zzz", ok: false, error: "no entendí" }], guardadas: 0 })));
@@ -167,6 +176,16 @@ async function simular(page) {
     await page.waitForSelector("#lista-diario .dia-h");
   }
   await page.screenshot({ path: `${OUT}/01-diario.png`, fullPage: true });
+
+  // --- Dashboard
+  await page.click('#nav button[data-v="dashboard"]');
+  await page.waitForSelector("#vista .kpi");
+  const dash = await page.textContent("#vista");
+  ok((await page.$$("#vista .kpi")).length === 6 && /SEGURIDAD PROMEDIO/.test(dash) && /vs ayer/.test(dash), "Dashboard: 6 KPIs con seguridad promedio y cambio vs ayer");
+  if (MODO === "mock") {
+    ok((await page.$$("#vista svg.curva")).length === 6 && /▲ \+1\.2 pts vs ayer/.test(dash) && !(await page.$("#vista .kpi-tit b")), "Dashboard: curvas, delta y HTML escapado");
+  }
+  await page.screenshot({ path: `${OUT}/07-dashboard.png`, fullPage: true });
 
   // --- Qué meter
   await page.click('#nav button[data-v="meter"]');
