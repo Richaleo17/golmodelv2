@@ -200,22 +200,32 @@ mercados_extendidos:               # probabilidad conjunta con córners y props 
 # NFL (motor_nfl/): paquete separado, no usa nada del modelo de fútbol.
 nfl:
   activo: true
-  temporadas_historico: 4          # + la actual
+  temporadas_historico: 20         # + la actual. Solo calendario/marcadores (un CSV): el Elo necesita años para converger
+  peso_modelo: 0.15                # p_final = 0.15·modelo + 0.85·mercado (walk-forward 2020-25: Las Vegas 0.2096 vs Elo 0.2218 de Brier)
   dias: 8                          # juegos de los próximos N días
   umbral_edge: 0.04
   casas_preferidas: [pinnacle, draftkings, fanduel, betmgm]   # una sola casa por mercado (la mejor cuota entre casas infla el EV)
-  aviso: "NFL v1: Elo + EPA con distribución Normal. Los números clave (3 y 7) no se modelan aparte; sin validación walk-forward todavía."
+  aviso: "NFL v2: Elo (calibrado walk-forward 2002-25, ventaja de local aprendida) + EPA, Normal. Las Vegas sigue siendo más precisa (Brier 0.210 vs 0.222): el «valor» se mide con la mezcla 15/85. Números clave (3 y 7) sin modelar."
   cuotas:
     sport_key: americanfootball_nfl
     regiones: [us]                 # costo = mercados × regiones = 3 créditos por consulta (mismo presupuesto que el fútbol)
     mercados: [h2h, spreads, totals]
   epa:
     activo: true                   # descarga el play-by-play de nflverse (≈ 25 MB por temporada, una vez; la actual se refresca)
+    temporadas: 4                  # EPA solo de las últimas N (+ la actual)
+  simulacion:                      # Monte Carlo del resto de la temporada y playoffs (pestaña NFL)
+    activo: true
+    simulaciones: 4000
+    ruido_puntos: 1.5              # incertidumbre de la fuerza de cada equipo por simulación
   modelo:
     elo_inicial: 1505
     elo_media: 1505
-    k_elo: 20
-    hfa_elo: 48                    # ventaja de local en puntos Elo (≈ 1.9 puntos de spread)
+    k_elo: 24                      # walk-forward: 20 → 24 mejora ajuste (2002-19) y prueba (2020-25)
+    mov: true                      # multiplicador por margen de victoria (sin él, Brier de prueba 0.2243: parámetros de nfl_probability_engine)
+    k_playoffs_mult: 1.0
+    hfa_elo: 48                    # ventaja de local INICIAL en puntos Elo; con hfa_adaptativa se aprende de los resultados
+    hfa_adaptativa: true           # la ventaja local bajó de ~57% (2010-19) a ~53% (2020-25): se aprende con promedio exponencial
+    hfa_memoria_juegos: 400        # ≈ 1.5 temporadas de memoria
     hfa_puntos: 1.5
     elo_por_punto: 25
     regresion_temporada: 0.333

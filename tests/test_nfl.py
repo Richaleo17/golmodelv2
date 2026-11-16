@@ -195,6 +195,14 @@ def test_servicio_nfl_carga_y_predice_con_cuotas(bd):
     sf = {x["juego_id"]: x for x in sem["juegos"]}.get("2026_12_LA_SF")
     assert sf is None or sf["modelo"]["mu_margen"] == pytest.approx(sf["modelo"]["margen_elo"])
     assert sem["n_juegos_historico"] > 400 and 9 < sem["sigma_margen"] < 18
+    # v2: p_final mezclada con el mercado, seguimiento de temporada, memoria Elo y proyección
+    ml = mercados[("Moneyline", "local")]
+    a = CFG["nfl"]["peso_modelo"]
+    assert ml["p_final"] == pytest.approx(a * ml["p_modelo"] + (1 - a) * ml["p_mercado"])
+    assert sem["temporada"] == 2026 and len(sem["ranking_elo"]) == 32
+    assert "desempeno" in sem and "destacados" in sem
+    assert sem["destacados"]["mas_seguro"]["p_pick"] >= sem["destacados"]["moneda_al_aire"]["p_pick"]
+    assert len(sem["proyeccion"]) == 32 and sum(f["pct_super_bowl"] for f in sem["proyeccion"]) == pytest.approx(1.0)
 
 
 def test_leer_pbp_comprimido_solo_columnas_utiles():
@@ -203,3 +211,78 @@ def test_leer_pbp_comprimido_solo_columnas_utiles():
     df = nd.leer_pbp(gzip.compress(csv.encode()))
     assert list(df.columns) == ["game_id", "posteam", "defteam", "epa", "play_type", "season_type"]
     assert {r["equipo"]: r["epa_of"] for r in nd.epa_por_juego(df)} == {"KC": 0.5, "BUF": -0.2}
+
+
+# ---------------------------------------------------------------- v2: evaluación, memoria Elo, ventaja local aprendida, Monte Carlo
+from golmodel.motor_nfl import evaluacion as ev          # noqa: E402
+from golmodel.motor_nfl import temporada as tp           # noqa: E402
+
+
+def test_franquicias_y_moneyline_de_nflverse():
+    csv = GAMES_CSV.replace("2019_01_GB_CHI,2019,REG,1,2019-09-05,Thursday,20:20,GB,10,CHI,3",
+                            "2019_01_OAK_SD,2019,REG,1,2019-09-05,Thursday,20:20,OAK,10,SD,3")
+    f = [x for x in nd.parse_games(csv, [2019]) if x["juego_id"] == "2019_01_OAK_SD"][0]
+    assert (f["local"], f["visitante"]) == ("LAC", "LV")
+    assert ev.p_americano(-150) == pytest.approx(0.6) and ev.p_americano(150) == pytest.approx(0.4)
+    assert ev.p_vegas(-150, 130) == pytest.approx(0.6 / (0.6 + 100 / 230))
+    assert ev.p_vegas(None, None, 0.0) == pytest.approx(0.5) and ev.p_vegas(None, None, 7.0) > 0.65
+
+
+def test_metricas_record_brier_calibracion_y_batacazo():
+    reg = [{"juego_id": "a", "temporada": 2026, "semana": 1, "local": "KC", "visitante": "BUF", "p_local": 0.75, "gano_local": 1.0,
+            "puntos_local": 24, "puntos_visitante": 20},
+           {"juego_id": "b", "temporada": 2026, "semana": 1, "local": "NE", "visitante": "MIA", "p_local": 0.35, "gano_local": 1.0,
+            "puntos_local": 17, "puntos_visitante": 10},
+           {"juego_id": "c", "temporada": 2026, "semana": 2, "local": "SF", "visitante": "LA", "p_local": 0.55, "gano_local": 0.5,
+            "puntos_local": 20, "puntos_visitante": 20}]
+    m = ev.metricas(reg, {"a": 0.7, "b": 0.6})
+    assert m["record"] == "1-1-1" and m["pct_aciertos"] == pytest.approx(0.5)
+    assert m["brier"] == pytest.approx((0.25 ** 2 + 0.65 ** 2 + 0.05 ** 2) / 3)
+    assert m["batacazo"]["ganador"] == "NE" and m["batacazo"]["p"] == pytest.approx(0.35)
+    assert m["vegas"]["partidos"] == 2 and m["vegas"]["pct_aciertos"] == 1.0 and m["vegas"]["coincide"] == 0.5
+    assert {c["rango"] for c in m["calibracion"]} == {"50–60%", "60–70%", "70–80%"}
+    assert [w["semana"] for w in ev.por_semana(reg)] == [1, 2]
+
+
+def test_ventaja_local_adaptativa_aprende_de_los_resultados():
+    import copy
+    cfg = copy.deepcopy(CFG)
+    cfg["nfl"]["modelo"].update(hfa_adaptativa=True, hfa_memoria_juegos=50, hfa_elo=48)
+    est = md.EstadoNFL()
+    for i in range(400):                                 # liga pareja donde el local NO tiene ventaja
+        a, b = EQ[i % 32], EQ[(i + 7) % 32]
+        pl, pv = (20, 17) if i % 2 else (17, 20)
+        md.actualizar(est, md.Juego(f"g{i}", 2025, 1 + i // 16, a, b, pl, pv), cfg)
+    assert abs(md.hfa_elo(est, cfg)) < 20                # partió de 48 Elo (~1.9 pts) y bajó hacia 0
+    fija = copy.deepcopy(CFG)
+    fija["nfl"]["modelo"]["hfa_adaptativa"] = False
+    assert md.hfa_elo(est, fija) == float(fija["nfl"]["modelo"]["hfa_elo"])
+
+
+def test_recorrer_guarda_la_prediccion_previa_y_ranking():
+    juegos, epa, fuerza = _temporadas(n_temp=2, semilla=3)
+    est, reg = ev.recorrer(juegos, CFG, epa, desde_temporada=2023)
+    assert reg and all(r["temporada"] == 2023 for r in reg)
+    assert all(0 < r["p_local"] < 1 for r in reg)
+    rk = ev.ranking_elo(est, reg, 2023)
+    assert len(rk) == 32 and rk[0]["lugar"] == 1 and rk[0]["elo"] >= rk[-1]["elo"]
+    assert max(fuerza, key=fuerza.get) in [f["equipo"] for f in rk[:6]]
+    assert ev.metricas(reg)["pct_aciertos"] > 0.6
+
+
+def test_simulacion_temporada_suma_y_respeta_fuerzas():
+    juegos, epa, fuerza = _temporadas(n_temp=2, semilla=5)
+    est = md.construir_estado(juegos, CFG, epa)
+    jugados = [{"local": j.local, "visitante": j.visitante, "gano_local": 1.0 if j.puntos_local > j.puntos_visitante else
+                (0.0 if j.puntos_local < j.puntos_visitante else 0.5)} for j in juegos if j.temporada == 2023 and j.semana <= 9]
+    pend = [{"local": j.local, "visitante": j.visitante} for j in juegos if j.temporada == 2023 and j.semana > 9]
+    p = tp.simular(est, CFG, jugados, pend, 13.5, n_sims=600)
+    assert len(p) == 32
+    assert sum(f["pct_super_bowl"] for f in p) == pytest.approx(1.0)
+    assert sum(f["pct_playoffs"] for f in p) == pytest.approx(14.0)
+    assert sum(f["pct_division"] for f in p) == pytest.approx(8.0)
+    assert sum(f["victorias_proy"] for f in p) == pytest.approx(len(jugados) + len(pend), abs=1.0)
+    mejor = max(fuerza, key=fuerza.get)
+    peor = min(fuerza, key=fuerza.get)
+    by = {f["equipo"]: f for f in p}
+    assert by[mejor]["pct_playoffs"] > by[peor]["pct_playoffs"]
