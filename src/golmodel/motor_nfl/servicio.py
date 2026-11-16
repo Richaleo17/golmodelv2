@@ -1,6 +1,7 @@
 """BD <-> motor NFL: carga de datos (nflverse + The Odds API) y predicciones de la semana para la API/PWA."""
 from __future__ import annotations
 
+import gc
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -66,6 +67,8 @@ def actualizar(conn, fuente: FuenteNFL, cfg: dict, ahora: datetime) -> dict:
                     k += 1
             res["epa"][t] = k
             conn.commit()
+            del filas_epa
+            gc.collect()                                 # una temporada a la vez: libera el play-by-play antes de la siguiente
     try:
         cuotas = fuente.cuotas()
     except Exception as e:                               # noqa: BLE001

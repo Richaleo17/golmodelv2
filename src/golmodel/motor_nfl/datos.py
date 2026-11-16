@@ -74,9 +74,15 @@ def epa_por_juego(df: pd.DataFrame) -> list[dict]:
 
 
 def leer_pbp(contenido: bytes) -> pd.DataFrame:
-    """Descomprime en flujo y solo conserva 6 columnas (el archivo trae ~370): cabe en la memoria de Render."""
+    """Descomprime en flujo y solo conserva 6 columnas (el archivo trae ~370), POR BLOQUES: leerlo de una vez
+    (low_memory=False) tokeniza las 370 columnas completas (~200 MB por media temporada) y Render (512 MB) mataba el proceso
+    → 502. Por bloques de 5,000 jugadas el pico baja a ~30 MB."""
     with gzip.GzipFile(fileobj=io.BytesIO(contenido)) as f:
-        return pd.read_csv(f, usecols=lambda c: c in COLS_PBP, low_memory=False)
+        cab = f.readline().decode("utf-8")
+        f.seek(0)
+        cols = [c for c in COLS_PBP if c in [x.strip().strip('"') for x in cab.split(",")]]
+        partes = list(pd.read_csv(f, usecols=cols, chunksize=5000, low_memory=True))
+    return pd.concat(partes, ignore_index=True) if partes else pd.DataFrame(columns=cols)
 
 
 def juegos_de_filas(filas) -> list[Juego]:
