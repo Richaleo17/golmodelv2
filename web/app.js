@@ -12,7 +12,7 @@ const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var
 const TOKEN = "golmodel.token";
 const LIGAS = { EPL: "Premier League", LL: "LaLiga", SA: "Serie A", BUN: "Bundesliga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", ERE: "Eredivisie", BEL: "Jupiler Pro", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "diario", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, boleto: null, sa: { min: 20, max: 50 } };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "diario", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -271,6 +271,47 @@ async function pintarAciertos(box) {
     `PA(1) solo cuenta los partidos donde se puede saber quién anotó primero sin el minuto del gol.</p>`;
 }
 
+// ------------------------------------------------------------------ Ranking en barras (idea de «Mis pronósticos» de @SebsBarroso)
+const RK_MERCADOS = [["ganador", "Gana"], ["primer_gol", "PA(1) primer gol"], ["ambos", "Ambos anotan"], ["otro", "El otro anota"],
+  ["mas15", "+1.5 goles"], ["mas25", "+2.5 goles"], ["menos35", "−3.5 goles"]];
+
+/* filas: [{eq, rival, lugar, p, sub}] ya ordenadas. Barra fuerte con 60% o más, clara debajo (como su gráfica). */
+function barrasRanking(titulo, filas, pie) {
+  if (!filas.length) return `<div class="card vacio">No hay partidos para este filtro.</div>`;
+  return `<div class="card rk"><div class="rk-tit">${titulo}</div>` + filas.map((f) =>
+    `<div class="rk-fila"><div class="rk-eq">${esc(f.eq)}${f.sub ? `<small>${esc(f.sub)}</small>` : ""}</div>` +
+    `<div class="rk-vs">${f.rival ? "vs " + esc(f.rival) : ""}${f.lugar ? `<small>${esc(f.lugar)}</small>` : ""}</div>` +
+    `<div class="rk-barra"><i class="${f.p >= 0.6 ? "fuerte" : ""}" style="width:${Math.max(2, Math.min(100, 100 * f.p)).toFixed(0)}%"></i></div>` +
+    `<b class="rk-p" style="color:${colorP(f.p)}">${pct(f.p)}</b></div>`).join("") + (pie ? `<div class="meta rk-pie">${pie}</div>` : "") + `</div>`;
+}
+
+function rankingFutbol(lista, nombres) {
+  const k = S.rkMercado;
+  const titulo = (RK_MERCADOS.find((x) => x[0] === k) || [k, k])[1];
+  const filas = [];
+  lista.forEach((p) => {
+    if (!p.prediccion || p.estado === "finalizado") return;
+    const tile = (p.mercados || []).find((m) => m.clave === k);
+    const cuando = `${S.rango > 1 ? String(p._dia).slice(5) + " " : ""}${p.hora} · ${nombreLiga(p, nombres)}`;
+    const enCasa = p.gana && p.gana.lado === "local";
+    if (k === "ganador" || k === "primer_gol") {
+      const pr = tile ? tile.p : (k === "ganador" ? p.gana.p : p.primer_gol.p);
+      filas.push({ eq: k === "ganador" ? p.gana.favorito : p.primer_gol.equipo, rival: p.gana.rival, lugar: enCasa ? "en casa" : "de visita", p: pr, sub: cuando });
+    } else if (k === "otro") {
+      if (!p.otro_anota || p.otro_anota.p == null) return;
+      filas.push({ eq: p.otro_anota.equipo, rival: p.gana.favorito, lugar: enCasa ? "de visita" : "en casa", p: p.otro_anota.p, sub: cuando });
+    } else {
+      const pr = tile ? (tile.pick === "No" ? 1 - tile.p : tile.p) : (k === "ambos" ? p.btts : k === "mas25" ? p.over25 : null);
+      if (pr == null) return;
+      filas.push({ eq: `${p.local} – ${p.visitante}`, rival: "", lugar: "", p: pr, sub: cuando });
+    }
+  });
+  filas.sort((a, b) => b.p - a.p);
+  const notas = { primer_gol: "PA(1) = ese equipo anota el PRIMER gol del partido (estimación aproximada).",
+    otro: "El que NO es favorito anota al menos un gol.", ganador: "Probabilidad de que el favorito gane en 90 minutos. El resto es empate o derrota." };
+  return barrasRanking(`${esc(titulo)} · de mayor a menor`, filas, notas[k] || "Probabilidad de que se cumpla (Sí).");
+}
+
 async function vDiario() {
   // Varios días seguidos (hoy y los próximos): un panel por día, pedidos en paralelo y cacheados.
   const dias = Array.from({ length: S.rango }, (_, i) => sumarDias(S.dia, i));
@@ -292,23 +333,42 @@ async function vDiario() {
     `<p class="lead">Los partidos de hoy y de los próximos días, con la opinión del modelo en cada mercado: quién gana, primer gol, más de 1.5 / 2.5, ambos anotan, menos de 3.5. ` +
     `Cada tarjeta trae su porcentaje, el nivel (ALTA / MEDIA / BAJA) y la <b>cuota mínima</b> a la que ya conviene meterlo.</p>` +
     `<div class="chips" id="chips-rango">${botonesRango}</div>` +
+    `<div class="chips" id="chips-dvista">${[["tarjetas", "🗂️ Tarjetas"], ["ranking", "📊 Ranking"]].map(([k, t]) => `<button class="chip" type="button" data-dvista="${k}" aria-pressed="${S.dvista === k}">${t}</button>`).join("")}</div>` +
     `<div class="card" id="aciertos-box"><p class="meta">Cargando aciertos por mercado…</p></div>` +
     (fallidos.length ? `<p class="error">No se pudieron cargar: ${fallidos.map(esc).join(", ")}.</p>` : "") +
     (part.length === 0 ? `<div class="card vacio">No hay partidos modelados entre ${esc(dias[0])} y ${esc(dias[dias.length - 1])}. ` +
       `Prueba «7 días», cambia la fecha o ve a <b>Datos → Actualizar datos</b> (puede haber descanso de selecciones o ligas sin jornada).</div>` :
-      `<div class="chips" id="chips-ligas">${ligas.map((l) => `<button class="chip" type="button" data-liga="${esc(l)}" aria-pressed="${sel.has(l)}">${esc(LIGAS[l] || nombres[l] || l)}</button>`).join("")}</div>` +
-      `<div class="fila"><input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo">` +
-      `<select id="orden" aria-label="Ordenar">${["Hora", "Confianza", "Ventaja"].map((o) => `<option ${o === S.orden ? "selected" : ""}>${o}</option>`).join("")}</select></div>` +
+      (S.dvista === "ranking" ?
+        `<div class="chips" id="chips-rk">${RK_MERCADOS.map(([k, t]) => `<button class="chip" type="button" data-rk="${k}" aria-pressed="${S.rkMercado === k}">${t}</button>`).join("")}</div>` +
+        `<div class="fila"><select id="rk-liga" aria-label="Liga"><option value="">Todas las ligas</option>${ligas.map((l) => `<option value="${esc(l)}" ${S.rkLiga === l ? "selected" : ""}>${esc(LIGAS[l] || nombres[l] || l)}</option>`).join("")}</select>` +
+        `<input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo"></div>` :
+        `<div class="chips" id="chips-ligas">${ligas.map((l) => `<button class="chip" type="button" data-liga="${esc(l)}" aria-pressed="${sel.has(l)}">${esc(LIGAS[l] || nombres[l] || l)}</button>`).join("")}</div>` +
+        `<div class="fila"><input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo">` +
+        `<select id="orden" aria-label="Ordenar">${["Hora", "Confianza", "Ventaja"].map((o) => `<option ${o === S.orden ? "selected" : ""}>${o}</option>`).join("")}</select></div>`) +
       `<p class="meta" style="margin:8px 0">Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. «Primer gol» es una estimación aproximada. Córners y tarjetas no están modelados.</p>` +
       `<div id="lista-diario"></div>`);
   return {
     html,
     alMontar: (v) => {
       $$("#chips-rango .chip", v).forEach((b) => b.addEventListener("click", () => { S.rango = Number(b.dataset.rango); render(); }));
+      $$("#chips-dvista .chip", v).forEach((b) => b.addEventListener("click", () => { S.dvista = b.dataset.dvista; render(); }));
+      $$("#chips-rk .chip", v).forEach((b) => b.addEventListener("click", () => {
+        S.rkMercado = b.dataset.rk;
+        $$("#chips-rk .chip", v).forEach((x) => x.setAttribute("aria-pressed", x === b));
+        pintar();
+      }));
+      const rl = $("#rk-liga", v);
+      if (rl) rl.addEventListener("change", () => { S.rkLiga = rl.value; pintar(); });
       pintarAciertos($("#aciertos-box", v));
       const pintar = () => {
         const q = sinAcentos(S.q);
-        let lista = part.filter((p) => sel.has(p.liga) && (!q || sinAcentos(p.local).includes(q) || sinAcentos(p.visitante).includes(q)));
+        const busca = (p) => !q || sinAcentos(p.local).includes(q) || sinAcentos(p.visitante).includes(q);
+        if (S.dvista === "ranking") {
+          const c = $("#lista-diario", v);
+          if (c) c.innerHTML = rankingFutbol(part.filter((p) => (!S.rkLiga || p.liga === S.rkLiga) && busca(p)), nombres);
+          return;
+        }
+        let lista = part.filter((p) => sel.has(p.liga) && busca(p));
         const porHora = (a, b) => String(a._dia).localeCompare(String(b._dia)) || String(a.hora).localeCompare(String(b.hora));
         if (S.orden === "Confianza") lista.sort((a, b) => (b.confianza ?? -1) - (a.confianza ?? -1));
         else if (S.orden === "Ventaja") lista.sort((a, b) => (b.prediccion ? b.gana.margen : -1) - (a.prediccion ? a.gana.margen : -1));
@@ -498,7 +558,7 @@ async function vNfl() {
   h += `<div class="aviso-prov">${esc(d.aviso)}</div>`;
   if (a.estado === "error") h += `<p class="error">Última actualización NFL: ${esc(a.error)}</p>`;
   h += `<p class="meta">Historial: ${esc(d.n_juegos_historico)} juegos · σ margen ${num(d.sigma_margen, 1)} · σ total ${num(d.sigma_total, 1)}</p>`;
-  h += nflDesempeno(d) + nflDestacados(d.destacados);
+  h += nflPronosticos(d.juegos) + nflDesempeno(d) + nflDestacados(d.destacados);
   if (!d.juegos.length) h += `<div class="card meta">No hay juegos en los próximos días${d.n_juegos_historico ? "" : " (todavía no se cargan datos: usa «Actualizar NFL»)"}.</div>`;
   h += d.juegos.map((j) => {
     const fecha = j.inicio ? new Date(j.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "—";
@@ -514,6 +574,20 @@ async function vNfl() {
   }).join("");
   h += nflRanking(d.ranking_elo) + nflProyeccion(d.proyeccion);
   return { html: h, alMontar: montarNfl };
+}
+
+function nflPronosticos(juegos) {
+  const filas = (juegos || []).map((j) => {
+    const ml = j.mercados.find((m) => m.mercado === "Moneyline" && m.seleccion === "local");
+    if (!ml) return null;
+    const p = ml.p_final != null ? ml.p_final : ml.p_modelo;
+    const loc = p >= 0.5;
+    const fecha = j.inicio ? new Date(j.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "";
+    return { eq: loc ? j.local : j.visitante, rival: loc ? j.visitante : j.local, lugar: loc ? "en casa" : "de visita", p: loc ? p : 1 - p, sub: fecha };
+  }).filter(Boolean).sort((a, b) => b.p - a.p);
+  if (!filas.length) return "";
+  return `<h3>🏈 Mis pronósticos · quién gana</h3>` + barrasRanking(`Semana ${esc(juegos[0].semana)} · de mayor a menor`, filas,
+    "Probabilidad de ganar el juego (modelo Elo + EPA mezclado con Las Vegas cuando hay cuota). Barra fuerte = 60% o más.");
 }
 
 function nflDesempeno(d) {

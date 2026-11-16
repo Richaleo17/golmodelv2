@@ -182,6 +182,20 @@ async function simular(page) {
   }
   await page.screenshot({ path: `${OUT}/01-diario.png`, fullPage: true });
 
+  // --- Diario en modo Ranking: un mercado a la vez, ordenado de mayor a menor
+  await page.click('#chips-dvista [data-dvista="ranking"]');
+  await page.waitForSelector("#chips-rk");
+  for (const k of ["ganador", "ambos"]) {
+    await page.click(`#chips-rk [data-rk="${k}"]`);
+    const ps = await page.$$eval("#lista-diario .rk-p", (es) => es.map((e) => parseFloat(e.textContent)));
+    const vacio = await page.$("#lista-diario .vacio");
+    ok((ps.length > 0 || !!vacio) && ps.every((x, i) => i === 0 || ps[i - 1] >= x) &&
+       (await page.$$('#chips-rk [aria-pressed="true"]')).length === 1, `Diario Ranking «${k}»: un solo filtro y barras de mayor a menor (${ps.length})`);
+  }
+  await page.screenshot({ path: `${OUT}/01b-ranking.png`, fullPage: true });
+  await page.click('#chips-dvista [data-dvista="tarjetas"]');
+  await page.waitForSelector("#chips-ligas, #lista-diario .vacio, #vista .vacio");
+
   // --- Dashboard
   await page.click('#nav button[data-v="dashboard"]');
   await page.waitForSelector("#vista .kpi");
