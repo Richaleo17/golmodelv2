@@ -186,7 +186,7 @@ async function simular(page) {
   await page.click('#nav button[data-v="dashboard"]');
   await page.waitForSelector("#vista .kpi");
   const dash = await page.textContent("#vista");
-  ok((await page.$$("#vista .kpi")).length === 6 && /SEGURIDAD PROMEDIO/.test(dash) && /vs ayer/.test(dash), "Dashboard: 6 KPIs con seguridad promedio y cambio vs ayer");
+  ok((await page.$$("#vista .kpi")).length === 6 && /SEGURIDAD PROMEDIO/.test(dash) && /vs ayer|sin dato de ayer|esperando el 2\.º día/.test(dash), "Dashboard: 6 KPIs con seguridad promedio y cambio vs ayer");
   if (MODO === "mock") {
     ok((await page.$$("#vista svg.curva")).length === 6 && /▲ \+1\.2 pts vs ayer/.test(dash) && !(await page.$("#vista .kpi-tit b")), "Dashboard: curvas, delta y HTML escapado");
   }

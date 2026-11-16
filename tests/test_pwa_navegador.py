@@ -108,4 +108,5 @@ def test_pwa_en_navegador_movil_con_la_api_real_y_el_banner_beta(claves, tmp_pat
     finally:
         main._servicio = None
     assert rc == 0, salida
-    assert "real: el banner Beta rojo viene de la API real" in salida and "✗" not in salida
+    # El banner Beta salió de «Qué meter» con el ticket V3 (decisión 2026-11-13 c); aquí se verifica la app completa con la API real.
+    assert "TODO OK" in salida and "✗" not in salida
