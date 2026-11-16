@@ -98,7 +98,24 @@ def armar(conn, cfg: dict, dia: date, ahora: datetime) -> dict:
     piernas: list[dict] = []
     for d in dias:
         piernas += piernas_de_panel(sugerencias.panel(conn, cfg, d, ahora), d, ahora, cfg)
+    n_nfl, aviso_nfl = 0, None
+    if cp.get("incluir_nfl", True) and (cfg.get("nfl") or {}).get("activo"):
+        from zoneinfo import ZoneInfo
+        from golmodel.motor_nfl import servicio as nfl
+        zona = ZoneInfo(cfg["zona_horaria"])
+        hasta = datetime(dias[-1].year, dias[-1].month, dias[-1].day, tzinfo=zona) + timedelta(days=1)
+        conn.execute("SAVEPOINT nfl_parlays")
+        try:
+            extra = nfl.piernas_parlay(conn, cfg, ahora, hasta, float(cp.get("p_min", 0.55)))
+            conn.execute("RELEASE SAVEPOINT nfl_parlays")
+            piernas += extra
+            n_nfl = len(extra)
+        except Exception as e:                                   # noqa: BLE001 — sin NFL siguen los parlays de fútbol
+            conn.execute("ROLLBACK TO SAVEPOINT nfl_parlays")
+            aviso_nfl = f"NFL no disponible para los parlays ({type(e).__name__})."
     piernas, avisos = quitar_duplicados(piernas)
+    if aviso_nfl:
+        avisos.append(aviso_nfl)
     qm, rep_qm = armar_opciones(piernas, list(cp.get("que_meter", [3, 4, 5])))
     so, rep_so = armar_opciones(piernas, list(cp.get("sonadoras", [6, 8, 10])))
     nombres = {"que_meter": ("Opción A · la más probable", "Opción B", "Opción C"),
@@ -106,7 +123,8 @@ def armar(conn, cfg: dict, dia: date, ahora: datetime) -> dict:
     for clave, lista in (("que_meter", qm), ("sonadoras", so)):
         for i, x in enumerate(lista):
             x["titulo"] = nombres[clave][i] if i < 3 else f"Opción {i + 1}"
-    return {"dias": [str(d) for d in dias], "piernas_disponibles": len(piernas), "que_meter": qm, "sonadoras": so,
+    return {"dias": [str(d) for d in dias], "piernas_disponibles": len(piernas), "piernas_nfl": n_nfl, "que_meter": qm, "sonadoras": so,
             "repiten_partidos": {"que_meter": rep_qm, "sonadoras": rep_so}, "avisos": avisos,
-            "nota": "Cada pierna es «Gana» o «PA(1)» (anota el primer gol), la más probable de su partido. Probabilidad del parlay = "
+            "nota": "Fútbol: cada pierna es «Gana» o «PA(1)» (anota el primer gol), la más probable de su partido. NFL: «Gana» "
+                    "(moneyline). Probabilidad del parlay = "
                     "producto de sus piernas (partidos distintos). Ninguna combinada es segura."}

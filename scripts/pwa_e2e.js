@@ -70,6 +70,11 @@ const KPI = (clave, titulo, pct, delta, base) => ({ clave, titulo, aciertos: Mat
     { rango: "81-90%", aciertos: 3, total: 3, pct: 1, esperado: 0.85 }, { rango: "91-100%", aciertos: 0, total: 0, pct: null, esperado: null }],
   laboratorio: clave === "Ganador" ? { version: 4, n: 240, n_ajuste: 170, n_prueba: 70, a: -0.05, b: 0.82, sesgo: 0.04, brier_antes: 0.231, brier_despues: 0.224,
     estado: "activa", lectura: "Ajuste activo: Brier 0.231 → 0.224 en los días recientes; la app promete 4.0 pts de más." } : null });
+const NFLDASH = { temporada: 2026, delta_semana: 0.012, version: "nfl-elo-epa-v2", nombres: { BUF: "Buffalo Bills", ARI: "Arizona Cardinals" },
+  desempeno: { partidos: 149, record: "95-53-1", pct_aciertos: 0.641, aciertos_esperados: 94.8, brier: 0.215, vegas: { partidos: 149, pct_aciertos: 0.681, brier: 0.209 },
+    calibracion: [{ rango: "70–80%", partidos: 30, prob_media: 0.746, pct_real: 0.8 }], batacazo: { ganador: "ARI", p: 0.21, semana: 6, marcador: "ARI 18 – 16 LA" } },
+  curva: [{ semana: 1, record: "10-6", pct_semana: 0.625, pct_acum: 0.625, vegas_acum: 0.7 }, { semana: 2, record: "11-5", pct_semana: 0.69, pct_acum: 0.656, vegas_acum: 0.69 }],
+  temporada_pasada: { temporada: 2025, partidos: 285, record: "180-105", pct_aciertos: 0.632, brier: 0.221 } };
 const DASH = { hoy: "2026-11-14", dias: ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14"], partidos: 40, log_loss_app: 0.95, log_loss_mercado: 0.96,
   mensajes: ["Gana: 1.2 pts más de acierto que ayer (62.5%)"],
   kpis: [KPI("Ganador", "Gana", 0.625, 0.012, 0.605), KPI("PA(1) primer gol", "PA(1) · Primer gol", 0.58, -0.005, null), KPI("Ambos anotan", "Ambos <b>anotan</b>", 0.55, 0.0, 0.575),
@@ -123,6 +128,7 @@ async function simular(page) {
   await page.route(/\/sonadoras\//, (r) => r.fulfill(j(SON)));
   await page.route(/\/parlays_usuario\//, (r) => r.fulfill(j(PU)));
   await page.route(/\/dashboard\?/, (r) => r.fulfill(j(DASH)));
+  await page.route(/\/nfl\/dashboard$/, (r) => r.fulfill(j(NFLDASH)));
   await page.route(/\/parlays\//, (r) => r.fulfill(j(PARLAYS)));
   await page.route(/\/costo\//, (r) => r.fulfill(j({ tipo: "x", etapas: [], costo_estimado: { odds_api: 2 } })));
   await page.route(/\/cuotas\/manual\/texto$/, (r) => r.fulfill(j({ lineas: [{ texto: "a - b 2 3 4", ok: true, partido: "A vs B", valores: { "1X2:1": 2 }, local: "a", visitante: "b" }, { texto: "zzz", ok: false, error: "no entendí" }], guardadas: 0 })));
@@ -200,13 +206,16 @@ async function simular(page) {
   await page.click('#nav button[data-v="dashboard"]');
   await page.waitForSelector("#vista .kpi");
   const dash = await page.textContent("#vista");
-  ok((await page.$$("#vista .kpi")).length === 6 && /SEGURIDAD PROMEDIO/.test(dash) && /vs ayer|sin dato de ayer|esperando el 2\.º día/.test(dash), "Dashboard: 6 KPIs con seguridad promedio y cambio vs ayer");
+  ok((await page.$$("#vista .kpi:not(.kpi-nfl)")).length === 6 && /SEGURIDAD PROMEDIO/.test(dash) && /vs ayer|sin dato de ayer|esperando el 2\.º día/.test(dash), "Dashboard: 6 KPIs con seguridad promedio y cambio vs ayer");
   if (MODO === "mock") {
-    ok((await page.$$("#vista svg.curva")).length === 6 && /▲ \+1\.2 pts vs ayer/.test(dash) && !(await page.$("#vista .kpi-tit b")), "Dashboard: curvas, delta y HTML escapado");
+    ok((await page.$$("#vista .kpi:not(.kpi-nfl) svg.curva")).length === 6 && /▲ \+1\.2 pts vs ayer/.test(dash) && !(await page.$("#vista .kpi-tit b")), "Dashboard: curvas, delta y HTML escapado");
   }
-  if (MODO === "mock") ok((await page.$$("#vista .kpi .rangos")).length === 6 && /71-80%/.test(dash) && /10\/12/.test(dash), "Dashboard: aciertos por rango de probabilidad en cada KPI");
+  if (MODO === "mock") ok((await page.$$("#vista .kpi:not(.kpi-nfl) .rangos")).length === 6 && /71-80%/.test(dash) && /10\/12/.test(dash), "Dashboard: aciertos por rango de probabilidad en cada KPI");
   if (MODO === "mock") ok(/Subrama v4/.test(dash) && /ACTIVA en el Diario/.test(dash) && /b = 0\.82/.test(dash), "Dashboard: subrama de calibración por KPI con sus parámetros");
   ok(!(await page.isVisible(".fechabar")), "Dashboard: sin filtro de fecha (histórico acumulado)");
+  ok(/NFL · efectividad del modelo/i.test(dash), "Dashboard: apartado NFL presente");
+  if (MODO === "mock") ok(/95-53-1/.test(dash) && /vs la semana anterior/.test(dash) && /Las Vegas/.test(dash) && /Arizona Cardinals/.test(dash) &&
+     !!(await page.$("#vista .kpi-nfl svg.curva")), "Dashboard NFL: récord, cambio semanal, contra Las Vegas, curva y nombres completos");
   await page.screenshot({ path: `${OUT}/07-dashboard.png`, fullPage: true });
 
   // --- Qué meter

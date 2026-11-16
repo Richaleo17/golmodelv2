@@ -203,6 +203,19 @@ def test_servicio_nfl_carga_y_predice_con_cuotas(bd):
     assert "desempeno" in sem and "destacados" in sem
     assert sem["destacados"]["mas_seguro"]["p_pick"] >= sem["destacados"]["moneda_al_aire"]["p_pick"]
     assert len(sem["proyeccion"]) == 32 and sum(f["pct_super_bowl"] for f in sem["proyeccion"]) == pytest.approx(1.0)
+    assert sem["nombres"]["KC"] == "Kansas City Chiefs"
+    # Dashboard NFL: temporada actual sin juegos todavía, la pasada como comparación
+    d = nfl.dashboard(bd, CFG, ahora)
+    assert d["temporada"] == 2026 and d["temporada_pasada"]["temporada"] == 2025 and d["temporada_pasada"]["partidos"] > 200
+    assert d["desempeno"]["partidos"] == 0 and d["curva"] == [] and d["delta_semana"] is None
+    # Piernas NFL para Qué meter / Soñadoras: «Gana <nombre completo>», solo juegos por empezar
+    legs = nfl.piernas_parlay(bd, CFG, ahora, ahora + timedelta(days=12), 0.0)
+    assert {x["partido_id"] for x in legs} == {"nfl:2026_11_BUF_KC", "nfl:2026_12_LA_SF"}
+    kc = [x for x in legs if x["partido_id"] == "nfl:2026_11_BUF_KC"][0]
+    assert kc["jugada"] in ("Gana Kansas City Chiefs", "Gana Buffalo Bills") and kc["p"] >= 0.5 and kc["liga"] == "🏈 NFL"
+    assert kc["cuota"] is not None and kc["fuente"] == "modelo NFL + Las Vegas"
+    assert nfl.piernas_parlay(bd, CFG, ahora, ahora + timedelta(days=12), 0.99) == []
+    assert nfl.piernas_parlay(bd, CFG, ahora, ahora + timedelta(days=2), 0.0) == []     # fuera de la ventana de días
 
 
 def test_leer_pbp_comprimido_solo_columnas_utiles():

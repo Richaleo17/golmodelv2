@@ -379,6 +379,17 @@ def get_nfl_semana(s: Servicio = Depends(servicio), conn=Depends(conexion)):
     return out
 
 
+@app.get("/nfl/dashboard")
+def get_nfl_dashboard(s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Efectividad del modelo NFL (temporada actual vs Las Vegas, curva acumulada, cambio vs la semana anterior)."""
+    from golmodel.motor_nfl import servicio as nfl
+    try:
+        return nfl.dashboard(conn, s.cfg, s.reloj())
+    except psycopg.errors.UndefinedTable:
+        conn.rollback()
+        raise HTTPException(503, "Faltan las tablas NFL: reinicia la API para aplicar la migración 007.")
+
+
 @app.post("/nfl/actualizar", status_code=202)
 def post_nfl_actualizar(s: Servicio = Depends(servicio)):
     """Descarga calendario y marcadores (nflverse), EPA (play-by-play, solo lo que falta) y cuotas (The Odds API, ≈ 3 créditos).
