@@ -200,3 +200,17 @@ def test_config_se_puede_guardar_como_json(cfg):
     """El reajuste guarda la config con json.dumps(default=float): una fecha sin comillas en el YAML lo tumba."""
     import json
     json.dumps(cfg, default=float)
+
+
+def test_evaluar_devuelve_bool_de_python_aunque_las_probabilidades_sean_numpy():
+    """Regresión 16-11-2026: con λ de numpy, evaluar() devolvía numpy.bool y /aciertos daba 500 al serializar a JSON."""
+    import json
+
+    import numpy as np
+
+    from golmodel.servicios import aciertos
+    p = {k: np.float64(v) for k, v in {"1": 0.5, "X": 0.25, "2": 0.25, "btts": 0.55, "o15": 0.7, "o25": 0.45,
+                                        "u35": 0.7, "al": 0.8, "av": 0.6}.items()}
+    r = aciertos.evaluar(p, 2, 1)
+    assert all(v is None or type(v) is bool for v in r.values())
+    json.dumps(r)
