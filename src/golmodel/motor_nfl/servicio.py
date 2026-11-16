@@ -6,11 +6,17 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from golmodel.modelos.devig import quitar_margen
+from golmodel.motor_nfl import evaluacion as ev
 from golmodel.motor_nfl import mercados as mk
 from golmodel.motor_nfl import modelo as md
+from golmodel.motor_nfl import temporada as tp
 from golmodel.motor_nfl.datos import NOMBRES, FuenteNFL, epa_por_juego
 
 log = logging.getLogger(__name__)
+
+
+def _entero(x):
+    return None if x is None else int(x)
 
 
 def temporada_actual(ahora: datetime) -> int:
@@ -22,22 +28,26 @@ def actualizar(conn, fuente: FuenteNFL, cfg: dict, ahora: datetime) -> dict:
     n = cfg["nfl"]
     actual = temporada_actual(ahora)
     temporadas = list(range(actual - int(n["temporadas_historico"]), actual + 1))
+    temporadas_epa = list(range(actual - int(n.get("epa", {}).get("temporadas", 4)), actual + 1))
     res = {"juegos": 0, "epa": {}, "cuotas": 0, "avisos": []}
     filas = fuente.games(temporadas)
     for f in filas:
         conn.execute("""INSERT INTO nfl_juegos (juego_id, temporada, tipo, semana, inicio, local, visitante, puntos_local,
-                            puntos_visitante, neutral, spread_cierre, total_cierre)
+                            puntos_visitante, neutral, spread_cierre, total_cierre, ml_local, ml_visitante)
                         VALUES (%(juego_id)s, %(temporada)s, %(tipo)s, %(semana)s, %(inicio)s, %(local)s, %(visitante)s,
-                                %(puntos_local)s, %(puntos_visitante)s, %(neutral)s, %(spread_cierre)s, %(total_cierre)s)
+                                %(puntos_local)s, %(puntos_visitante)s, %(neutral)s, %(spread_cierre)s, %(total_cierre)s,
+                                %(ml_local)s, %(ml_visitante)s)
                         ON CONFLICT (juego_id) DO UPDATE SET inicio = EXCLUDED.inicio, puntos_local = EXCLUDED.puntos_local,
                             puntos_visitante = EXCLUDED.puntos_visitante, spread_cierre = EXCLUDED.spread_cierre,
-                            total_cierre = EXCLUDED.total_cierre, actualizado_en = now()""", f)
+                            total_cierre = EXCLUDED.total_cierre, ml_local = EXCLUDED.ml_local,
+                            ml_visitante = EXCLUDED.ml_visitante, actualizado_en = now()""",
+                     {**f, "ml_local": _entero(f.get("ml_local")), "ml_visitante": _entero(f.get("ml_visitante"))})
     res["juegos"] = len(filas)
     conn.commit()
     if n.get("epa", {}).get("activo", True):
         con_epa = {r["temporada"] for r in conn.execute(
             "SELECT DISTINCT j.temporada FROM nfl_epa_juego e JOIN nfl_juegos j USING (juego_id)")}
-        for t in temporadas:
+        for t in temporadas_epa:
             if t in con_epa and t != actual:
                 continue
             try:
@@ -77,14 +87,15 @@ def actualizar(conn, fuente: FuenteNFL, cfg: dict, ahora: datetime) -> dict:
     return res
 
 
-def _estado(conn, cfg: dict) -> md.EstadoNFL:
+def _estado(conn, cfg: dict, desde_temporada: int | None = None) -> tuple[md.EstadoNFL, list[dict]]:
+    """Estado del modelo (todo el histórico, juego a juego) y la predicción previa de cada juego desde `desde_temporada`."""
     juegos = [md.Juego(r["juego_id"], r["temporada"], r["semana"], r["local"], r["visitante"], r["puntos_local"],
-                       r["puntos_visitante"], r["neutral"])
+                       r["puntos_visitante"], r["neutral"], r["tipo"])
               for r in conn.execute("SELECT * FROM nfl_juegos WHERE puntos_local IS NOT NULL")]
     epa: dict = defaultdict(dict)
     for r in conn.execute("SELECT juego_id, equipo, epa_of, epa_def, jugadas FROM nfl_epa_juego"):
         epa[r["juego_id"]][r["equipo"]] = (r["epa_of"], r["epa_def"], r["jugadas"])
-    return md.construir_estado(juegos, cfg, epa)
+    return ev.recorrer(juegos, cfg, epa, desde_temporada=desde_temporada if desde_temporada is not None else 10**6)
 
 
 def _ultimas_cuotas(conn, juego_id: str) -> list[dict]:
@@ -111,7 +122,8 @@ def _mercado(cuotas: list[dict], mercado: str, casas: list[str]) -> dict | None:
 
 def semana(conn, cfg: dict, ahora: datetime) -> dict:
     n = cfg["nfl"]
-    est = _estado(conn, cfg)
+    actual = temporada_actual(ahora)
+    est, registros = _estado(conn, cfg, desde_temporada=actual)
     sig_m, sig_t = float(n["modelo"]["sigma_margen"]), float(n["modelo"]["sigma_total"])
     if est.n_juegos >= int(n["modelo"]["min_juegos_sigma"]):
         sig_m, sig_t = md.ajustar_sigmas(est)
@@ -119,6 +131,7 @@ def semana(conn, cfg: dict, ahora: datetime) -> dict:
                                ORDER BY inicio""", (ahora - timedelta(hours=4), ahora + timedelta(days=int(n["dias"])))).fetchall()
     casas = list(n["casas_preferidas"])
     umbral = float(n["umbral_edge"])
+    alfa = float(n.get("peso_modelo", 1.0))
     juegos = []
     for j in proximos:
         pr = md.prediccion(est, j["local"], j["visitante"], cfg, j["neutral"])
@@ -161,7 +174,77 @@ def semana(conn, cfg: dict, ahora: datetime) -> dict:
                                 ev=mk.ev(pt[lado], pt["push"], tt[lado]["cuota"]))
                 salida["mercados"].append(fila)
         for f in salida["mercados"]:
-            f["valor"] = bool(f.get("p_mercado") is not None and f["p_modelo"] - f["p_mercado"] >= umbral and f.get("ev", -1) > 0)
+            # p_final: mezcla con el mercado (walk-forward 2020-25: el Elo solo tiene Brier 0.2223 vs 0.2096 de Las Vegas; la
+            # mezcla evita que cualquier diferencia del modelo se marque como «valor»).
+            if f.get("p_mercado") is not None:
+                f["p_final"] = alfa * f["p_modelo"] + (1 - alfa) * f["p_mercado"]
+                f["ev"] = mk.ev(f["p_final"], f["p_push"], f["cuota"])
+            else:
+                f["p_final"] = f["p_modelo"]
+            f["valor"] = bool(f.get("p_mercado") is not None and f["p_final"] - f["p_mercado"] >= umbral and f.get("ev", -1) > 0)
         juegos.append(salida)
     return {"juegos": juegos, "n_juegos_historico": est.n_juegos, "sigma_margen": sig_m, "sigma_total": sig_t,
-            "version": md.VERSION, "aviso": n["aviso"]}
+            "version": md.VERSION, "aviso": n["aviso"], "peso_modelo": alfa,
+            "hfa_puntos": md.hfa_elo(est, cfg) / float(n["modelo"]["elo_por_punto"]),
+            **resumen_temporada(conn, cfg, est, registros, actual, juegos, sig_m)}
+
+
+def _vegas(conn, temporada: int, sigma: float) -> dict:
+    return {r["juego_id"]: ev.p_vegas(r["ml_local"], r["ml_visitante"],
+                                      None if r["spread_cierre"] is None else float(r["spread_cierre"]), sigma)
+            for r in conn.execute("SELECT juego_id, ml_local, ml_visitante, spread_cierre FROM nfl_juegos WHERE temporada = %s",
+                                  (temporada,))}
+
+
+def destacados(juegos: list[dict], vegas: dict) -> dict:
+    """El más seguro, la moneda al aire y la sorpresa (el modelo contra el favorito de Las Vegas) de los próximos juegos."""
+    filas = []
+    for j in juegos:
+        ml = next((m for m in j["mercados"] if m["mercado"] == "Moneyline" and m["seleccion"] == "local"), None)
+        if ml is None:
+            continue
+        p = ml["p_modelo"]
+        pick = j["local"] if p >= 0.5 else j["visitante"]
+        pv = ml.get("p_mercado", vegas.get(j["juego_id"]))
+        filas.append({"juego_id": j["juego_id"], "partido": f"{j['visitante']} @ {j['local']}", "inicio": j["inicio"], "pick": pick,
+                      "p_pick": max(p, 1 - p), "p_local_vegas": pv, "margen": abs(j["modelo"]["mu_margen"])})
+    if not filas:
+        return {}
+    out = {"mas_seguro": max(filas, key=lambda f: f["p_pick"]), "moneda_al_aire": min(filas, key=lambda f: f["p_pick"])}
+    choques = []
+    for f in filas:
+        pv = f["p_local_vegas"]
+        if pv is None:
+            continue
+        local = f["partido"].split(" @ ")[1]
+        fav_vegas = local if pv >= 0.5 else f["partido"].split(" @ ")[0]
+        if fav_vegas != f["pick"]:
+            choques.append({**f, "favorito_vegas": fav_vegas, "p_vegas": max(pv, 1 - pv)})
+    if choques:
+        out["sorpresa"] = max(choques, key=lambda f: f["p_pick"])
+    return out
+
+
+def resumen_temporada(conn, cfg: dict, est: md.EstadoNFL, registros: list[dict], actual: int, juegos: list[dict],
+                      sigma: float) -> dict:
+    """«¿Cómo va el modelo?» (temporada actual), ranking Elo con su cambio, destacados y proyección Monte Carlo."""
+    vegas = _vegas(conn, actual, sigma)
+    vegas = {k: v for k, v in vegas.items() if v is not None}
+    reg = [r for r in registros if r["temporada"] == actual and r["tipo"] == "REG"]
+    out = {"temporada": actual, "desempeno": ev.metricas(reg, vegas), "por_semana": ev.por_semana(reg, vegas),
+           "ranking_elo": ev.ranking_elo(est, registros, actual), "destacados": destacados(juegos, vegas)}
+    sim = cfg["nfl"].get("simulacion", {})
+    if sim.get("activo", True):
+        pend = [dict(r) for r in conn.execute("""SELECT local, visitante, neutral FROM nfl_juegos
+                                                 WHERE temporada = %s AND tipo = 'REG' AND puntos_local IS NULL""", (actual,))]
+        if reg or pend:
+            clave = (actual, len(reg), len(pend), reg[-1]["juego_id"] if reg else None, round(sigma, 2))
+            if _CACHE_SIM.get("clave") != clave:          # la simulación (≈ 3 s) solo se repite cuando hay resultados nuevos
+                _CACHE_SIM.update(clave=clave, valor=tp.simular(est, cfg, reg, pend, sigma,
+                                                               n_sims=int(sim.get("simulaciones", 4000)),
+                                                               ruido_pts=float(sim.get("ruido_puntos", 1.5))))
+            out["proyeccion"] = _CACHE_SIM["valor"]
+    return out
+
+
+_CACHE_SIM: dict = {}

@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-VERSION = "nfl-elo-epa-v1"
+VERSION = "nfl-elo-epa-v2"
 
 
 @dataclass(frozen=True)
@@ -34,6 +34,7 @@ class Juego:
     puntos_local: int | None = None
     puntos_visitante: int | None = None
     neutral: bool = False
+    tipo: str = "REG"                     # REG | WC | DIV | CON | SB (los de playoffs usan K × k_playoffs_mult)
 
     @property
     def jugado(self) -> bool:
@@ -52,6 +53,16 @@ class EstadoNFL:
     n_juegos: int = 0
     residuos_margen: list = field(default_factory=list)
     residuos_total: list = field(default_factory=list)
+    hfa_puntos_est: float | None = None   # ventaja de local APRENDIDA (puntos de margen), si `hfa_adaptativa`
+
+
+def hfa_elo(est: EstadoNFL, cfg: dict) -> float:
+    """Ventaja de local en puntos Elo: fija (config) o aprendida de los resultados recientes (promedio exponencial del margen
+    del local por encima de lo que dice el Elo). La NFL pasó de ~57% de victorias locales (2010-19) a ~53% (2020-25)."""
+    p = _p(cfg)
+    if p.get("hfa_adaptativa") and est.hfa_puntos_est is not None:
+        return est.hfa_puntos_est * float(p["elo_por_punto"])
+    return float(p["hfa_elo"])
 
 
 def _p(cfg: dict) -> dict:
@@ -75,7 +86,7 @@ def _acum(d: dict, k: str, x: float, decae: float, peso: float = 1.0) -> None:
 def prediccion(est: EstadoNFL, local: str, visitante: str, cfg: dict, neutral: bool = False) -> dict:
     """μ del margen (local − visitante) y del total, y de dónde sale cada parte."""
     p = _p(cfg)
-    hfa = 0.0 if neutral else float(p["hfa_elo"])
+    hfa = 0.0 if neutral else hfa_elo(est, cfg)
     r_l, r_v = est.elo.get(local, float(p["elo_inicial"])), est.elo.get(visitante, float(p["elo_inicial"]))
     m_elo = (r_l - r_v + hfa) / float(p["elo_por_punto"])
     n0 = float(p["epa_n0_jugadas"])
@@ -83,7 +94,7 @@ def prediccion(est: EstadoNFL, local: str, visitante: str, cfg: dict, neutral: b
     if tiene_epa:
         of_l, of_v = _media(est.epa_of.get(local), n0, 0.0), _media(est.epa_of.get(visitante), n0, 0.0)
         de_l, de_v = _media(est.epa_def.get(local), n0, 0.0), _media(est.epa_def.get(visitante), n0, 0.0)
-        hfa_pts = 0.0 if neutral else float(p["hfa_puntos"])
+        hfa_pts = 0.0 if neutral else (hfa / float(p["elo_por_punto"]) if p.get("hfa_adaptativa") else float(p["hfa_puntos"]))
         m_epa = float(p["jugadas_por_partido"]) * ((of_l + de_v) / 2 - (of_v + de_l) / 2) + hfa_pts
         w = float(p["peso_epa"])
         mu = (1 - w) * m_elo + w * m_epa
@@ -98,8 +109,9 @@ def prediccion(est: EstadoNFL, local: str, visitante: str, cfg: dict, neutral: b
             "sigma_margen": float(p["sigma_margen"]), "sigma_total": float(p["sigma_total"]), "usa_epa": tiene_epa}
 
 
-def actualizar(est: EstadoNFL, j: Juego, cfg: dict, epa: dict | None = None) -> None:
-    """Procesa un juego jugado (orden cronológico). `epa`: {equipo: (epa_of_por_jugada, epa_def_por_jugada, jugadas)}."""
+def actualizar(est: EstadoNFL, j: Juego, cfg: dict, epa: dict | None = None) -> dict:
+    """Procesa un juego jugado (orden cronológico). `epa`: {equipo: (epa_of_por_jugada, epa_def_por_jugada, jugadas)}.
+    Devuelve la predicción PREVIA al juego (ya con la regresión de temporada aplicada): es la que sirve para evaluar."""
     p = _p(cfg)
     if est.temporada is not None and j.temporada != est.temporada:          # regresión al promedio entre temporadas
         reg = float(p["regresion_temporada"])
@@ -111,12 +123,20 @@ def actualizar(est: EstadoNFL, j: Juego, cfg: dict, epa: dict | None = None) -> 
     est.residuos_total.append(j.puntos_local + j.puntos_visitante - pred["mu_total"])
     # Elo
     r_l, r_v = est.elo.get(j.local, float(p["elo_inicial"])), est.elo.get(j.visitante, float(p["elo_inicial"]))
-    hfa = 0.0 if j.neutral else float(p["hfa_elo"])
+    hfa = 0.0 if j.neutral else hfa_elo(est, cfg)
+    if not j.neutral and p.get("hfa_adaptativa"):
+        w = 1.0 / float(p.get("hfa_memoria_juegos", 800))
+        previo = est.hfa_puntos_est if est.hfa_puntos_est is not None else float(p["hfa_elo"]) / float(p["elo_por_punto"])
+        est.hfa_puntos_est = previo + w * ((real_m - (r_l - r_v) / float(p["elo_por_punto"])) - previo)
     e = prob_elo(r_l - r_v + hfa, cfg)
     s = 1.0 if real_m > 0 else (0.0 if real_m < 0 else 0.5)
     dif_ganador = (r_l - r_v + hfa) if real_m > 0 else (r_v - r_l - hfa)
-    mult = math.log(abs(real_m) + 1) * 2.2 / (0.001 * dif_ganador + 2.2) if real_m != 0 else 1.0
-    delta = float(p["k_elo"]) * mult * (s - e)
+    if p.get("mov", True):
+        mult = math.log(abs(real_m) + 1) * 2.2 / (0.001 * dif_ganador + 2.2) if real_m != 0 else 1.0
+    else:
+        mult = 1.0
+    k = float(p["k_elo"]) * (float(p.get("k_playoffs_mult", 1.0)) if j.tipo != "REG" else 1.0)
+    delta = k * mult * (s - e)
     est.elo[j.local], est.elo[j.visitante] = r_l + delta, r_v - delta
     # puntos y EPA (promedios exponenciales)
     dec = float(p["decaimiento_por_juego"])
@@ -132,6 +152,7 @@ def actualizar(est: EstadoNFL, j: Juego, cfg: dict, epa: dict | None = None) -> 
                 of, de, n = epa[eq]
                 _acum(est.epa_of, eq, of, dec, n)
                 _acum(est.epa_def, eq, de, dec, n)
+    return pred
 
 
 def construir_estado(juegos: list[Juego], cfg: dict, epa_por_juego: dict | None = None) -> EstadoNFL:

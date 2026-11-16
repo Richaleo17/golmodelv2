@@ -34,6 +34,8 @@ NOMBRES = {
     "SF": "San Francisco 49ers", "TB": "Tampa Bay Buccaneers", "TEN": "Tennessee Titans", "WAS": "Washington Commanders",
 }
 ABREV = {v: k for k, v in NOMBRES.items()}
+# Franquicias que se mudaron: el Elo es de la franquicia, no de la ciudad (como en nflverse/nflreadpy).
+FRANQUICIAS = {"OAK": "LV", "SD": "LAC", "STL": "LA", "LAR": "LA", "LVR": "LV"}
 
 
 def _num(x):
@@ -51,11 +53,12 @@ def parse_games(texto: str, temporadas: list[int]) -> list[dict]:
             inicio = datetime.fromisoformat(f"{r.gameday}T{hora}").replace(tzinfo=ZONA_NFL).astimezone(timezone.utc)
         filas.append({
             "juego_id": r.game_id, "temporada": int(r.season), "tipo": r.game_type, "semana": int(r.week), "inicio": inicio,
-            "local": r.home_team, "visitante": r.away_team,
+            "local": FRANQUICIAS.get(r.home_team, r.home_team), "visitante": FRANQUICIAS.get(r.away_team, r.away_team),
             "puntos_local": None if pd.isna(r.home_score) else int(r.home_score),
             "puntos_visitante": None if pd.isna(r.away_score) else int(r.away_score),
             "neutral": str(getattr(r, "location", "Home")) == "Neutral",
             "spread_cierre": _num(getattr(r, "spread_line", None)), "total_cierre": _num(getattr(r, "total_line", None)),
+            "ml_local": _num(getattr(r, "home_moneyline", None)), "ml_visitante": _num(getattr(r, "away_moneyline", None)),
         })
     return filas
 
@@ -78,7 +81,7 @@ def leer_pbp(contenido: bytes) -> pd.DataFrame:
 
 def juegos_de_filas(filas) -> list[Juego]:
     return [Juego(f["juego_id"], int(f["temporada"]), int(f["semana"]), f["local"], f["visitante"],
-                  f["puntos_local"], f["puntos_visitante"], bool(f.get("neutral", False))) for f in filas]
+                  f["puntos_local"], f["puntos_visitante"], bool(f.get("neutral", False)), f.get("tipo", "REG")) for f in filas]
 
 
 def parse_cuotas(cuerpo, capturada: datetime) -> list[dict]:

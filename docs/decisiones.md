@@ -90,3 +90,30 @@ PROVISIONAL (sin calibrar). Cargadas las bajas de la jornada del 14-11-2026 y la
   probado con los recientes (30%), penalizado hacia la identidad; se activa solo con ≥ 80 partidos y si mejora el Brier ≥ 0.002.
   Cada corrida guarda una versión (auditable/revertible). Las subramas activas se aplican a las tarjetas del Diario (🧪 vN).
 * Dashboard sin filtro de fecha (es histórico acumulado).
+
+### 2026-11-16 · NFL v2: lo que se tomó de nfl_probability_engine (sebastianBP26) y lo que no
+Revisión del repo público `sebastianBP26/nfl_probability_engine` (Elo calibrado 1999-2025, regresión logística y Gradient Boosting como
+comparación, Monte Carlo de temporada y seguimiento semanal en reels). Walk-forward con `scripts/calibrar_nfl.py` sobre nflverse
+`games.csv` (ajuste 2002-19, prueba 2020-25, reserva 2026 a la fecha; Brier del moneyline, solo temporada regular):
+
+| Configuración | Ajuste | Prueba 2020-25 | 2026 |
+|---|---|---|---|
+| Sus parámetros (K 40, regresión .40, local 42.2, sin margen de victoria) | 0.2225 | 0.2243 | 0.2211 |
+| Nuestro v1 (K 20, regresión 1/3, local 48, con margen de victoria) | 0.2190 | 0.2226 | 0.2166 |
+| **v2: K 24 + ventaja local aprendida (memoria 400 juegos)** | **0.2186** | **0.2218** | **0.2152** |
+| Las Vegas (moneyline sin margen) | 0.2112 | 0.2096 | 0.2094 |
+
+* **Se adopta:** seguimiento de la temporada con la predicción previa a cada juego (récord, Brier, log loss, calibración por rango,
+  vs «siempre el local» y vs Las Vegas, batacazo), ranking Elo con cambio semanal y de temporada («la memoria»), destacados
+  (el más seguro / la moneda al aire / la sorpresa contra Las Vegas) y Monte Carlo del resto de la temporada y playoffs
+  (`motor_nfl/evaluacion.py`, `motor_nfl/temporada.py`). K de playoffs configurable (`k_playoffs_mult`, queda en 1.0: 1.2 no mejoró).
+* **Se mejora sobre su modelo:** conservamos el multiplicador por margen de victoria (su ausencia explica casi toda la diferencia) y la
+  ventaja de local deja de ser fija: la NFL pasó de ~57% de victorias locales (2010-19) a ~53% (2020-25) y la ventaja se aprende
+  con promedio exponencial (`hfa_adaptativa`). Franquicias mudadas unificadas (OAK→LV, SD→LAC, STL→LA). Histórico de 20 temporadas
+  (solo marcadores; la EPA sigue con 4).
+* **No se adopta:** descanso, partido divisional y semana (sus propios coeficientes son 12-44 veces menores que el Elo y no mejoran el
+  Brier); regresión logística / Gradient Boosting (pierden contra el Elo puro en su prueba).
+* **Mezcla con el mercado:** Las Vegas sigue siendo claramente más precisa. En prueba, la mejor mezcla es casi todo mercado
+  (α = 0 → 0.2096; α = 0.1 → 0.2101). `nfl.peso_modelo: 0.15` define `p_final` y el «valor» se mide con ella: antes cualquier
+  diferencia de 4 pts del Elo contra Las Vegas se marcaba como valor, y el walk-forward dice que esas diferencias son mayormente ruido.
+* Pendiente: calibrar `peso_epa` (requiere descargar el play-by-play histórico) y un ajuste por cambio de quarterback.
