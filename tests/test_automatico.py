@@ -56,21 +56,22 @@ def test_secuencia_del_dia(bd):
     assert automatico.decidir(bd, CFG, _t(7, 15)) == "actualizar_todo"     # la completa del día
     _ejec(bd, "actualizar_todo", _t(7, 15))
     assert automatico.decidir(bd, CFG, _t(8)) is None                       # cuotas recién traídas
-    assert automatico.decidir(bd, CFG, _t(11, 20)) == "solo_cuotas"        # 4 h después
-    _ejec(bd, "solo_cuotas", _t(11, 20), estado="en_curso")
-    assert automatico.decidir(bd, CFG, _t(11, 25)) is None                  # nunca encima de otra actualización
+    assert automatico.decidir(bd, CFG, _t(11, 20)) is None                  # sin partidos cerca: cada 6 h
+    assert automatico.decidir(bd, CFG, _t(13, 20)) == "solo_cuotas"        # 6 h después
+    _ejec(bd, "solo_cuotas", _t(13, 20), estado="en_curso")
+    assert automatico.decidir(bd, CFG, _t(13, 25)) is None                  # nunca encima de otra actualización
 
 
 def test_mas_seguido_si_hay_partido_cerca(bd):
     _ejec(bd, "actualizar_todo", _t(7, 15))
-    _ejec(bd, "solo_cuotas", _t(12))
-    assert automatico.decidir(bd, CFG, _t(13, 10)) is None
+    _ejec(bd, "solo_cuotas", _t(11))
+    assert automatico.decidir(bd, CFG, _t(13, 10)) is None                  # 2 h 10 min: sin partido cerca no toca
     liga = bd.execute("SELECT id FROM ligas LIMIT 1").fetchone()["id"]
     a = bd.execute("INSERT INTO equipos (nombre, pais) VALUES ('A', 'X') RETURNING id").fetchone()["id"]
     b = bd.execute("INSERT INTO equipos (nombre, pais) VALUES ('B', 'X') RETURNING id").fetchone()["id"]
     bd.execute("INSERT INTO partidos (liga_id, temporada, inicio, local_id, visitante_id) VALUES (%s, '2026', %s, %s, %s)",
                (liga, _t(15), a, b))
-    assert automatico.decidir(bd, CFG, _t(13, 10)) == "solo_cuotas"        # partido a < 3 h: cada hora
+    assert automatico.decidir(bd, CFG, _t(13, 10)) == "solo_cuotas"        # partido a < 3 h: cada 2 h
 
 
 def test_apagado_y_arranque_solo_en_render(bd, monkeypatch):

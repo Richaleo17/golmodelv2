@@ -99,7 +99,7 @@ def un_paso(s) -> str | None:
         conn.commit()
     finally:
         conn.close()
-    log.info("auto: %s (ejecución %s)", tipo, eid)
+    log.warning("auto: %s (ejecución %s)", tipo, eid)       # warning: el nivel que Render muestra con la config de uvicorn
     try:
         s.pipeline.ejecutar(tipo, ejecucion_id=eid)
     except Exception:                                       # noqa: BLE001 — el siguiente ciclo lo reintenta
