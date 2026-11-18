@@ -1,0 +1,218 @@
+"""BD <-> motor de tenis: carga (tennis-data.co.uk + The Odds API), pronósticos de los próximos partidos, efectividad y
+piernas para «Qué meter» / «Soñadoras»."""
+from __future__ import annotations
+
+import gc
+import logging
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from golmodel.motor_tenis import modelo as md
+from golmodel.motor_tenis.datos import FuenteTenis, _plano, resolver
+
+log = logging.getLogger(__name__)
+_CACHE: dict = {}
+
+
+def actualizar(conn, fuente: FuenteTenis, cfg: dict, ahora: datetime) -> dict:
+    t = cfg["tenis"]
+    res = {"partidos": {}, "eventos": 0, "torneos": 0, "avisos": []}
+    anios = list(range(ahora.year - int(t["temporadas_historico"]), ahora.year + 1))
+    con_datos = {(r["tour"], r["anio"]) for r in conn.execute(
+        "SELECT DISTINCT tour, extract(year FROM fecha)::int AS anio FROM tenis_partidos")}
+    for tour in t["circuitos"]:
+        for a in anios:
+            if (tour, a) in con_datos and a < ahora.year:
+                continue                                          # temporadas cerradas: se bajan una sola vez
+            try:
+                filas = fuente.temporada(a, tour)
+            except Exception as e:                                 # noqa: BLE001 — la temporada en curso puede no existir aún
+                res["avisos"].append(f"tennis-data {tour.upper()} {a}: no disponible ({type(e).__name__}).")
+                continue
+            for f in filas:
+                conn.execute("""INSERT INTO tenis_partidos (id, tour, fecha, torneo, superficie, ronda, best_of, ganador, perdedor,
+                                    nombre_g, nombre_p, rank_g, rank_p, comentario, orden, cuota_g, cuota_p)
+                                VALUES (%(id)s, %(tour)s, %(fecha)s, %(torneo)s, %(superficie)s, %(ronda)s, %(best_of)s, %(ganador)s,
+                                    %(perdedor)s, %(nombre_g)s, %(nombre_p)s, %(rank_g)s, %(rank_p)s, %(comentario)s, %(orden)s,
+                                    %(cuota_g)s, %(cuota_p)s)
+                                ON CONFLICT (id) DO UPDATE SET cuota_g = EXCLUDED.cuota_g, cuota_p = EXCLUDED.cuota_p,
+                                    comentario = EXCLUDED.comentario""", f)
+            res["partidos"][f"{tour}{a}"] = len(filas)
+            conn.commit()
+            del filas
+            gc.collect()
+    try:
+        torneos = fuente.torneos_activos()[: int(t["cuotas"]["max_torneos"])]
+    except Exception as e:                                         # noqa: BLE001
+        torneos = []
+        res["avisos"].append(f"Torneos de tenis: no disponibles ({type(e).__name__}).")
+    for sp in torneos:
+        try:
+            evs = fuente.eventos(sp)
+        except Exception as e:                                     # noqa: BLE001
+            res["avisos"].append(f"{sp.get('title')}: sin momios ({type(e).__name__}).")
+            continue
+        res["torneos"] += 1
+        for ev in evs:
+            conn.execute("""INSERT INTO tenis_eventos (odds_api_id, tour, sport_key, torneo, inicio, jugador1, jugador2, cuota1, cuota2,
+                                casa, best_of, capturada_en)
+                            VALUES (%(odds_api_id)s, %(tour)s, %(sport_key)s, %(torneo)s, %(inicio)s, %(jugador1)s, %(jugador2)s,
+                                %(cuota1)s, %(cuota2)s, %(casa)s, %(best_of)s, %(capturada_en)s)
+                            ON CONFLICT (odds_api_id) DO UPDATE SET inicio = EXCLUDED.inicio, cuota1 = EXCLUDED.cuota1,
+                                cuota2 = EXCLUDED.cuota2, casa = EXCLUDED.casa, capturada_en = EXCLUDED.capturada_en""", ev)
+            res["eventos"] += 1
+    conn.execute("DELETE FROM tenis_eventos WHERE inicio < %s", (ahora - timedelta(days=3),))
+    conn.commit()
+    return res
+
+
+def _estado(conn, cfg: dict):
+    firma = conn.execute("""SELECT (SELECT count(*) FROM tenis_partidos) AS n, (SELECT max(fecha) FROM tenis_partidos) AS f,
+                                   current_database() AS db""").fetchone()
+    clave = (firma["db"], firma["n"], str(firma["f"]), repr(sorted(cfg["tenis"]["modelo"].items())))
+    if _CACHE.get("clave") != clave:
+        filas = conn.execute("""SELECT id, tour, fecha, superficie, ganador, perdedor, best_of, orden, cuota_g, cuota_p, torneo
+                                FROM tenis_partidos ORDER BY fecha, orden""").fetchall()
+        partidos = [md.Partido(r["tour"], r["fecha"].isoformat(), r["superficie"], r["ganador"], r["perdedor"], int(r["best_of"] or 3),
+                               int(r["orden"] or 0), r["id"]) for r in filas]
+        est, reg = md.construir(partidos, cfg, desde_eval="0000")
+        mercado = {}
+        for r in filas:
+            if r["cuota_g"] and r["cuota_p"]:
+                a, b = 1 / float(r["cuota_g"]), 1 / float(r["cuota_p"])
+                mercado[r["id"]] = a / (a + b)
+        torneos = {}
+        for r in filas:                                            # superficie más reciente de cada torneo
+            torneos[_plano(r["torneo"])] = md.superficie_norm(r["superficie"])
+        conocidos = {}
+        for r in filas:
+            conocidos.setdefault(r["tour"], set()).update((r["ganador"], r["perdedor"]))
+        _CACHE.update(clave=clave, valor=(est, reg, mercado, torneos, conocidos))
+    return _CACHE["valor"]
+
+
+def superficie_de(torneo: str, torneos: dict, cfg: dict) -> str:
+    """Superficie de un torneo de The Odds API: reglas de config por palabra clave, luego el torneo más parecido del histórico."""
+    t = _plano(torneo)
+    for palabra, sup in (cfg["tenis"].get("superficies") or {}).items():
+        if palabra in t:
+            return sup
+    ruido = {"atp", "wta", "open", "masters", "championships", "international", "tennis", "cup", "the", "de", "singles"}
+    tok = set(t.split()) - ruido
+    mejor, puntos = "Hard", 0
+    for nombre, sup in torneos.items():
+        comun = len(tok & (set(nombre.split()) - ruido))
+        if comun > puntos:
+            mejor, puntos = sup, comun
+    return mejor
+
+
+def _nombre(clave: str, original: str | None = None) -> str:
+    return original or clave.title()
+
+
+def pronosticos(conn, cfg: dict, ahora: datetime, dias: int | None = None) -> list[dict]:
+    t = cfg["tenis"]
+    est, _, _, torneos, conocidos = _estado(conn, cfg)
+    alfa = float(t.get("peso_modelo", 0.3))
+    min_n = int(t.get("min_partidos_modelo", 15))
+    zona = ZoneInfo(cfg["zona_horaria"])
+    hasta = ahora + timedelta(days=int(dias or t["dias"]))
+    salida = []
+    for e in conn.execute("SELECT * FROM tenis_eventos WHERE inicio > %s AND inicio < %s ORDER BY inicio",
+                          (ahora - timedelta(hours=3), hasta)):
+        tour = e["tour"]
+        k1 = resolver(e["jugador1"], conocidos.get(tour, set()))
+        k2 = resolver(e["jugador2"], conocidos.get(tour, set()))
+        sup = superficie_de(e["torneo"], torneos, cfg)
+        n1, n2 = est.n_general.get((tour, k1), 0), est.n_general.get((tour, k2), 0)
+        p_mod = md.prob(est, tour, k1, k2, sup, cfg, int(e["best_of"] or 3))
+        p_mk = None
+        if e["cuota1"] and e["cuota2"]:
+            a, b = 1 / float(e["cuota1"]), 1 / float(e["cuota2"])
+            p_mk = a / (a + b)
+        conoce = min(n1, n2) >= min_n
+        if p_mk is None:
+            p_fin = p_mod if conoce else None
+        else:
+            p_fin = alfa * p_mod + (1 - alfa) * p_mk if conoce else p_mk
+        inicio = e["inicio"].astimezone(zona)
+        salida.append({"id": e["odds_api_id"], "tour": tour, "torneo": e["torneo"], "superficie": sup, "best_of": e["best_of"],
+                       "inicio": inicio.isoformat(), "jugador1": e["jugador1"], "jugador2": e["jugador2"],
+                       "elo1": round(est.general.get((tour, k1), 1500.0)), "elo2": round(est.general.get((tour, k2), 1500.0)),
+                       "partidos1": n1, "partidos2": n2, "p_modelo": p_mod, "p_mercado": p_mk, "p_final": p_fin,
+                       "cuota1": float(e["cuota1"]) if e["cuota1"] else None, "cuota2": float(e["cuota2"]) if e["cuota2"] else None,
+                       "casa": e["casa"], "modelo_confiable": conoce,
+                       "fuente": "modelo + mercado" if (conoce and p_mk is not None) else ("solo mercado" if p_mk is not None else "solo modelo")})
+    return salida
+
+
+def _curva(reg: list[dict], mercado: dict) -> list[dict]:
+    """Acierto acumulado semana a semana (ISO) de la temporada."""
+    out, acum = [], []
+    semanas = sorted({datetime.fromisoformat(r["fecha"]).isocalendar()[:2] for r in reg})
+    for s in semanas:
+        sem = [r for r in reg if datetime.fromisoformat(r["fecha"]).isocalendar()[:2] == s]
+        acum += sem
+        m, ms = md.metricas(acum, mercado), md.metricas(sem, mercado)
+        out.append({"semana": f"{s[0]}-S{s[1]:02d}", "record": f"{ms['aciertos']}-{ms['partidos'] - ms['aciertos']}",
+                    "pct_semana": ms["pct_aciertos"], "pct_acum": m["pct_aciertos"],
+                    "vegas_acum": (m.get("mercado") or {}).get("pct_aciertos")})
+    return out
+
+
+def semana(conn, cfg: dict, ahora: datetime) -> dict:
+    est, reg, mercado, _, _ = _estado(conn, cfg)
+    actual = str(ahora.year)
+    desde_activos = (ahora - timedelta(days=200)).date().isoformat()
+    temporada = [r for r in reg if r["fecha"].startswith(actual)]
+    return {"partidos": pronosticos(conn, cfg, ahora), "version": md.VERSION, "aviso": cfg["tenis"]["aviso"],
+            "n_historico": est.n_partidos, "peso_modelo": float(cfg["tenis"].get("peso_modelo", 0.3)),
+            "ranking": {t: {"general": md.ranking(est, t, cfg, desde=desde_activos),
+                            **{s.lower(): md.ranking(est, t, cfg, superficie=s, desde=desde_activos, n=10) for s in md.SUPERFICIES}}
+                        for t in cfg["tenis"]["circuitos"]},
+            "desempeno": {t: md.metricas([r for r in temporada if r["tour"] == t], mercado) for t in cfg["tenis"]["circuitos"]}}
+
+
+def dashboard(conn, cfg: dict, ahora: datetime) -> dict:
+    _, reg, mercado, _, _ = _estado(conn, cfg)
+    actual, previa = str(ahora.year), str(ahora.year - 1)
+    temp = [r for r in reg if r["fecha"].startswith(actual)]
+    pasada = [r for r in reg if r["fecha"].startswith(previa)]
+    curva = _curva(temp, mercado)
+    delta = curva[-1]["pct_acum"] - curva[-2]["pct_acum"] if len(curva) >= 2 else None
+    mp = md.metricas(pasada, mercado)
+    m = md.metricas(temp, mercado)
+    if m.get("partidos"):
+        m["record"] = f"{m['aciertos']}-{m['partidos'] - m['aciertos']}"
+    if m.get("mercado"):
+        m["vegas"] = {"pct_aciertos": m["mercado"]["pct_aciertos"], "brier": m["mercado"]["brier"]}
+    return {"temporada": ahora.year, "desempeno": m, "curva": curva, "delta_semana": delta,
+            "por_circuito": {t: md.metricas([r for r in temp if r["tour"] == t], mercado) for t in cfg["tenis"]["circuitos"]},
+            "temporada_pasada": {"temporada": ahora.year - 1, "partidos": mp.get("partidos"), "pct_aciertos": mp.get("pct_aciertos"),
+                                 "brier": mp.get("brier")},
+            "version": md.VERSION}
+
+
+def piernas_parlay(conn, cfg: dict, ahora: datetime, hasta: datetime, p_min: float) -> list[dict]:
+    """Piernas «Gana <jugador>» para «Qué meter» / «Soñadoras»: solo partidos con momio y jugadores con historial suficiente."""
+    u = float(cfg["valor"]["umbral_edge"])
+    dias = max(1, (hasta - ahora).days + 1)
+    salida = []
+    for x in pronosticos(conn, cfg, ahora, dias=dias):
+        inicio = datetime.fromisoformat(x["inicio"])
+        if inicio <= ahora or inicio >= hasta or x["p_final"] is None or x["p_mercado"] is None:
+            continue
+        j1 = x["p_final"] >= 0.5
+        p = x["p_final"] if j1 else 1 - x["p_final"]
+        if p < p_min:
+            continue
+        quien = x["jugador1"] if j1 else x["jugador2"]
+        salida.append({"partido_id": f"tenis:{x['id']}", "dia": inicio.date().isoformat(),
+                       "dia_texto": f"{('lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom')[inicio.weekday()]} {inicio.day:02d}/{inicio.month:02d}",
+                       "hora": inicio.strftime("%H:%M"), "inicio": inicio.isoformat(), "liga": f"🎾 {x['tour'].upper()} · {x['torneo']}",
+                       "partido": f"{x['jugador1']} vs {x['jugador2']}", "tipo": "tenis_gana", "jugada": f"Gana {quien}",
+                       "detalle": f"gana el partido ({x['superficie']}, a {x['best_of']} sets)", "p": p, "cuota_justa": 1 / p,
+                       "cuota_min": (1 + u) / p, "confianza": None, "fuente": x["fuente"],
+                       "cuota": x["cuota1"] if j1 else x["cuota2"]})
+    return salida

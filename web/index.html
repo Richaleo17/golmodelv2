@@ -43,14 +43,17 @@
     <button id="dia-sig" class="btn mini" type="button" aria-label="Día siguiente">›</button>
     <button id="dia-hoy" class="btn mini" type="button">Hoy</button>
   </div>
+  <div id="deportes" class="deportes" role="tablist" aria-label="Deporte">
+    <button type="button" data-dep="futbol" aria-pressed="true"><span>⚽</span>Fútbol</button>
+    <button type="button" data-dep="nfl" aria-pressed="false"><span>🏈</span>NFL</button>
+    <button type="button" data-dep="tenis" aria-pressed="false"><span>🎾</span>Tenis</button>
+  </div>
   <div id="aviso-global" class="aviso" hidden></div>
   <main id="vista" tabindex="-1"></main>
   <nav id="nav" aria-label="Secciones">
-    <button data-v="diario" aria-current="page"><span class="ic">⚽</span>Diario</button>
+    <button data-v="hoy" aria-current="page"><span class="ic">🏟️</span>Hoy</button>
     <button data-v="dashboard"><span class="ic">📈</span>Dashboard</button>
-    <button data-v="meter"><span class="ic">🎯</span>Qué meter</button>
-    <button data-v="sonadoras"><span class="ic">🎰</span>Soñadoras</button>
-    <button data-v="nfl"><span class="ic">🏈</span>NFL</button>
+    <button data-v="parlays"><span class="ic">🎯</span>Parlays</button>
     <button data-v="cuotas"><span class="ic">💲</span>Cuotas</button>
     <button data-v="datos"><span class="ic">🛠️</span>Datos</button>
   </nav>

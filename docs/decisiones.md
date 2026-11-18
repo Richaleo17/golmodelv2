@@ -125,3 +125,20 @@ comparación, Monte Carlo de temporada y seguimiento semanal en reels). Walk-for
 * Qué meter / Soñadoras: suman piernas NFL «Gana <equipo>» (moneyline, `p_final` = 15% modelo + 85% Las Vegas) con la misma regla
   `p ≥ p_min` y la misma ventana de días (`parlays_usuario.incluir_nfl`). Si la NFL falla, siguen los parlays de fútbol con aviso.
 * Pestaña NFL: nombre completo de cada equipo junto a la abreviatura. El estado del modelo NFL se cachea hasta que cambian los datos.
+
+### 2026-11-18 · Tenis (ATP/WTA), plan de pago de The Odds API y rediseño multideporte
+**Tenis** (`motor_tenis/`, migración 011, `/tenis/semana`, `/tenis/dashboard`, `POST /tenis/actualizar`):
+* Elo por jugador con memoria general y por superficie, K = 150/(n+15)^0.3, escala 0.85 y conversión a 5 sets en Slams ATP.
+  Walk-forward con el histórico ATP/WTA (copia pública de los datos de Jeff Sackmann, 2000-mayo 2026): ajuste 2005-2019, prueba 2020-2026.
+  Prueba: ATP acierto 64.1%, Brier 0.2172, log loss 0.6223 (sin escala 0.6264); WTA 65.1%, 0.2150, 0.6178 (sin escala 0.6205).
+  Peso de superficie elegido en ajuste: ATP 0.5, WTA 0.3. La escala corrige el exceso de confianza (decía 84% y acertaba 81%).
+* Producción: resultados y momios de cierre de tennis-data.co.uk (Excel por circuito/temporada; Render sí llega, este entorno no);
+  momios en vivo de The Odds API (torneos activos de `/v4/sports`, 1 crédito por torneo). Nombres entre fuentes con clave «apellido inicial».
+* p_final = 0.3·Elo + 0.7·mercado (PROVISIONAL): sin momios históricos aquí no se pudo medir α; el Dashboard de tenis lo mide contra el
+  cierre de Pinnacle. Jugadores con < 15 partidos: solo mercado. Piernas «Gana <jugador>» entran a Qué meter / Soñadoras.
+**The Odds API de pago (20K créditos/mes):** `creditos_mensuales` 500 → 20000 (la app se frenaba sola en 500), reserva de cierres 1500,
+topes por actualización 60 y de resultados 40.
+**Understat:** responde «mantenimiento» a Render desde el 15-11 (bloqueo a servidores): el xG no llega y el modelo calibra con w_xg = 0.
+Pendiente buscar otra fuente de xG accesible desde la nube.
+**Rediseño:** menú de 5 (Hoy · Dashboard · Parlays · Cuotas · Datos) + selector de deporte (⚽ 🏈 🎾) en Hoy y Dashboard; Parlays junta
+Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nombres viejos de vista siguen funcionando (alias).

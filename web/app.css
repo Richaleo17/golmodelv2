@@ -210,3 +210,13 @@ nav button{font-size:8.5px;letter-spacing:0;overflow:hidden;text-overflow:ellips
 .rk-barra i.fuerte{background:var(--accent)}
 .rk-p{text-align:right;font:700 13px var(--mono)}
 .rk-pie{margin-top:6px}
+
+/* Rediseño multideporte (2026-11-18): selector de deporte y pestañas de Parlays */
+.deportes{display:flex;gap:8px;max-width:760px;margin:8px auto 0;padding:0 16px}
+.deportes[hidden]{display:none}
+.deportes button{flex:1;display:flex;align-items:center;justify-content:center;gap:6px;min-height:40px;border-radius:12px;border:1px solid var(--line-3);
+  background:rgba(23,28,69,.7);color:var(--text-2);font:600 13px var(--mono)}
+.deportes button span{font-size:17px}
+.deportes button[aria-pressed=true]{border-color:var(--accent);color:var(--text);background:rgba(157,123,255,.18);box-shadow:inset 0 -2px 0 var(--accent)}
+.ptabs .chip{font-size:12px;padding:6px 12px}
+nav button{font-size:10px}

@@ -12,7 +12,7 @@ const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var
 const TOKEN = "golmodel.token";
 const LIGAS = { EPL: "Premier League", LL: "LaLiga", SA: "Serie A", BUN: "Bundesliga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", ERE: "Eredivisie", BEL: "Jupiler Pro", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "diario", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "meter", tenisTour: "atp", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -59,6 +59,7 @@ async function iniciar() {
   $("#login-form").addEventListener("submit", entrarConClave);
   $("#salir").addEventListener("click", () => cerrarSesion());
   $$("#nav button").forEach((b) => b.addEventListener("click", () => ir(b.dataset.v)));
+  $$("#deportes button").forEach((b) => b.addEventListener("click", () => { S.deporte = b.dataset.dep; render(); window.scrollTo({ top: 0 }); }));
   $("#dia").addEventListener("change", (e) => cambiarDia(e.target.value));
   $("#dia-ant").addEventListener("click", () => cambiarDia(sumarDias(S.dia, -1)));
   $("#dia-sig").addEventListener("click", () => cambiarDia(sumarDias(S.dia, 1)));
@@ -111,7 +112,13 @@ function cambiarDia(iso) {
   render();
 }
 
+/* Rediseño 2026-11-18 (varios deportes): menú de 5 (Hoy · Dashboard · Parlays · Cuotas · Datos) y selector de deporte.
+   Los nombres viejos siguen funcionando: diario/nfl/tenis → Hoy de ese deporte; meter/sonadoras → pestaña de Parlays. */
+const ALIAS_VISTA = { diario: ["hoy", "futbol"], nfl: ["hoy", "nfl"], tenis: ["hoy", "tenis"], meter: ["parlays", null, "meter"], sonadoras: ["parlays", null, "sonadoras"] };
+
 function ir(v) {
+  const a = ALIAS_VISTA[v];
+  if (a) { v = a[0]; if (a[1]) S.deporte = a[1]; if (a[2]) S.ptab = a[2]; }
   S.vista = v;
   render();
   window.scrollTo({ top: 0 });
@@ -120,13 +127,19 @@ function ir(v) {
 async function render() {
   $$("#nav button").forEach((b) => (b.dataset.v === S.vista ? b.setAttribute("aria-current", "page") : b.removeAttribute("aria-current")));
   const fb = $(".fechabar");
-  if (fb) fb.hidden = S.vista === "dashboard";                            // el Dashboard es histórico acumulado: la fecha no aplica
+  // la fecha solo aplica al fútbol (Diario), a los parlays y a las cuotas; el Dashboard es histórico acumulado
+  if (fb) fb.hidden = S.vista === "dashboard" || (S.vista === "hoy" && S.deporte !== "futbol");
+  const dep = $("#deportes");
+  if (dep) {
+    dep.hidden = !(S.vista === "hoy" || S.vista === "dashboard");
+    $$("#deportes button").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.dep === S.deporte)));
+  }
   const vista = $("#vista");
   vista.innerHTML = '<p class="vacio"><span class="spin"></span>Cargando…</p>';
-  const f = { diario: vDiario, dashboard: vDashboard, meter: vMeter, sonadoras: vSonadoras, nfl: vNfl, cuotas: vCuotas, datos: vDatos }[S.vista];
-  const miVista = S.vista, miDia = S.dia;
+  const f = { hoy: vHoy, dashboard: vDashboard, parlays: vParlays, cuotas: vCuotas, datos: vDatos }[S.vista] || vHoy;
+  const miVista = S.vista, miDia = S.dia, miDep = S.deporte, miTab = S.ptab;
   const html = await f();
-  if (miVista !== S.vista || miDia !== S.dia) return;                    // el usuario ya cambió de pantalla/día: no pisar
+  if (miVista !== S.vista || miDia !== S.dia || miDep !== S.deporte || miTab !== S.ptab) return;   // ya cambió de pantalla: no pisar
   vista.innerHTML = html.html;
   if (html.alMontar) html.alMontar(vista);
 }
@@ -511,7 +524,9 @@ function tablaRangos(rs) {
 }
 
 async function vDashboard() {
-  const [r, rn] = await Promise.all([api("GET", "/dashboard?dias=60"), api("GET", "/nfl/dashboard")]);
+  if (S.deporte === "nfl") return { html: cabDashboard() + dashboardNfl(await api("GET", "/nfl/dashboard")) };
+  if (S.deporte === "tenis") return { html: cabDashboard() + dashboardTenis(await api("GET", "/tenis/dashboard")) };
+  const r = await api("GET", "/dashboard?dias=60");
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Dashboard</h2>` +
     `<p class="lead">Qué tan seguido se cumple lo que te muestra la app, KPI por KPI, y cómo va mejorando cada día que el modelo aprende. ` +
     `Solo cuenta la predicción que viste <b>antes</b> de cada partido.</p>`;
@@ -533,14 +548,25 @@ async function vDashboard() {
   const pie = `<div class="card"><div class="ind"><span class="lab">ERROR DE PROBABILIDAD (LOG-LOSS 1X2 · MENOS ES MEJOR)</span>` +
     `<span class="txt">App <b>${ll(d.log_loss_app)}</b> · Mercado <b>${ll(d.log_loss_mercado)}</b></span><span class="pct">${d.log_loss_app != null && d.log_loss_mercado != null ? (d.log_loss_app <= d.log_loss_mercado ? "✅" : "⚠️") : ""}</span></div>` +
     `<p class="meta">Línea sólida = app (acumulado) · punteada = mercado · horizontal = línea base histórica. «PA(1)» solo cuenta los partidos donde se sabe quién anotó primero sin el minuto del gol.</p></div>`;
-  return { html: cab + hero + vacio + `<div class="kpis">${ks.map(tarjetaKpi).join("")}</div>` + pie + dashboardNfl(rn) };
+  return { html: cab + hero + vacio + `<div class="kpis">${ks.map(tarjetaKpi).join("")}</div>` + pie };
+}
+
+function cabDashboard() {
+  return `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Dashboard</h2>` +
+    `<p class="lead">Qué tan seguido se cumple lo que te muestra la app y cómo va mejorando. Solo cuenta la predicción que viste <b>antes</b> de cada partido.</p>`;
+}
+
+function dashboardTenis(r) {
+  return dashboardNfl(r, { icono: "🎾", nombre: "Tenis", vs: "el mercado (Pinnacle)", clase: "kpi-tenis", unidad: "partidos",
+    accion: "Ve a Hoy → 🎾 Tenis → «Actualizar tenis»", base: "temporada pasada" });
 }
 
 /* Apartado NFL del Dashboard: récord de la temporada con la predicción previa, curva acumulada semana a semana, cambio vs la
    semana anterior, contra Las Vegas y contra la temporada pasada. */
-function dashboardNfl(r) {
-  const cab = `<h3>🏈 NFL · efectividad del modelo</h3>`;
-  if (!r || !r.ok) return cab + `<div class="card meta">Sin datos NFL todavía${r && r.error ? ` (${esc(r.error)})` : ""}. Ve a la pestaña NFL → «Actualizar NFL».</div>`;
+function dashboardNfl(r, o = {}) {
+  o = { icono: "🏈", nombre: "NFL", vs: "Las Vegas", clase: "kpi-nfl", unidad: "juegos", accion: "Ve a Hoy → 🏈 NFL → «Actualizar NFL»", ...o };
+  const cab = `<h3>${o.icono} ${o.nombre} · efectividad del modelo</h3>`;
+  if (!r || !r.ok) return cab + `<div class="card meta">Sin datos de ${o.nombre} todavía${r && r.error ? ` (${esc(r.error)})` : ""}. ${o.accion}.</div>`;
   const d = r.data, m = d.desempeno || {}, v = m.vegas || {}, tp = d.temporada_pasada || {};
   Object.assign(NFL_NOMBRES, d.nombres || {});
   if (!m.partidos) {
@@ -550,22 +576,116 @@ function dashboardNfl(r) {
   const col = colorP(m.pct_aciertos);
   const serie = (d.curva || []).map((c) => ({ pct: c.pct_acum, pct_mercado: c.vegas_acum }));
   const difVegas = v.pct_aciertos != null ? m.pct_aciertos - v.pct_aciertos : null;
-  const chipVegas = difVegas == null ? "" : Math.abs(difVegas) < 0.0005 ? `<span class="chip">igual que Las Vegas</span>`
-    : `<span class="chip ${difVegas > 0 ? "ok" : "rojo"}">${difVegas > 0 ? "le gana" : "por debajo de"} Las Vegas ${signoPts(difVegas)}</span>`;
+  const chipVegas = difVegas == null ? "" : Math.abs(difVegas) < 0.0005 ? `<span class="chip">igual que ${o.vs}</span>`
+    : `<span class="chip ${difVegas > 0 ? "ok" : "rojo"}">${difVegas > 0 ? "le gana a" : "por debajo de"} ${o.vs} ${signoPts(difVegas)}</span>`;
   const difPasada = tp.partidos ? m.pct_aciertos - tp.pct_aciertos : null;
   const chipPasada = difPasada == null ? "" : `<span class="chip ${difPasada >= 0 ? "ok" : "rojo"}">vs temporada ${esc(tp.temporada)} (${pct(tp.pct_aciertos, 1)}): ${signoPts(difPasada)}</span>`;
   const cal = (m.calibracion || []).map((c) => ({ rango: c.rango, total: c.partidos, aciertos: Math.round(c.pct_real * c.partidos), pct: c.pct_real, esperado: c.prob_media }));
   const semanas = (d.curva || []).slice().reverse().map((c) => `<tr><td>${esc(c.semana)}</td><td>${esc(c.record)}</td><td>${pct(c.pct_semana)}</td><td><b>${pct(c.pct_acum, 1)}</b></td><td>${c.vegas_acum != null ? pct(c.vegas_acum, 1) : "—"}</td></tr>`).join("");
-  return cab + `<div class="kpis"><div class="kpi kpi-nfl">` +
+  return cab + `<div class="kpis"><div class="kpi kpi-dep ${o.clase}">` +
     `<div class="kpi-top"><div class="kpi-anillo">${anillo(m.pct_aciertos, col)}<b style="color:${col}">${pct(m.pct_aciertos, 1)}</b></div>` +
-    `<div class="kpi-txt"><div class="kpi-tit">Quién gana · temporada ${esc(d.temporada)}</div><div class="kpi-num">${esc(m.record)} (${esc(m.partidos)} juegos)</div>` +
+    `<div class="kpi-txt"><div class="kpi-tit">Quién gana · temporada ${esc(d.temporada)}</div><div class="kpi-num">${esc(m.record)} (${esc(m.partidos)} ${o.unidad})</div>` +
     `<div class="delta ${claseDelta(d.delta_semana)}">${d.delta_semana == null ? "esperando la 2.ª semana" : signoPts(d.delta_semana) + " vs la semana anterior"}</div>` +
-    `<div class="meta">esperaba ${num(m.aciertos_esperados, 1)} aciertos · Brier ${num(m.brier, 3)}${v.brier != null ? ` (Las Vegas ${num(v.brier, 3)})` : ""}</div></div></div>` +
+    `<div class="meta">esperaba ${num(m.aciertos_esperados, 1)} aciertos · Brier ${num(m.brier, 3)}${v.brier != null ? ` (${o.vs} ${num(v.brier, 3)})` : ""}</div></div></div>` +
     curva(serie, tp.partidos ? tp.pct_aciertos : null) + `<div class="kpi-chips">${chipVegas}${chipPasada}</div>` +
     (cal.length ? tablaRangos(cal) : "") +
-    `<details class="rangos"><summary>Semana por semana (acumulado)</summary><table class="nfl"><thead><tr><th>Sem.</th><th>Récord</th><th>% sem.</th><th>% acum.</th><th>Vegas acum.</th></tr></thead><tbody>${semanas}</tbody></table></details>` +
-    `</div></div><p class="meta">Línea sólida = modelo (acumulado por semana) · punteada = favorito de Las Vegas · horizontal = temporada pasada. ` +
+    `<details class="rangos"><summary>Semana por semana (acumulado)</summary><table class="nfl"><thead><tr><th>Sem.</th><th>Récord</th><th>% sem.</th><th>% acum.</th><th>${o.nombre === "NFL" ? "Vegas" : "Mercado"} acum.</th></tr></thead><tbody>${semanas}</tbody></table></details>` +
+    `</div></div><p class="meta">Línea sólida = modelo (acumulado por semana) · punteada = favorito de ${o.vs} · horizontal = temporada pasada. ` +
     `Pick = el lado con más de 50%.${m.batacazo ? ` 💥 Batacazo: ${esc(nflNom(m.batacazo.ganador))} ganó con ${pct(m.batacazo.p)}.` : ""}</p>`;
+}
+
+// ------------------------------------------------------------------ Tenis
+const SUP_ES = { Hard: "dura", Clay: "arcilla", Grass: "pasto" };
+
+async function vTenis() {
+  const r = await api("GET", "/tenis/semana");
+  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">🎾</b> Tenis</h2><p class="lead">ATP y WTA: quién gana cada partido. ` +
+    `Modelo propio (Elo por superficie, calibrado con 2005-2026) mezclado con el momio de Pinnacle.</p>`;
+  if (S.rol === "admin") h += `<div class="card"><button id="tenis-act" class="btn" type="button" style="width:100%">Actualizar tenis (resultados y momios ≈ 1 crédito por torneo)</button><div id="tenis-prog" class="meta"></div></div>`;
+  if (!r.ok) return { html: h + `<div class="card"><p class="error">${esc(r.error)}</p></div>`, alMontar: montarTenis };
+  const d = r.data, a = d.actualizacion || {};
+  h += `<div class="aviso-prov">${esc(d.aviso)}</div>`;
+  if (a.estado === "error") h += `<p class="error">Última actualización de tenis: ${esc(a.error)}</p>`;
+  h += `<div class="chips" id="chips-tour">${[["atp", "ATP"], ["wta", "WTA"]].map(([k, t]) => `<button class="chip" type="button" data-tour="${k}" aria-pressed="${S.tenisTour === k}">${t}</button>`).join("")}</div>`;
+  const ps = (d.partidos || []).filter((x) => x.tour === S.tenisTour);
+  if (!d.n_historico) h += `<div class="card meta">Todavía no se cargan datos de tenis: usa «Actualizar tenis».</div>`;
+  else if (!ps.length) h += `<div class="card meta">No hay partidos ${S.tenisTour.toUpperCase()} con momio en los próximos días (fuera de temporada o sin torneo activo).</div>`;
+  const filas = ps.filter((x) => x.p_final != null).map((x) => {
+    const uno = x.p_final >= 0.5;
+    const fecha = new Date(x.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" });
+    return { eq: uno ? x.jugador1 : x.jugador2, rival: uno ? x.jugador2 : x.jugador1, lugar: `${x.torneo} · ${SUP_ES[x.superficie] || x.superficie}`,
+      p: uno ? x.p_final : 1 - x.p_final, sub: fecha };
+  }).sort((a2, b2) => b2.p - a2.p);
+  if (filas.length) h += `<h3>🎾 Mis pronósticos · quién gana</h3>` + barrasRanking(`${S.tenisTour.toUpperCase()} · de mayor a menor`, filas,
+    "Probabilidad final = 30% Elo por superficie + 70% momio de Pinnacle (sin margen). Barra fuerte = 60% o más.");
+  h += ps.map((x) => {
+    const fecha = new Date(x.inicio).toLocaleString("es-MX", { weekday: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" });
+    const fila = (nom, pm, pk, pf, cuota, elo, n) => `<tr><td><b>${esc(nom)}</b><br><small class="meta">Elo ${esc(elo)} · ${esc(n)} partidos</small></td>` +
+      `<td>${pct(pm)}</td><td>${pk != null ? pct(pk) : "—"}</td><td><b style="color:${colorP(pf)}">${pf != null ? pct(pf) : "—"}</b></td>` +
+      `<td>${cuota ? num(cuota) : "—"}<br><small class="meta">justa ${pf ? num(1 / pf) : "—"}</small></td></tr>`;
+    return `<div class="mc"><div class="mc-top"><span>${esc(x.tour.toUpperCase())} · ${esc(x.torneo)}</span><span>${esc(fecha)}</span></div>` +
+      `<div class="mc-eq">${esc(x.jugador1)} vs ${esc(x.jugador2)}</div>` +
+      `<div class="meta">${esc(SUP_ES[x.superficie] || x.superficie)} · a ${esc(x.best_of)} sets · ${esc(x.fuente)}${x.casa ? " · momio " + esc(x.casa) : ""}</div>` +
+      `<table class="nfl"><thead><tr><th>Jugador</th><th>Modelo</th><th>Mercado</th><th>Final</th><th>Cuota</th></tr></thead><tbody>` +
+      fila(x.jugador1, x.p_modelo, x.p_mercado, x.p_final, x.cuota1, x.elo1, x.partidos1) +
+      fila(x.jugador2, 1 - x.p_modelo, x.p_mercado != null ? 1 - x.p_mercado : null, x.p_final != null ? 1 - x.p_final : null, x.cuota2, x.elo2, x.partidos2) +
+      `</tbody></table>${x.modelo_confiable ? "" : `<p class="meta">⚠ Uno de los jugadores tiene poco historial: se usa solo el mercado.</p>`}</div>`;
+  }).join("");
+  const m = (d.desempeno || {})[S.tenisTour] || {};
+  if (m.partidos) {
+    const mk = m.mercado || {};
+    h += `<h3>📈 ¿Cómo va el modelo? · ${S.tenisTour.toUpperCase()} ${new Date().getFullYear()}</h3><div class="card">` +
+      `<p>Acierto del Elo: <b>${pct(m.pct_aciertos, 1)}</b> en ${esc(m.partidos)} partidos (esperaba ${num(m.aciertos_esperados, 0)} aciertos) · Brier ${num(m.brier, 3)}</p>` +
+      (mk.partidos ? `<p class="meta">Favorito del cierre de Pinnacle: ${pct(mk.pct_aciertos, 1)} · Brier ${num(mk.brier, 3)} · coincide con el Elo en ${pct(mk.coincide, 1)}</p>` : "") +
+      ((m.calibracion || []).length ? `<table class="nfl"><thead><tr><th>Confianza</th><th>Partidos</th><th>Dice</th><th>Real</th></tr></thead><tbody>` +
+        m.calibracion.map((c) => `<tr><td>${esc(c.rango)}</td><td>${esc(c.partidos)}</td><td>${pct(c.prob_media)}</td><td><b style="color:${colorP(c.pct_real)}">${pct(c.pct_real)}</b></td></tr>`).join("") + `</tbody></table>` : "") + `</div>`;
+  }
+  const rk = (d.ranking || {})[S.tenisTour] || {};
+  if ((rk.general || []).length) {
+    const tabla = (lista) => `<table class="nfl"><thead><tr><th>#</th><th>Jugador</th><th>Elo</th></tr></thead><tbody>` +
+      lista.map((f) => `<tr><td>${esc(f.lugar)}</td><td>${esc(f.jugador.replace(/\b\w/g, (c) => c.toUpperCase()))}</td><td>${num(f.elo, 0)}</td></tr>`).join("") + `</tbody></table>`;
+    h += `<details class="card"><summary><b>🧠 Ranking Elo ${S.tenisTour.toUpperCase()}</b></summary>${tabla(rk.general)}` +
+      ["hard", "clay", "grass"].filter((k) => (rk[k] || []).length).map((k) => `<p class="meta"><b>Mejores en ${SUP_ES[k[0].toUpperCase() + k.slice(1)]}</b></p>${tabla(rk[k])}`).join("") + `</details>`;
+  }
+  return { html: h, alMontar: montarTenis };
+}
+
+function montarTenis(v) {
+  $$("#chips-tour .chip", v).forEach((b) => b.addEventListener("click", () => { S.tenisTour = b.dataset.tour; render(); }));
+  const b = $("#tenis-act", v);
+  if (!b) return;
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    const zona = $("#tenis-prog", v);
+    zona.innerHTML = '<span class="spin"></span>Descargando resultados y momios de tenis…';
+    const r = await api("POST", "/tenis/actualizar");
+    if (!r.ok) { zona.innerHTML = `<p class="error">${esc(r.error)}</p>`; b.disabled = false; return; }
+    for (let i = 0; i < 300; i++) {
+      await new Promise((res) => setTimeout(res, 3000));
+      const e = await api("GET", "/tenis/semana");
+      const est = e.ok ? (e.data.actualizacion || {}).estado : "error";
+      if (est !== "en_curso") { render(); return; }
+    }
+    b.disabled = false;
+  });
+}
+
+// ------------------------------------------------------------------ Hoy y Parlays (rediseño multideporte)
+function vHoy() {
+  return ({ futbol: vDiario, nfl: vNfl, tenis: vTenis }[S.deporte] || vDiario)();
+}
+
+async function vParlays() {
+  const tabs = `<div class="chips ptabs" id="ptabs">${[["meter", "🎯 Qué meter · 3-5"], ["sonadoras", "🎰 Soñadoras · 6-10"]]
+    .map(([k, t]) => `<button class="chip" type="button" data-pt="${k}" aria-pressed="${S.ptab === k}">${t}</button>`).join("")}</div>`;
+  const r = await (S.ptab === "sonadoras" ? vSonadoras() : vMeter());
+  return {
+    html: tabs + r.html,
+    alMontar: (v) => {
+      $$("#ptabs .chip", v).forEach((b) => b.addEventListener("click", () => { S.ptab = b.dataset.pt; render(); }));
+      if (r.alMontar) r.alMontar(v);
+    },
+  };
 }
 
 // ------------------------------------------------------------------ Soñadoras
