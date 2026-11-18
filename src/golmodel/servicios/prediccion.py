@@ -472,6 +472,8 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
                 resumen["picks_nuevos"] += 1
                 cierres.add(c.partido["id"])
         _ticket_v3(conn, dia, ahora, cfg, resumen, cfg_v3, cierres)
+        if not cfg["cierre"].get("solo_partidos_con_picks", True):
+            cierres |= set(por_partido)                   # plan de pago: cuota de cierre de todos (CLV y α por liga)
         for pid in cierres:
             p = por_partido[pid].partido
             conn.execute("""INSERT INTO cierres_programados (partido_id, programado_para) VALUES (%s, %s)

@@ -142,3 +142,15 @@ topes por actualización 60 y de resultados 40.
 Pendiente buscar otra fuente de xG accesible desde la nube.
 **Rediseño:** menú de 5 (Hoy · Dashboard · Parlays · Cuotas · Datos) + selector de deporte (⚽ 🏈 🎾) en Hoy y Dashboard; Parlays junta
 Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nombres viejos de vista siguen funcionando (alias).
+
+### 2026-11-18 (b) · Fútbol con el plan de pago: cuotas automáticas y cierre de todos los partidos
+* Diagnóstico: en producción α global = 0 (log loss 1X2: mercado 0.961 vs modelo 0.972): las decisiones de fútbol ya son las del
+  mercado. Por eso lo que más mejora la precisión hoy es la FRESCURA del mercado, no otro ajuste del modelo: las cuotas solo se
+  renovaban al pulsar el botón («Cuotas: hace 276 min»).
+* `jobs/automatico.py` (hilo dentro de la API, solo en Render): actualización completa diaria a las 07:10 CDMX (+ NFL y tenis) y
+  «solo_cuotas» cada 4 h, o cada hora si algún partido empieza en < 3 h. Nunca encima de otra actualización; el presupuesto de
+  créditos de la app sigue mandando.
+* `cierre.solo_partidos_con_picks: false`: cuota de cierre de TODOS los partidos. Alimenta el CLV y acelera el α por liga
+  (exige 300 partidos con cuota previa por liga; hoy solo alcanza el agrupado).
+* Pendiente (siguiente paso): segundo modelo (Elo de clubes) en ensamble con Dixon-Coles, que solo se active si en walk-forward le
+  gana al mercado en su liga; y otra fuente de xG (Understat bloquea a Render).
