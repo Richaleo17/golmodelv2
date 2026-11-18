@@ -65,15 +65,16 @@ elo_clubes:
   parametros: {k: 20, hfa_inicial: 60, hfa_memoria: 300, inicial: 1500, regresion_temporada: 0.2}
 
 # Actualizaciones automáticas (jobs/automatico.py; solo en Render o con GOLMODEL_AUTO=1). Presupuesto estimado del plan 20K:
-# ≈ 7 «solo_cuotas»/día × ~50 créditos + «actualizar_todo» diario ~100 + cierres ~80/día ≈ 16K/mes. El presupuesto de la app
+# ≈ 8-10 «solo_cuotas»/día × ~40 créditos + «actualizar_todo» diario ~70 + cierres ~80/día ≈ 13K/mes. El presupuesto de la app
 # (creditos_mensuales) frena todo si se acerca al límite.
 auto:
   activo: true
   todo_hora: "07:10"               # hora CDMX de la actualización completa diaria (resultados, modelo, cuotas, Dashboard)
   hora_inicio: "07:00"
   hora_fin: "23:30"
-  cuotas_cada_min: 240             # cuotas cada 4 h…
-  cuotas_cerca_min: 60             # …o cada hora si algún partido empieza en las próximas `horas_cerca` horas
+  cuotas_cada_min: 360             # cuotas cada 6 h…
+  cuotas_cerca_min: 120            # …o cada 2 h si algún partido empieza en las próximas `horas_cerca` horas. Con 60 min corría
+                                   # cada hora todo el día (siempre hay algún partido cerca en alguna liga): ~640 créditos/día
   horas_cerca: 3
   otros_deportes: true             # tras la diaria: NFL y tenis
   reintentos: 2
