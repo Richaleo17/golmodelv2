@@ -415,6 +415,56 @@ def post_nfl_actualizar(s: Servicio = Depends(servicio)):
     return {"estado": "en_curso"}
 
 
+_TENIS = {"estado": "inactivo", "resumen": None, "error": None, "inicio": None}
+
+
+def _tablas_tenis(fn):
+    try:
+        return fn()
+    except psycopg.errors.UndefinedTable:
+        raise HTTPException(503, "Faltan las tablas de tenis: reinicia la API para aplicar la migración 011.")
+
+
+@app.get("/tenis/semana")
+def get_tenis_semana(s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """Tenis: próximos partidos (Elo por superficie mezclado con el mercado), ranking Elo y efectividad de la temporada."""
+    from golmodel.motor_tenis import servicio as tenis
+    out = _tablas_tenis(lambda: tenis.semana(conn, s.cfg, s.reloj()))
+    out["actualizacion"] = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in _TENIS.items()}
+    return out
+
+
+@app.get("/tenis/dashboard")
+def get_tenis_dashboard(s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    from golmodel.motor_tenis import servicio as tenis
+    return _tablas_tenis(lambda: tenis.dashboard(conn, s.cfg, s.reloj()))
+
+
+@app.post("/tenis/actualizar", status_code=202)
+def post_tenis_actualizar(s: Servicio = Depends(servicio)):
+    """Descarga resultados y momios de cierre (tennis-data.co.uk, solo lo que falta) y momios de los torneos activos
+    (The Odds API, ≈ 1 crédito por torneo). Corre en segundo plano; el avance se ve en GET /tenis/semana → actualizacion."""
+    from golmodel.motor_tenis import servicio as tenis
+    from golmodel.motor_tenis.datos import FuenteTenis
+    if _TENIS["estado"] == "en_curso":
+        raise HTTPException(409, "Ya hay una actualización de tenis en curso")
+    _TENIS.update(estado="en_curso", error=None, inicio=s.reloj())
+
+    def correr():
+        c = db.conectar(s.dsn)
+        try:
+            kw = {"registrar": s.registrador} if s.registrador else {}
+            _TENIS.update(resumen=tenis.actualizar(c, FuenteTenis(os.environ.get("ODDS_API_KEY"), s.cfg, **kw), s.cfg, s.reloj()),
+                          estado="ok")
+        except Exception as e:                                                   # noqa: BLE001
+            c.rollback()
+            _TENIS.update(estado="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        finally:
+            c.close()
+    threading.Thread(target=correr, daemon=True).start()
+    return {"estado": "en_curso"}
+
+
 @app.get("/tickets/{fecha}")
 def get_tickets(fecha: str, s: Servicio = Depends(servicio), conn=Depends(conexion)):
     """Decisión V3 del día (tickets.py + dependencia.py + Cerebro 2): ticket propuesto o ABSTENCIÓN con su motivo.

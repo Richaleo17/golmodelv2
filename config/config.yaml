@@ -18,8 +18,8 @@ fuentes:
     reserva_diaria: 10     # nunca gastar las últimas N
   odds_api:
     plan: free
-    creditos_mensuales: 500   # VERIFICAR EN DOCUMENTACIÓN
-    reserva_cierres: 150      # créditos apartados para snapshots de cierre
+    creditos_mensuales: 20000 # plan 20K (≈ $30 USD/mes) desde 18-11-2026; el gratis era 500
+    reserva_cierres: 1500     # créditos apartados para snapshots de cierre
     regiones: [eu]            # costo = mercados × regiones
     mercados: [h2h, totals]   # BTTS / equipo anota: captura manual en el MVP
   understat:
@@ -154,8 +154,8 @@ sugerencias:
 # Se descubren en The Odds API con GET /v4/sports (gratis) y solo se consultan las que tienen partidos en la ventana.
 competiciones_mercado:
   activo: true
-  max_creditos_por_actualizacion: 16     # tope de créditos (2 por competición con partidos)
-  max_creditos_resultados: 16            # resultados (/scores, 2 créditos c/u) de TODAS las competiciones solo-mercado con partidos pendientes de cerrar + selecciones
+  max_creditos_por_actualizacion: 60     # tope de créditos (2 por competición con partidos); era 16 con el plan gratis
+  max_creditos_resultados: 40            # resultados (/scores, 2 créditos c/u) de TODAS las competiciones solo-mercado con partidos pendientes de cerrar + selecciones
   patrones: [uefa_champs, uefa_europa, uefa_conf, nations_league, friendl, qualif, world_cup, euro,
              efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan,
              libertadores, sudamericana, concacaf, copa]
@@ -237,6 +237,42 @@ nfl:
     sigma_margen: 13.5             # respaldo; con ≥ min_juegos_sigma se estiman con los residuos
     sigma_total: 10.0
     min_juegos_sigma: 400
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Tenis (motor_tenis/): Elo por superficie, calibrado walk-forward con ATP/WTA 2005-2026 (docs/decisiones.md 2026-11-18).
+tenis:
+  activo: true
+  circuitos: [atp, wta]
+  temporadas_historico: 6          # + la actual (tennis-data.co.uk: un Excel por circuito y temporada)
+  dias: 3                          # próximos partidos a mostrar
+  peso_modelo: 0.3                 # p_final = 0.3·Elo + 0.7·mercado (PROVISIONAL: se mide en el Dashboard contra el cierre de Pinnacle)
+  min_partidos_modelo: 15          # con menos partidos en el histórico, el jugador va «solo mercado»
+  aviso: "Tenis v1: Elo por superficie calibrado con 2005-2026 (acierto de prueba ATP 64%, WTA 65%). Los momios de Pinnacle suelen ser más precisos: la probabilidad final mezcla 30% modelo y 70% mercado."
+  cuotas:
+    regiones: [eu]                 # 1 crédito por torneo activo y región
+    casas_preferidas: [pinnacle, betfair_ex_eu, marathonbet, williamhill]
+    max_torneos: 8
+  superficies:                     # palabra del nombre del torneo (The Odds API) -> superficie (lo demás se infiere del histórico)
+    french open: Clay
+    roland garros: Clay
+    wimbledon: Grass
+    monte carlo: Clay
+    madrid: Clay
+    italian open: Clay
+    rome: Clay
+    queen: Grass
+    halle: Grass
+    australian open: Hard
+    us open: Hard
+    finals: Hard
+  modelo:
+    elo_inicial: 1500
+    k0: 150                        # K = k0 / (partidos + k_offset)^k_shape
+    k_offset: 15
+    k_shape: 0.3
+    w_superficie: {atp: 0.5, wta: 0.3}
+    escala: 0.85                   # el Elo puro se pasaba de confiado (decía 80% y acertaba 79%... 75%)
+    ajuste_cinco_sets: true
 
 valor:
   umbral_edge: 0.04
@@ -352,6 +388,7 @@ parlays_usuario:
   p_min: 0.55                      # pierna mínima
   confianza_min: 3.5               # confianza de datos mínima (0-10)
   incluir_nfl: true                # suma juegos NFL («Gana» moneyline, p ≥ p_min) a Qué meter y Soñadoras
+  incluir_tenis: true              # suma partidos de tenis («Gana <jugador>», con momio) a Qué meter y Soñadoras
 
 # Dashboard de aprendizaje (servicios/aciertos.py, /dashboard). Línea base = walk-forward de selecciones 2024-07→2026-10 (2,420 partidos):
 # el punto de partida contra el que se mide si la app va mejorando. PA(1) no tiene línea base (el CSV no trae el minuto de los goles).

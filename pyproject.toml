@@ -15,6 +15,7 @@ dependencies = [
     "uvicorn>=0.29",
     "apscheduler>=3.10,<4",
     "streamlit>=1.33",
+    "openpyxl>=3.1",                 # Excel de tennis-data.co.uk (motor de tenis)
 ]
 
 [project.optional-dependencies]

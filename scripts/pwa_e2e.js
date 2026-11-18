@@ -70,6 +70,17 @@ const KPI = (clave, titulo, pct, delta, base) => ({ clave, titulo, aciertos: Mat
     { rango: "81-90%", aciertos: 3, total: 3, pct: 1, esperado: 0.85 }, { rango: "91-100%", aciertos: 0, total: 0, pct: null, esperado: null }],
   laboratorio: clave === "Ganador" ? { version: 4, n: 240, n_ajuste: 170, n_prueba: 70, a: -0.05, b: 0.82, sesgo: 0.04, brier_antes: 0.231, brier_despues: 0.224,
     estado: "activa", lectura: "Ajuste activo: Brier 0.231 → 0.224 en los días recientes; la app promete 4.0 pts de más." } : null });
+const TENIS = { version: "tenis-elo-sup-v1", aviso: "Tenis v1", n_historico: 30000, peso_modelo: 0.3, actualizacion: { estado: "ok" },
+  partidos: [
+    { id: "e1", tour: "atp", torneo: "ATP Finals", superficie: "Hard", best_of: 3, inicio: "2026-11-19T13:00:00-06:00", jugador1: "Jannik Sinner", jugador2: "Taylor Fritz",
+      elo1: 2210, elo2: 1980, partidos1: 400, partidos2: 380, p_modelo: 0.82, p_mercado: 0.78, p_final: 0.792, cuota1: 1.25, cuota2: 4.2, casa: "pinnacle",
+      modelo_confiable: true, fuente: "modelo + mercado" },
+    { id: "e2", tour: "atp", torneo: "ATP Finals", superficie: "Hard", best_of: 3, inicio: "2026-11-19T07:00:00-06:00", jugador1: "Alex de Minaur", jugador2: "Carlos Alcaraz",
+      elo1: 1990, elo2: 2190, partidos1: 350, partidos2: 300, p_modelo: 0.25, p_mercado: 0.22, p_final: 0.229, cuota1: 4.4, cuota2: 1.24, casa: "pinnacle",
+      modelo_confiable: true, fuente: "modelo + mercado" }],
+  ranking: { atp: { general: [{ lugar: 1, jugador: "sinner j", elo: 2210, partidos: 400 }], hard: [], clay: [], grass: [] }, wta: { general: [] } },
+  desempeno: { atp: { partidos: 2400, pct_aciertos: 0.652, aciertos_esperados: 1580, brier: 0.214, calibracion: [{ rango: "80–90%", partidos: 300, prob_media: 0.84, pct_real: 0.82 }],
+    mercado: { partidos: 2300, pct_aciertos: 0.69, brier: 0.205, coincide: 0.85 } }, wta: { partidos: 0 } } };
 const NFLDASH = { temporada: 2026, delta_semana: 0.012, version: "nfl-elo-epa-v2", nombres: { BUF: "Buffalo Bills", ARI: "Arizona Cardinals" },
   desempeno: { partidos: 149, record: "95-53-1", pct_aciertos: 0.641, aciertos_esperados: 94.8, brier: 0.215, vegas: { partidos: 149, pct_aciertos: 0.681, brier: 0.209 },
     calibracion: [{ rango: "70–80%", partidos: 30, prob_media: 0.746, pct_real: 0.8 }], batacazo: { ganador: "ARI", p: 0.21, semana: 6, marcador: "ARI 18 – 16 LA" } },
@@ -129,6 +140,8 @@ async function simular(page) {
   await page.route(/\/parlays_usuario\//, (r) => r.fulfill(j(PU)));
   await page.route(/\/dashboard\?/, (r) => r.fulfill(j(DASH)));
   await page.route(/\/nfl\/dashboard$/, (r) => r.fulfill(j(NFLDASH)));
+  await page.route(/\/tenis\/semana$/, (r) => r.fulfill(j(TENIS)));
+  await page.route(/\/tenis\/dashboard$/, (r) => r.fulfill(j({ temporada: 2026, desempeno: { partidos: 0 }, curva: [], temporada_pasada: {} })));
   await page.route(/\/parlays\//, (r) => r.fulfill(j(PARLAYS)));
   await page.route(/\/costo\//, (r) => r.fulfill(j({ tipo: "x", etapas: [], costo_estimado: { odds_api: 2 } })));
   await page.route(/\/cuotas\/manual\/texto$/, (r) => r.fulfill(j({ lineas: [{ texto: "a - b 2 3 4", ok: true, partido: "A vs B", valores: { "1X2:1": 2 }, local: "a", visitante: "b" }, { texto: "zzz", ok: false, error: "no entendí" }], guardadas: 0 })));
@@ -206,21 +219,51 @@ async function simular(page) {
   await page.click('#nav button[data-v="dashboard"]');
   await page.waitForSelector("#vista .kpi");
   const dash = await page.textContent("#vista");
-  ok((await page.$$("#vista .kpi:not(.kpi-nfl)")).length === 6 && /SEGURIDAD PROMEDIO/.test(dash) && /vs ayer|sin dato de ayer|esperando el 2\.º día/.test(dash), "Dashboard: 6 KPIs con seguridad promedio y cambio vs ayer");
+  ok((await page.$$("#vista .kpi")).length === 6 && /SEGURIDAD PROMEDIO/.test(dash) && /vs ayer|sin dato de ayer|esperando el 2\.º día/.test(dash), "Dashboard: 6 KPIs con seguridad promedio y cambio vs ayer");
   if (MODO === "mock") {
-    ok((await page.$$("#vista .kpi:not(.kpi-nfl) svg.curva")).length === 6 && /▲ \+1\.2 pts vs ayer/.test(dash) && !(await page.$("#vista .kpi-tit b")), "Dashboard: curvas, delta y HTML escapado");
+    ok((await page.$$("#vista svg.curva")).length === 6 && /▲ \+1\.2 pts vs ayer/.test(dash) && !(await page.$("#vista .kpi-tit b")), "Dashboard: curvas, delta y HTML escapado");
   }
-  if (MODO === "mock") ok((await page.$$("#vista .kpi:not(.kpi-nfl) .rangos")).length === 6 && /71-80%/.test(dash) && /10\/12/.test(dash), "Dashboard: aciertos por rango de probabilidad en cada KPI");
+  if (MODO === "mock") ok((await page.$$("#vista .kpi .rangos")).length === 6 && /71-80%/.test(dash) && /10\/12/.test(dash), "Dashboard: aciertos por rango de probabilidad en cada KPI");
   if (MODO === "mock") ok(/Subrama v4/.test(dash) && /ACTIVA en el Diario/.test(dash) && /b = 0\.82/.test(dash), "Dashboard: subrama de calibración por KPI con sus parámetros");
   ok(!(await page.isVisible(".fechabar")), "Dashboard: sin filtro de fecha (histórico acumulado)");
-  ok(/NFL · efectividad del modelo/i.test(dash), "Dashboard: apartado NFL presente");
-  if (MODO === "mock") ok(/95-53-1/.test(dash) && /vs la semana anterior/.test(dash) && /Las Vegas/.test(dash) && /Arizona Cardinals/.test(dash) &&
-     !!(await page.$("#vista .kpi-nfl svg.curva")), "Dashboard NFL: récord, cambio semanal, contra Las Vegas, curva y nombres completos");
+  ok(await page.isVisible("#deportes"), "Dashboard: selector de deporte visible");
   await page.screenshot({ path: `${OUT}/07-dashboard.png`, fullPage: true });
+  // Dashboard por deporte: NFL y Tenis tienen su propio apartado
+  await page.click('#deportes [data-dep="nfl"]');
+  await page.waitForFunction(() => /NFL · efectividad del modelo/i.test(document.querySelector("#vista").textContent));
+  const dashN = await page.textContent("#vista");
+  ok(!/SEGURIDAD PROMEDIO/.test(dashN), "Dashboard NFL: solo el apartado NFL (sin los KPIs de fútbol)");
+  if (MODO === "mock") ok(/95-53-1/.test(dashN) && /vs la semana anterior/.test(dashN) && /Las Vegas/.test(dashN) && /Arizona Cardinals/.test(dashN) &&
+     !!(await page.$("#vista .kpi-nfl svg.curva")), "Dashboard NFL: récord, cambio semanal, contra Las Vegas, curva y nombres completos");
+  await page.screenshot({ path: `${OUT}/07b-dashboard-nfl.png`, fullPage: true });
+  await page.click('#deportes [data-dep="tenis"]');
+  await page.waitForFunction(() => /Tenis · efectividad del modelo/i.test(document.querySelector("#vista").textContent));
+  ok(true, "Dashboard Tenis: apartado presente");
+  await page.click('#deportes [data-dep="futbol"]');
+  await page.waitForSelector("#vista .kpi");
 
-  // --- Qué meter
-  await page.click('#nav button[data-v="meter"]');
+  // --- Hoy → Tenis (rediseño multideporte)
+  await page.click('#nav button[data-v="hoy"]');
+  await page.click('#deportes [data-dep="tenis"]');
+  await page.waitForFunction(() => /Tenis/.test(document.querySelector("#vista h2") ? document.querySelector("#vista h2").textContent : ""));
+  ok(!(await page.isVisible(".fechabar")), "Hoy Tenis: sin barra de fecha");
+  if (MODO === "mock") {
+    await page.waitForSelector("#vista .rk-fila");
+    const ps = await page.$$eval("#vista .rk-p", (es) => es.map((e) => parseFloat(e.textContent)));
+    const ten = await page.textContent("#vista");
+    ok(ps.length === 2 && ps[0] >= ps[1] && /Carlos Alcaraz/.test(ten) && /Jannik Sinner/.test(ten) && /Pinnacle/.test(ten) && /65\.2%/.test(ten),
+       "Hoy Tenis: pronósticos en barras, tarjetas, efectividad vs Pinnacle");
+  }
+  await page.screenshot({ path: `${OUT}/09-tenis.png`, fullPage: true });
+  await page.click('#deportes [data-dep="futbol"]');
+  await page.waitForSelector("#chips-rango");
+
+  // --- Parlays → Qué meter
+  await page.click('#nav button[data-v="parlays"]');
+  await page.waitForSelector("#ptabs");
+  await page.click('#ptabs [data-pt="meter"]');
   await page.waitForSelector("#vista .sonadora, #vista .card");
+  ok(!(await page.isVisible("#deportes")), "Parlays: sin selector de deporte (mezcla todos los deportes)");
   const meter = await page.textContent("#vista");
   ok(/Qué meter/.test(meter) && !/Ticket V3/.test(meter) && !/Rompen parlays/.test(meter), "Qué meter: solo parlays (sin ticket V3 ni «rompen parlays»)");
   if (MODO === "mock") {
@@ -229,8 +272,9 @@ async function simular(page) {
   }
   await page.screenshot({ path: `${OUT}/02-meter.png`, fullPage: true });
 
-  // --- Soñadoras
-  await page.click('#nav button[data-v="sonadoras"]');
+  // --- Parlays → Soñadoras
+  await page.click('#ptabs [data-pt="sonadoras"]');
+  await page.waitForFunction(() => /Soñadoras/.test(document.querySelector("#vista h2") ? document.querySelector("#vista h2").textContent : ""));
   await page.waitForSelector("#vista .sonadora, #vista .card");
   const son = await page.textContent("#vista");
   ok(/Soñadoras/.test(son) && !/Soñadoras analíticas/.test(son), "Soñadoras: pantalla cargada sin las analíticas");
