@@ -328,3 +328,67 @@ def test_punta_a_punta_mercados_y_sonadora_analitica(bd):
     if out["ticket"]:
         assert 3 <= out["ticket"]["cuota_combinada"] <= 8 and out["ticket"]["etiqueta"] in ("De Valor (+EV)", "Ticket de Entretenimiento")
     c.close()
+
+
+CSV_TARJETAS = """Div,Date,Time,HomeTeam,AwayTeam,FTHG,FTAG,FTR,Referee,HS,AS,HST,AST,HC,AC,HY,AY,HR,AR
+E0,16/08/2025,15:00,Arsenal,Chelsea,2,1,H,M Oliver,15,9,6,3,7,4,2,3,0,1
+"""
+
+
+def test_leer_tarjetas_del_csv():
+    from golmodel.ingesta import estadisticas as es
+    r = es.leer(CSV_TARJETAS, "EPL").iloc[0]
+    assert (r["amarillas_local"], r["amarillas_visitante"], r["rojas_local"], r["rojas_visitante"]) == (2, 3, 0, 1)
+    assert es.leer(CSV, "EPL")["amarillas_local"].isna().all()       # CSV sin columnas de tarjetas: quedan vacías
+
+
+def test_tarjetas_modelo_y_mosaicos_del_diario(bd):
+    """Amarillas con árbitro «tarjetero»: el modelo lo aprende y el Diario recibe mosaicos de córners y tarjetas."""
+    from golmodel import repositorio as repo
+    from golmodel.config import cargar
+    from golmodel.ingesta import estadisticas as es
+    from golmodel.ingesta.pipeline import cargar_historico
+    from golmodel.integracion import mercados_extendidos as mx
+    df, *_ = _liga_corners(n_equipos=10, jornadas=3)
+    df["inicio"] = pd.to_datetime(df["inicio"], utc=True)
+    rng = np.random.default_rng(11)
+    duro = df["arbitro"].fillna("") == df["arbitro"].dropna().iloc[0]
+    df["amarillas_local"] = rng.poisson(np.where(duro, 3.2, 1.8))
+    df["amarillas_visitante"] = rng.poisson(np.where(duro, 3.5, 2.0))
+    cargar_historico(bd, "EPL", df[["inicio", "local", "visitante", "goles_local", "goles_visitante"]].assign(liga="EPL"))
+    liga = repo.ligas(bd)["EPL"]
+    es.guardar(bd, liga, df.assign(tiros_local=None, tiros_visitante=None, tiros_arco_local=None, tiros_arco_visitante=None,
+                                   rojas_local=0, rojas_visitante=0))
+    assert bd.execute("SELECT count(*) AS n FROM estadisticas_partido WHERE amarillas_local IS NOT NULL").fetchone()["n"] == len(df)
+    cfg = cargar()
+    cfg = {**cfg, "corners": {**cfg["corners"], "min_partidos_liga": 50}, "tarjetas": {**cfg["tarjetas"], "min_partidos_liga": 50}}
+    mx._CACHE_TARJETAS.clear()
+    mx._CACHE_CORNERS.clear()
+    mt = mx.modelo_tarjetas(bd, liga["id"], cfg, AHORA)
+    assert mt is not None and 3.0 < mt.media_liga < 6.5
+    arb = df["arbitro"].dropna().iloc[0]
+    assert mt.arbitro.get(arb, 0) > 0                                 # el árbitro duro saca más tarjetas
+    ids = [r["id"] for r in bd.execute("SELECT id FROM equipos ORDER BY id LIMIT 2")]
+    mos = mx.mosaicos_extra(bd, cfg, "EPL", liga["id"], ids[0], ids[1], None, AHORA)
+    claves = {m["clave"] for m in mos}
+    assert claves == {"corners", "tarjetas"}
+    for m in mos:
+        assert 0.55 <= m["p"] < 1 and (m["pick"].startswith("Más de") or m["pick"].startswith("Menos de"))
+    assert mx.mosaicos_extra(bd, cfg, "MX1", liga["id"], ids[0], ids[1], None, AHORA) == []   # liga sin estadísticas
+
+
+def test_historial_usa_xg_por_tiros_si_no_hay_understat(bd):
+    from golmodel import repositorio as repo
+    from golmodel.ingesta import estadisticas as es
+    from golmodel.ingesta.pipeline import cargar_historico
+    df, *_ = _liga_corners(n_equipos=4, jornadas=1)
+    df["inicio"] = pd.to_datetime(df["inicio"], utc=True)
+    cargar_historico(bd, "EPL", df[["inicio", "local", "visitante", "goles_local", "goles_visitante"]].assign(liga="EPL"))
+    liga = repo.ligas(bd)["EPL"]
+    es.guardar(bd, liga, df.assign(tiros_local=12, tiros_visitante=8, tiros_arco_local=6, tiros_arco_visitante=3))
+    h = repo.historial(bd)
+    assert h["xg_local"].round(2).eq(round(0.33 * 6, 2)).all() and h["xg_visitante"].round(2).eq(round(0.33 * 3, 2)).all()
+    pid = int(h["partido_id"].iloc[0])
+    bd.execute("UPDATE partidos SET xg_local = 2.5, xg_visitante = 0.4, fuente_xg = 'understat' WHERE id = %s", (pid,))
+    h2 = repo.historial(bd)
+    assert h2.loc[h2.partido_id == pid, "xg_local"].iloc[0] == pytest.approx(2.5)   # Understat manda cuando existe

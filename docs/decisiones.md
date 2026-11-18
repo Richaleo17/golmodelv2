@@ -165,3 +165,15 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   mezclarlo con DC o ensamble no lo mejora (α = 0 óptimo): el mercado sigue mandando en el 1X2 donde hay cuota.
 * Boletos de 7 (Parlays → 🏆): una pierna por partido de cualquier mercado (Gana, PA(1), goles, ambos anotan, el otro anota,
   NFL, tenis) en tres bandas de probabilidad por pierna (seguro 75-92%, balanceado 66-85%, paga más 58-75%), sin repetir partidos.
+
+### 2026-11-18 (d) · xG por tiros, tarjetas y córners en el Diario
+* xG: Understat bloquea a Render; FBref y Sofascore tienen protección anti-bots (frágil e insostenible). Se usa un «xG por tiros»
+  con las estadísticas de football-data que ya se descargan: xG ≈ 0.33 · tiros a puerta (los tiros fuera no aportan: b ≈ −0.01 → 0;
+  ajustado con 35,806 partidos de 8 ligas 2016-2023). Walk-forward 2024/25 (2,669 partidos): w_xg 0 → 0.3 baja el log loss 1X2
+  0.9817 → 0.9800 y O/U 2.5 0.6761 → 0.6747. `repo.historial` usa el de Understat si existe y si no el de tiros; la calibración
+  semanal elige w_xg (0 si no ayuda). Solo ligas con estadísticas (europeas); Liga MX, MLS y Brasil siguen sin xG.
+* Tarjetas: HY/AY/HR/AR de football-data → `estadisticas_partido` (migración 012; se recarga el histórico de la liga la primera vez).
+  Modelo = el mismo NB de córners (equipo + árbitro; el árbitro se encoge menos: l2 5 vs 20). Líneas 2.5-5.5 amarillas.
+* Córners y tarjetas salen del desplegable: mosaico en el Diario (la línea más cercana a 72% de probabilidad), en el Ranking
+  (🚩 / 🟨) y como piernas posibles de los Boletos de 7.
+* Corrección: `llamadas_api` no aceptaba el proveedor `tennis_data` (CheckViolation): toda descarga de tenis habría fallado.

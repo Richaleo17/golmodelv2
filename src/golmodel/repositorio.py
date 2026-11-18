@@ -155,14 +155,23 @@ def set_xg(conn, partido_id: int, xg_l: float, xg_v: float, fuente: str) -> str:
 
 def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
     """Partidos de liga en el formato del modelo (equipos = id como texto)."""
+    # xG: el de Understat si existe; si no, «xG por tiros» (a·tiros a puerta + b·tiros fuera) con las estadísticas de
+    # football-data (Understat bloquea a Render desde 2026-11-15). Walk-forward 2024/25, 8 ligas: con w_xg 0.3, log loss 1X2
+    # 0.9817 → 0.9800 y O/U 2.5 0.6761 → 0.6747. La calibración semanal decide el peso (0 si no ayuda).
+    from golmodel.config import cargar
+    xt = (cargar().get("modelo") or {}).get("xg_tiros") or {}
+    a, b = (float(xt.get("coef_arco", 0.33)), float(xt.get("coef_fuera", 0.0))) if xt.get("activo", True) else (None, None)
     filas = conn.execute("""
         SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.temporada, p.local_id::text AS local,
                p.visitante_id::text AS visitante, p.goles_local, p.goles_visitante,
-               p.xg_local::float8 AS xg_local, p.xg_visitante::float8 AS xg_visitante, p.estado
+               COALESCE(p.xg_local::float8, %(a)s * e.tiros_arco_local + %(b)s * greatest(e.tiros_local - e.tiros_arco_local, 0))::float8 AS xg_local,
+               COALESCE(p.xg_visitante::float8, %(a)s * e.tiros_arco_visitante
+                        + %(b)s * greatest(e.tiros_visitante - e.tiros_arco_visitante, 0))::float8 AS xg_visitante, p.estado
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
-        WHERE p.estado NOT IN ('cancelado','abandonado') AND (%s::timestamptz IS NULL OR p.inicio < %s)
+        LEFT JOIN estadisticas_partido e ON e.partido_id = p.id
+        WHERE p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
         ORDER BY p.inicio
-    """, (hasta, hasta)).fetchall()
+    """, {"a": a, "b": b, "h": hasta}).fetchall()
     df = pd.DataFrame(filas)
     if df.empty:
         return pd.DataFrame(columns=["partido_id", "inicio", "liga", "temporada", "local", "visitante",

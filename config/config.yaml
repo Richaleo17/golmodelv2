@@ -84,6 +84,10 @@ modelo:
   calibracion_semanal_dias: 7
   decaimiento_xi_inicial: 0.0019    # por día (vida media ≈ 365 d); se recalibra
   w_xg_inicial: 0.5                 # se recalibra en EPL/SA; 0 donde no hay xG
+  xg_tiros:                         # respaldo de xG cuando Understat no da (bloquea a Render): xG ≈ a·tiros a puerta + b·tiros fuera
+    activo: true
+    coef_arco: 0.33                 # ajustado con 35,806 partidos de 8 ligas (2016-2023); los tiros fuera no aportan (b ≈ −0.01 → 0)
+    coef_fuera: 0.0
   l2_lambda_inicial: 1.0
   prior_ascendidos: ninguno         # 'promedio_historico' solo si backtest/validar_prior.py lo respalda con datos reales
   l2_ascendidos: 8.0                # fuerza con la que un ascendido se jala a su prior (se elige con la validación)
@@ -202,6 +206,16 @@ corners:
   min_partidos_liga: 200           # con menos, la liga no ofrece córners
   lineas_total: [7.5, 8.5, 9.5, 10.5, 11.5]
   lineas_equipo: [3.5, 4.5, 5.5]
+
+tarjetas:                          # amarillas por equipo (mismo modelo NB que córners; HY/AY de football-data)
+  activo: true
+  ligas: [EPL, LL, SA, BUN, L1, ERE, BEL, POR]
+  decaimiento_xi: 0.002
+  l2: 3.0
+  l2_arbitro: 5.0                  # en tarjetas el árbitro pesa mucho más que en córners: se encoge menos
+  min_partidos_arbitro: 15
+  min_partidos_liga: 200
+  lineas_total: [2.5, 3.5, 4.5, 5.5]
 
 props:
   ligas: [EPL, SA, LL, BUN, L1]    # las que tienen xG por jugador (Understat)

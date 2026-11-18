@@ -14,7 +14,8 @@ from golmodel import repositorio as repo
 from golmodel.ingesta.proveedores.football_data_csv import CODIGOS, leer_csv, ruta_csv
 
 COLUMNAS = {"HC": "corners_local", "AC": "corners_visitante", "HS": "tiros_local", "AS": "tiros_visitante",
-            "HST": "tiros_arco_local", "AST": "tiros_arco_visitante", "Referee": "arbitro"}
+            "HST": "tiros_arco_local", "AST": "tiros_arco_visitante", "Referee": "arbitro",
+            "HY": "amarillas_local", "AY": "amarillas_visitante", "HR": "rojas_local", "AR": "rojas_visitante"}
 _INTENTOS: dict[str, date] = {}
 
 
@@ -49,14 +50,18 @@ def guardar(conn, liga: dict, filas: pd.DataFrame) -> dict:
         arb = r.get("arbitro")
         arb = None if arb is None or (isinstance(arb, float) and pd.isna(arb)) or arb in ("", "nan") else str(arb)
         conn.execute("""INSERT INTO estadisticas_partido (partido_id, corners_local, corners_visitante, tiros_local, tiros_visitante,
-                            tiros_arco_local, tiros_arco_visitante, arbitro)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                            tiros_arco_local, tiros_arco_visitante, arbitro, amarillas_local, amarillas_visitante, rojas_local,
+                            rojas_visitante)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (partido_id) DO UPDATE SET corners_local = EXCLUDED.corners_local,
                             corners_visitante = EXCLUDED.corners_visitante, tiros_local = EXCLUDED.tiros_local,
                             tiros_visitante = EXCLUDED.tiros_visitante, tiros_arco_local = EXCLUDED.tiros_arco_local,
-                            tiros_arco_visitante = EXCLUDED.tiros_arco_visitante, arbitro = EXCLUDED.arbitro, actualizado_en = now()""",
+                            tiros_arco_visitante = EXCLUDED.tiros_arco_visitante, arbitro = EXCLUDED.arbitro,
+                            amarillas_local = EXCLUDED.amarillas_local, amarillas_visitante = EXCLUDED.amarillas_visitante,
+                            rojas_local = EXCLUDED.rojas_local, rojas_visitante = EXCLUDED.rojas_visitante, actualizado_en = now()""",
                      (p["id"], ent(r["corners_local"]), ent(r["corners_visitante"]), ent(r["tiros_local"]), ent(r["tiros_visitante"]),
-                      ent(r["tiros_arco_local"]), ent(r["tiros_arco_visitante"]), arb))
+                      ent(r["tiros_arco_local"]), ent(r["tiros_arco_visitante"]), arb, ent(r.get("amarillas_local")),
+                      ent(r.get("amarillas_visitante")), ent(r.get("rojas_local")), ent(r.get("rojas_visitante"))))
         n += 1
     return {"guardadas": n, "sin_partido": sin}
 
@@ -69,8 +74,9 @@ def autocargar(conn, http, cfg: dict, liga: dict, hoy: date, ahora: datetime) ->
     if _INTENTOS.get(codigo) == hoy:
         return None
     _INTENTOS[codigo] = hoy
+    # n = partidos con TARJETAS cargadas: así la primera vez tras agregar tarjetas se recarga todo el histórico de la liga
     n = conn.execute("""SELECT count(*) AS n FROM estadisticas_partido e JOIN partidos p ON p.id = e.partido_id
-                        WHERE p.liga_id = %s""", (liga["id"],)).fetchone()["n"]
+                        WHERE p.liga_id = %s AND e.amarillas_local IS NOT NULL""", (liga["id"],)).fetchone()["n"]
     actual = ahora.year if ahora.month >= 7 else ahora.year - 1
     anios = [actual] if n >= int(cfg["corners"]["min_partidos_liga"]) else list(range(actual - int(cfg["historico"]["temporadas"]), actual + 1))
     res = {"guardadas": 0, "sin_partido": 0, "archivos": 0, "avisos": []}

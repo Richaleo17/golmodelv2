@@ -166,7 +166,7 @@ def _forma(conn, equipo_ids: list[int], antes: datetime) -> dict[int, str]:
 def _cargar(conn, d: date) -> list[dict]:
     return conn.execute("""
         SELECT p.id AS partido_id, p.inicio, p.estado, p.goles_local, p.goles_visitante, p.local_id, p.visitante_id,
-               l.codigo AS liga, l.nombre AS liga_nombre, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante,
+               p.liga_id, (SELECT e.arbitro FROM estadisticas_partido e WHERE e.partido_id = p.id) AS arbitro, l.codigo AS liga, l.nombre AS liga_nombre, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante,
                pr.id AS prediccion_id, pr.version_id, pr.matriz, pr.lambda_local, pr.lambda_visitante, pr.rho,
                pr.lambda_mercado_local, pr.lambda_mercado_visitante, pr.ajuste_local, pr.ajuste_visitante,
                pr.crs_total, pr.crs_alerta, pr.crs_veto, pr.crs_completo, pr.crs_selecciones_vetadas, pr.cr_scores
@@ -494,6 +494,13 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
                                              if casa == "manual" else casa.capitalize()}
         info = analizar_partido(f, sels.get(f["prediccion_id"], {}), pesos_v.get(f["version_id"], {}), forma, ejec, cfg, zona)
         _calibrar_tarjetas(info, cal_kpi, cfg)
+        if info.get("mercados") is not None and not f["solo_mercado"]:
+            try:                                        # córners y tarjetas (modelos paralelos; si fallan, el Diario sigue)
+                from golmodel.integracion.mercados_extendidos import mosaicos_extra
+                info["mercados"] += mosaicos_extra(conn, cfg, f["liga"], f["liga_id"], f["local_id"], f["visitante_id"],
+                                                   f.get("arbitro"), ahora)
+            except Exception:                           # noqa: BLE001
+                pass
         if f["estado"] == "programado":
             piernas_todas.extend(info["_piernas"])
             r_ = riesgo_del_favorito(info, cfg)

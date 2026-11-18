@@ -226,7 +226,7 @@ function tarjetaDiario(p, nombres) {
     h += `<div class="jug">🎯 ${esc(j.jugada)} · ${pct(j.p)} · mete si paga ≥ <b>${num(j.cuota_min)}</b></div>`;
   }
   if (!p.solo_mercado && p.estado === "programado") {
-    h += `<details class="mx" data-pid="${esc(p.partido_id)}"><summary>🚩 Córners y jugadores</summary><div class="mx-cuerpo meta">Abre para calcular…</div></details>`;
+    h += `<details class="mx" data-pid="${esc(p.partido_id)}"><summary>🚩 Córners, tarjetas y jugadores</summary><div class="mx-cuerpo meta">Abre para calcular…</div></details>`;
   }
   return h + "</div>";
 }
@@ -239,6 +239,11 @@ function htmlMercadosExt(m) {
     h += `<div class="mx-t">CÓRNERS · esperados ${num(c.esperados_local, 1)} + ${num(c.esperados_visitante, 1)} = <b>${num(c.esperados_total, 1)}</b></div>` +
       `<div class="mx-fila">${c.total.map((x) => `<span>Más ${esc(x.linea)} <b style="color:${colorP(x.mas)}">${pct(x.mas)}</b> · justa ${num(1 / x.mas)}</span>`).join("")}</div>` +
       `<div class="mx-fila">${c.local.map((x) => `<span>${esc(m.local)} más ${esc(x.linea)} <b>${pct(x.mas)}</b></span>`).join("")}${c.visitante.map((x) => `<span>${esc(m.visitante)} más ${esc(x.linea)} <b>${pct(x.mas)}</b></span>`).join("")}</div>`;
+  }
+  const t = m.tarjetas;
+  if (t) {
+    h += `<div class="mx-t">TARJETAS AMARILLAS · esperadas ${num(t.esperadas_local, 1)} + ${num(t.esperadas_visitante, 1)} = <b>${num(t.esperadas_total, 1)}</b></div>` +
+      `<div class="mx-fila">${t.total.map((x) => `<span>Más ${esc(x.linea)} <b style="color:${colorP(x.mas)}">${pct(x.mas)}</b> · Menos <b>${pct(x.menos)}</b></span>`).join("")}</div>`;
   }
   if (m.jugadores && m.jugadores.length) {
     h += `<div class="mx-t">JUGADORES (xG/90 de Understat, titularidad aproximada)</div>` + m.jugadores.map((j) =>
@@ -286,7 +291,7 @@ async function pintarAciertos(box) {
 
 // ------------------------------------------------------------------ Ranking en barras (idea de «Mis pronósticos» de @SebsBarroso)
 const RK_MERCADOS = [["ganador", "Gana"], ["primer_gol", "PA(1) primer gol"], ["ambos", "Ambos anotan"], ["otro", "El otro anota"],
-  ["mas15", "+1.5 goles"], ["mas25", "+2.5 goles"], ["menos35", "−3.5 goles"]];
+  ["mas15", "+1.5 goles"], ["mas25", "+2.5 goles"], ["menos35", "−3.5 goles"], ["corners", "🚩 Córners"], ["tarjetas", "🟨 Tarjetas"]];
 
 /* filas: [{eq, rival, lugar, p, sub}] ya ordenadas. Barra fuerte con 60% o más, clara debajo (como su gráfica). */
 function barrasRanking(titulo, filas, pie) {
@@ -313,6 +318,9 @@ function rankingFutbol(lista, nombres) {
     } else if (k === "otro") {
       if (!p.otro_anota || p.otro_anota.p == null) return;
       filas.push({ eq: p.otro_anota.equipo, rival: p.gana.favorito, lugar: enCasa ? "de visita" : "en casa", p: p.otro_anota.p, sub: cuando });
+    } else if (k === "corners" || k === "tarjetas") {
+      if (!tile) return;
+      filas.push({ eq: `${p.local} – ${p.visitante}`, rival: "", lugar: tile.pick, p: tile.p, sub: cuando });
     } else {
       const pr = tile ? (tile.pick === "No" ? 1 - tile.p : tile.p) : (k === "ambos" ? p.btts : k === "mas25" ? p.over25 : null);
       if (pr == null) return;
@@ -321,7 +329,7 @@ function rankingFutbol(lista, nombres) {
   });
   filas.sort((a, b) => b.p - a.p);
   const notas = { primer_gol: "PA(1) = ese equipo anota el PRIMER gol del partido (estimación aproximada).",
-    otro: "El que NO es favorito anota al menos un gol.", ganador: "Probabilidad de que el favorito gane en 90 minutos. El resto es empate o derrota." };
+    otro: "El que NO es favorito anota al menos un gol.", corners: "Córners totales del partido (modelo por equipo y árbitro; ligas europeas).", tarjetas: "Tarjetas amarillas totales (modelo por equipo y árbitro; ligas europeas).", ganador: "Probabilidad de que el favorito gane en 90 minutos. El resto es empate o derrota." };
   return barrasRanking(`${esc(titulo)} · de mayor a menor`, filas, notas[k] || "Probabilidad de que se cumpla (Sí).");
 }
 
@@ -358,7 +366,7 @@ async function vDiario() {
         `<div class="chips" id="chips-ligas">${ligas.map((l) => `<button class="chip" type="button" data-liga="${esc(l)}" aria-pressed="${sel.has(l)}">${esc(LIGAS[l] || nombres[l] || l)}</button>`).join("")}</div>` +
         `<div class="fila"><input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo">` +
         `<select id="orden" aria-label="Ordenar">${["Hora", "Confianza", "Ventaja"].map((o) => `<option ${o === S.orden ? "selected" : ""}>${o}</option>`).join("")}</select></div>`) +
-      `<p class="meta" style="margin:8px 0">Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. «Primer gol» es una estimación aproximada. Córners y tarjetas no están modelados.</p>` +
+      `<p class="meta" style="margin:8px 0">Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. «Primer gol» es una estimación aproximada. Córners y tarjetas: ligas europeas con estadísticas.</p>` +
       `<div id="lista-diario"></div>`);
   return {
     html,
