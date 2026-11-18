@@ -153,6 +153,10 @@ def set_xg(conn, partido_id: int, xg_l: float, xg_v: float, fuente: str) -> str:
     return "sin_cambios"
 
 
+def tiene_tabla(conn, nombre: str) -> bool:
+    return conn.execute("SELECT to_regclass(%s) IS NOT NULL AS ok", (nombre,)).fetchone()["ok"]
+
+
 def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
     """Partidos de liga en el formato del modelo (equipos = id como texto)."""
     # xG: el de Understat si existe; si no, «xG por tiros» (a·tiros a puerta + b·tiros fuera) con las estadísticas de
@@ -161,7 +165,16 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
     from golmodel.config import cargar
     xt = (cargar().get("modelo") or {}).get("xg_tiros") or {}
     a, b = (float(xt.get("coef_arco", 0.33)), float(xt.get("coef_fuera", 0.0))) if xt.get("activo", True) else (None, None)
-    filas = conn.execute("""
+    if not tiene_tabla(conn, "estadisticas_partido"):           # base sin la migración 006 (p. ej. pruebas): xG solo de Understat
+        a = b = None
+    sin_est = a is None
+    filas = conn.execute(("""
+        SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.temporada, p.local_id::text AS local,
+               p.visitante_id::text AS visitante, p.goles_local, p.goles_visitante,
+               p.xg_local::float8 AS xg_local, p.xg_visitante::float8 AS xg_visitante, p.estado
+        FROM partidos p JOIN ligas l ON l.id = p.liga_id
+        WHERE p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
+        ORDER BY p.inicio""" if sin_est else """
         SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.temporada, p.local_id::text AS local,
                p.visitante_id::text AS visitante, p.goles_local, p.goles_visitante,
                COALESCE(p.xg_local::float8, %(a)s * e.tiros_arco_local + %(b)s * greatest(e.tiros_local - e.tiros_arco_local, 0))::float8 AS xg_local,
@@ -171,7 +184,7 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
         LEFT JOIN estadisticas_partido e ON e.partido_id = p.id
         WHERE p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
         ORDER BY p.inicio
-    """, {"a": a, "b": b, "h": hasta}).fetchall()
+    """), {"a": a, "b": b, "h": hasta}).fetchall()
     df = pd.DataFrame(filas)
     if df.empty:
         return pd.DataFrame(columns=["partido_id", "inicio", "liga", "temporada", "local", "visitante",
