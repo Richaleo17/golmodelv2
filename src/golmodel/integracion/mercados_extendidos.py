@@ -46,6 +46,70 @@ def modelo_corners(conn, liga_id: int, cfg: dict, ahora: datetime) -> tuple[mc.M
     return out
 
 
+_CACHE_TARJETAS: dict = {}
+
+
+def modelo_tarjetas(conn, liga_id: int, cfg: dict, ahora: datetime) -> mc.ModeloCorners | None:
+    """Tarjetas amarillas por equipo: el MISMO modelo que córners (Binomial Negativa con ataque/«provoca», «recibe» y árbitro;
+    en tarjetas el árbitro pesa mucho más, por eso se encoge menos). Caché por liga y día."""
+    clave = (liga_id, ahora.date())
+    if clave in _CACHE_TARJETAS:
+        return _CACHE_TARJETAS[clave]
+    ct = cfg.get("tarjetas") or {}
+    filas = conn.execute("""
+        SELECT p.local_id AS local, p.visitante_id AS visitante, p.inicio, e.amarillas_local AS corners_local,
+               e.amarillas_visitante AS corners_visitante, e.arbitro
+        FROM estadisticas_partido e JOIN partidos p ON p.id = e.partido_id
+        WHERE p.liga_id = %s AND p.estado = 'finalizado' AND p.inicio < %s AND e.amarillas_local IS NOT NULL""",
+                         (liga_id, ahora)).fetchall()
+    m = None
+    if len(filas) >= int(ct.get("min_partidos_liga", 200)):
+        m = mc.ajustar(pd.DataFrame(filas), ahora, xi=float(ct.get("decaimiento_xi", 0.002)), l2=float(ct.get("l2", 3.0)),
+                       l2_arbitro=float(ct.get("l2_arbitro", 5.0)), min_partidos_arbitro=int(ct.get("min_partidos_arbitro", 15)))
+    _CACHE_TARJETAS[clave] = m
+    return m
+
+
+def _linea_mosaico(pmf_total, lineas: list[float], objetivo: float, p_min: float) -> tuple[float, str, float] | None:
+    """La línea (y el lado Más/Menos) cuya probabilidad queda más cerca del `objetivo` sin bajar de `p_min`."""
+    mejor = None
+    for x in lineas:
+        mas = mc.prob_mas_de(pmf_total, x)
+        lado, p = ("Más", mas) if mas >= 0.5 else ("Menos", 1 - mas)
+        if p < p_min:
+            continue
+        if mejor is None or abs(p - objetivo) < abs(mejor[2] - objetivo):
+            mejor = (x, lado, p)
+    return mejor
+
+
+def mosaicos_extra(conn, cfg: dict, liga: str, liga_id: int, local_id: int, visitante_id: int, arbitro: str | None,
+                   ahora: datetime) -> list[dict]:
+    """Mosaicos de córners y tarjetas para el Diario (y por lo tanto Ranking y Boletos de 7). Vacío si no hay modelo."""
+    u = float(cfg["valor"]["umbral_edge"])
+    out = []
+
+    def mos(clave, titulo, pick, p):
+        return {"clave": clave, "titulo": titulo, "pick": pick, "p": p, "cuota_min": (1 + u) / p if p > 0 else None, "aprox": False,
+                "nivel": "ALTA" if p >= 0.80 else "MEDIA" if p >= 0.55 else "BAJA"}
+    if liga in cfg["corners"]["ligas"]:
+        r = modelo_corners(conn, liga_id, cfg, ahora)
+        if r is not None and r[0].conoce(local_id) and r[0].conoce(visitante_id):
+            d = mc.distribucion(r[0], local_id, visitante_id, arbitro)
+            sel = _linea_mosaico(d["total"], cfg["corners"]["lineas_total"], 0.72, 0.55)
+            if sel:
+                out.append(mos("corners", "Córners", f"{sel[1]} de {sel[0]}", sel[2]))
+    ct = cfg.get("tarjetas") or {}
+    if ct.get("activo", True) and liga in (ct.get("ligas") or cfg["corners"]["ligas"]):
+        m = modelo_tarjetas(conn, liga_id, cfg, ahora)
+        if m is not None and m.conoce(local_id) and m.conoce(visitante_id):
+            d = mc.distribucion(m, local_id, visitante_id, arbitro)
+            sel = _linea_mosaico(d["total"], ct.get("lineas_total", [2.5, 3.5, 4.5, 5.5]), 0.72, 0.55)
+            if sel:
+                out.append(mos("tarjetas", "Tarjetas (amarillas)", f"{sel[1]} de {sel[0]}", sel[2]))
+    return out
+
+
 def _partido(conn, partido_id: int) -> dict | None:
     return conn.execute("""
         SELECT p.id AS partido_id, p.inicio, p.liga_id, l.codigo AS liga, p.local_id, p.visitante_id, el.nombre AS local,
@@ -91,7 +155,7 @@ def mercados_partido(conn, partido_id: int, cfg: dict, ahora: datetime, *, con_j
     if f is None:
         raise KeyError(partido_id)
     out = {"partido_id": partido_id, "liga": f["liga"], "local": f["local"], "visitante": f["visitante"],
-           "corners": None, "jugadores": [], "avisos": [], "partido_ext": None}
+           "corners": None, "tarjetas": None, "jugadores": [], "avisos": [], "partido_ext": None}
     if f["prediccion_id"] is None:
         out["avisos"].append("Sin predicción del modelo de goles para este partido: córners y props necesitan sus λ.")
         return out
@@ -121,6 +185,15 @@ def mercados_partido(conn, partido_id: int, cfg: dict, ahora: datetime, *, con_j
                 corners_ext = (d["mu_local"], d["mu_visitante"], m.k)
     else:
         out["avisos"].append("Córners: la fuente gratuita no publica córners de esta liga.")
+    ct = cfg.get("tarjetas") or {}
+    if ct.get("activo", True) and f["liga"] in (ct.get("ligas") or cfg["corners"]["ligas"]):
+        mt = modelo_tarjetas(conn, f["liga_id"], cfg, ahora)
+        if mt is not None and mt.conoce(f["local_id"]) and mt.conoce(f["visitante_id"]):
+            d = mc.distribucion(mt, f["local_id"], f["visitante_id"])
+            out["tarjetas"] = {"esperadas_local": d["mu_local"], "esperadas_visitante": d["mu_visitante"],
+                               "esperadas_total": d["mu_local"] + d["mu_visitante"], "n_partidos_modelo": mt.n_partidos,
+                               "total": [{"linea": x, "mas": mc.prob_mas_de(d["total"], x), "menos": 1 - mc.prob_mas_de(d["total"], x)}
+                                         for x in ct.get("lineas_total", [2.5, 3.5, 4.5, 5.5])]}
     jugadores_ext: dict = {}
     if con_jugadores and f["liga"] in cfg["props"]["ligas"]:
         M = matriz_marcadores(lam_l, lam_v, rho)
