@@ -448,7 +448,7 @@ async function vMeter() {
   const { d, error } = await parlaysUsuario();
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">03</b> Qué meter</h2>` +
     `<p class="lead">2 a 3 parlays de 3 a 5 partidos. Cada pierna es <b>Gana</b> o <b>PA(1)</b> (anota el primer gol), la más probable de su partido; ` +
-    `se mezclan ligas y hasta 3 días. Si hay juegos de <b>NFL</b> también entran (pierna «Gana», moneyline). Las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
+    `se mezclan ligas y hasta 3 días. Si hay juegos de <b>NFL</b> o partidos de <b>tenis</b> también entran (pierna «Gana»). Las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
   if (error) return fallo("Qué meter", "No se pudieron armar los parlays: " + error);
   return { html: cab + htmlSeccionParlays(d, "que_meter", "Todavía no hay suficientes partidos para armar parlays") };
 }
@@ -692,7 +692,7 @@ async function vParlays() {
 async function vSonadoras() {
   const { d, error } = await parlaysUsuario();
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">04</b> Soñadoras</h2>` +
-    `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas: <b>Gana</b> o <b>PA(1)</b> (y <b>Gana</b> en NFL si hay juegos), hasta 3 días, sin repetir partidos entre opciones. ` +
+    `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas: <b>Gana</b> o <b>PA(1)</b> (y <b>Gana</b> en NFL y tenis si hay), hasta 3 días, sin repetir partidos entre opciones. ` +
     `Son de alto riesgo: juega montos chicos.</p>`;
   if (error) return fallo("Soñadoras", "No se pudieron armar las soñadoras: " + error);
   return { html: cab + htmlSeccionParlays(d, "sonadoras", "Todavía no hay suficientes partidos para una soñadora de 6+") };
