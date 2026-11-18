@@ -60,7 +60,9 @@ const PU = { dias: ["2026-11-14", "2026-11-15", "2026-11-16"], piernas_disponibl
   que_meter: [{ titulo: "Opción A · la más probable", n: 3, p: 0.42, cuota_justa: 2.38, uno_de_cada: 2.38, dias: ["2026-11-14"],
     piernas: [PIERNA(1, "sáb 14/11", "10:30", "<b>Arsenal</b> vs Chelsea", "Gana <b>Arsenal</b>", 0.8), PIERNA(2, "dom 15/11", "12:00", "Lyon vs Nice", "PA(1) Lyon", 0.75), PIERNA(3, "lun 16/11", "13:00", "A vs B", "Gana A", 0.7)] }],
   sonadoras: [{ titulo: "Soñadora 1", n: 6, p: 0.12, cuota_justa: 8.3, uno_de_cada: 8.3, dias: ["2026-11-14"],
-    piernas: [1, 2, 3, 4, 5, 6].map((k) => PIERNA(k, "sáb 14/11", "10:30", "E" + k + " vs F" + k, "Gana E" + k, 0.7)) }] };
+    piernas: [1, 2, 3, 4, 5, 6].map((k) => PIERNA(k, "sáb 14/11", "10:30", "E" + k + " vs F" + k, "Gana E" + k, 0.7)) }],
+  boletos: [{ titulo: "🏆 Boleto seguro", n: 7, p: 0.21, cuota_justa: 4.8, uno_de_cada: 4.8, dias: ["2026-11-14"],
+    piernas: [1, 2, 3, 4, 5, 6, 7].map((k) => PIERNA(10 + k, "sáb 14/11", "10:30", "G" + k + " vs H" + k, k % 2 ? "Más de 1.5 goles: Sí" : "Gana G" + k, 0.8)) }] };
 const SERIE = (base, paso) => ["2026-11-10", "2026-11-11", "2026-11-12", "2026-11-13", "2026-11-14"].map((dia, i) => ({ dia, aciertos_dia: 3, total_dia: 5,
   aciertos: 3 * (i + 1), total: 5 * (i + 1), pct: base + paso * i, pct_mercado: base + 0.01 }));
 const KPI = (clave, titulo, pct, delta, base) => ({ clave, titulo, aciertos: Math.round(pct * 40), total: 40, pct, delta_ayer: delta, delta_inicio: delta * 3,
@@ -264,6 +266,15 @@ async function simular(page) {
   await page.click('#ptabs [data-pt="meter"]');
   await page.waitForSelector("#vista .sonadora, #vista .card");
   ok(!(await page.isVisible("#deportes")), "Parlays: sin selector de deporte (mezcla todos los deportes)");
+  if (MODO === "mock") {
+    await page.click('#ptabs [data-pt="boletos"]');
+    await page.waitForFunction(() => /Boletos de 7/.test(document.querySelector("#vista").textContent) && document.querySelector("#vista .sonadora"));
+    const bol = await page.textContent("#vista");
+    ok(/Boleto seguro/.test(bol) && /7 partidos/.test(bol) && /Más de 1\.5 goles/.test(bol), "Parlays: boletos de 7 piernas con mercados mezclados");
+    await page.screenshot({ path: `${OUT}/02b-boletos.png`, fullPage: true });
+    await page.click('#ptabs [data-pt="meter"]');
+    await page.waitForFunction(() => /Qué meter/.test(document.querySelector("#vista h2") ? document.querySelector("#vista h2").textContent : ""));
+  }
   const meter = await page.textContent("#vista");
   ok(/Qué meter/.test(meter) && !/Ticket V3/.test(meter) && !/Rompen parlays/.test(meter), "Qué meter: solo parlays (sin ticket V3 ni «rompen parlays»)");
   if (MODO === "mock") {

@@ -52,7 +52,30 @@ frescura:
 
 cierre:
   minutos_antes: 5
-  solo_partidos_con_picks: true   # ahorra créditos del plan gratis
+  solo_partidos_con_picks: false  # plan 20K: cierre de TODOS los partidos (CLV y calibración de α por liga); antes solo con picks
+# Segundo modelo de fútbol (modelos/elo_clubes.py): Elo de clubes en ensamble con Dixon-Coles para el 1X2. Se decide en la
+# calibración semanal: w elegido en el primer 60% de la ventana walk-forward y validado en el último 40%; se activa solo si
+# mejora el log loss y solo en las ligas donde mejora. Experimento 8 ligas europeas (2024/25): DC 0.9773 → ensamble 0.9731.
+elo_clubes:
+  activo: true
+  min_partidos: 300
+  min_partidos_liga: 60
+  frac_validacion: 0.4
+  mejora_min: 0.002
+  parametros: {k: 20, hfa_inicial: 60, hfa_memoria: 300, inicial: 1500, regresion_temporada: 0.2}
+
+# Actualizaciones automáticas (jobs/automatico.py; solo en Render o con GOLMODEL_AUTO=1). Presupuesto estimado del plan 20K:
+# ≈ 7 «solo_cuotas»/día × ~50 créditos + «actualizar_todo» diario ~100 + cierres ~80/día ≈ 16K/mes. El presupuesto de la app
+# (creditos_mensuales) frena todo si se acerca al límite.
+auto:
+  activo: true
+  todo_hora: "07:10"               # hora CDMX de la actualización completa diaria (resultados, modelo, cuotas, Dashboard)
+  hora_inicio: "07:00"
+  hora_fin: "23:30"
+  cuotas_cada_min: 240             # cuotas cada 4 h…
+  cuotas_cerca_min: 60             # …o cada hora si algún partido empieza en las próximas `horas_cerca` horas
+  horas_cerca: 3
+  otros_deportes: true             # tras la diaria: NFL y tenis
   reintentos: 2
 
 modelo:

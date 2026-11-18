@@ -285,11 +285,21 @@ def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, part
     modo = cfg["crs"]["ajuste_favorito"]["modo"]
     m_dec = m_crs if (m_crs is not None and modo == "activo") else m
 
+    # --- segundo modelo: Elo de clubes en ensamble con el Dixon-Coles para el 1X2 (solo ligas activadas en la calibración)
+    from golmodel.modelos import elo_clubes
+    p_ens = None
+    pe = elo_clubes.p_partido(hist, cfg, hp.get("elo") or {}, partido["liga"], kl, kv)
+    if pe is not None:
+        p_ens = elo_clubes.mezclar({x: probabilidad(m_dec, x) for x in elo_clubes.SEL_1X2}, pe, float(hp["elo"]["w"]))
+        det_l = {**det_l, "elo_ensamble": {"w_dc": hp["elo"]["w"], **{k: round(v, 4) for k, v in pe.items()}}}
+
     # --- probabilidades por selección
     sel: dict[str, dict] = {}
     for s in CONDICIONES:
         alpha, cal_a = alpha_para(hp, cfg, partido["liga"], grupo_alpha(s))
         pw, pp = probabilidad(m_dec, s), probabilidad_push(m_dec, s)
+        if p_ens is not None and s in p_ens:
+            pw = p_ens[s]
         fila = {"p_modelo": pw, "p_sin_ajuste": probabilidad(base, s), "p_push": pp,
                 "p_crs": probabilidad(m_crs, s) if m_crs is not None else None,
                 "alpha": alpha, "alpha_calibrado": cal_a, "p_mercado": None, "p_adj": None, "p_adj_pierde": None}
@@ -472,6 +482,8 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
                 resumen["picks_nuevos"] += 1
                 cierres.add(c.partido["id"])
         _ticket_v3(conn, dia, ahora, cfg, resumen, cfg_v3, cierres)
+        if not cfg["cierre"].get("solo_partidos_con_picks", True):
+            cierres |= set(por_partido)                   # plan de pago: cuota de cierre de todos (CLV y α por liga)
         for pid in cierres:
             p = por_partido[pid].partido
             conn.execute("""INSERT INTO cierres_programados (partido_id, programado_para) VALUES (%s, %s)

@@ -1,6 +1,8 @@
 """Parlays de «Qué meter» (3-5) y «Soñadoras» (6-10): piernas Gana o PA(1), hasta 3 días, sin repetir partidos."""
 from datetime import date, datetime, timezone
 
+import pytest
+
 from golmodel.config import cargar
 from golmodel.servicios import parlays_usuario as pu
 
@@ -43,3 +45,23 @@ def test_mismo_equipo_a_la_misma_hora_se_omite():
     b = {"partido_id": 2, "partido": "Austria vs Republic of Ireland", "inicio": "t", "p": 0.63, "dia_texto": "sáb", "hora": "13:45"}
     out, av = pu.quitar_duplicados([b, a])
     assert [x["partido_id"] for x in out] == [1] and len(av) == 1
+
+
+def test_boletos_de_7_por_banda_sin_repetir_partidos():
+    from golmodel.servicios.parlays_usuario import armar_boletos
+    cands = []
+    for i in range(30):
+        for tipo, p in (("ganador", 0.6 + (i % 10) * 0.035), ("mas15", 0.72 + (i % 5) * 0.03)):
+            cands.append({"partido_id": i, "p": p, "jugada": f"{tipo} {i}", "inicio": f"2026-11-18T{10 + i % 10}:00", "dia": "2026-11-18"})
+    bandas = [{"titulo": "seguro", "p_min": 0.75, "p_max": 0.92}, {"titulo": "balanceado", "p_min": 0.66, "p_max": 0.85},
+              {"titulo": "paga", "p_min": 0.58, "p_max": 0.75}]
+    b = armar_boletos(cands, bandas, 7)
+    assert [x["titulo"] for x in b] == ["seguro", "balanceado", "paga"]
+    assert all(x["n"] == 7 for x in b)
+    ids = [p["partido_id"] for x in b for p in x["piernas"]]
+    assert len(ids) == len(set(ids))                                   # ningún partido en dos boletos
+    for x, band in zip(b, bandas):
+        assert all(band["p_min"] <= p["p"] <= band["p_max"] for p in x["piernas"])
+        assert x["p"] == pytest.approx(__import__("math").prod(p["p"] for p in x["piernas"]))
+    assert b[0]["p"] > b[2]["p"]                                       # el seguro es más probable que el que paga más
+    assert armar_boletos(cands[:6], bandas, 7) == []                  # menos de 7 partidos: no se arma

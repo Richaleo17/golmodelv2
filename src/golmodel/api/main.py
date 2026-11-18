@@ -115,6 +115,17 @@ def salud_compatible():
     return "ok"
 
 
+@app.on_event("startup")
+def _arrancar_automatico() -> None:
+    """Actualizaciones automáticas (cuotas cada pocas horas y la completa diaria). Solo en Render o con GOLMODEL_AUTO=1."""
+    from golmodel.jobs import automatico
+    if os.environ.get("RENDER") or os.environ.get("GOLMODEL_AUTO") == "1":
+        try:
+            automatico.arrancar(servicio())
+        except Exception as e:                                                   # noqa: BLE001 — la API sigue sin el hilo
+            logging.getLogger(__name__).warning("No arrancó el job automático: %s", e)
+
+
 def servicio() -> Servicio:
     global _servicio
     if _servicio is None:
