@@ -12,7 +12,7 @@ const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var
 const TOKEN = "golmodel.token";
 const LIGAS = { EPL: "Premier League", LL: "LaLiga", SA: "Serie A", BUN: "Bundesliga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", ERE: "Eredivisie", BEL: "Jupiler Pro", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "meter", tenisTour: "atp", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -676,9 +676,9 @@ function vHoy() {
 }
 
 async function vParlays() {
-  const tabs = `<div class="chips ptabs" id="ptabs">${[["meter", "🎯 Qué meter · 3-5"], ["sonadoras", "🎰 Soñadoras · 6-10"]]
+  const tabs = `<div class="chips ptabs" id="ptabs">${[["boletos", "🏆 Boletos de 7"], ["meter", "🎯 Qué meter · 3-5"], ["sonadoras", "🎰 Soñadoras · 6-10"]]
     .map(([k, t]) => `<button class="chip" type="button" data-pt="${k}" aria-pressed="${S.ptab === k}">${t}</button>`).join("")}</div>`;
-  const r = await (S.ptab === "sonadoras" ? vSonadoras() : vMeter());
+  const r = await (S.ptab === "sonadoras" ? vSonadoras() : S.ptab === "boletos" ? vBoletos() : vMeter());
   return {
     html: tabs + r.html,
     alMontar: (v) => {
@@ -686,6 +686,18 @@ async function vParlays() {
       if (r.alMontar) r.alMontar(v);
     },
   };
+}
+
+/* Boletos de 7 piernas al estilo de los que ganó el responsable (2026-11-18): una pierna por partido, de cualquier mercado
+   (Gana, PA(1), goles, ambos anotan, el otro anota, NFL, tenis), en tres niveles de riesgo y sin repetir partidos. */
+async function vBoletos() {
+  const { d, error } = await parlaysUsuario();
+  const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">🏆</b> Boletos de 7</h2>` +
+    `<p class="lead">Tres boletos de 7 partidos, como tus ganadores: <b>seguro</b> (piernas de 75% o más), <b>balanceado</b> (66-85%) y ` +
+    `<b>el que paga más</b> (58-75%). Cada pierna es la jugada más probable de su partido dentro de ese rango (gana, primer gol, goles, ambos anotan…), ` +
+    `hasta 3 días y todos los deportes. Los tres no comparten partidos.</p>`;
+  if (error) return fallo("Boletos", "No se pudieron armar los boletos: " + error);
+  return { html: cab + htmlSeccionParlays(d, "boletos", "Todavía no hay 7 partidos con piernas en el rango") };
 }
 
 // ------------------------------------------------------------------ Soñadoras

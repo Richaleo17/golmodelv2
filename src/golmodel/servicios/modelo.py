@@ -79,6 +79,10 @@ def calibrar(df: pd.DataFrame, cfg: dict, ahora: datetime, cuotas_pre: pd.DataFr
                        w_xg=hp["w_xg"], **fijos)
     pred = pred[pred["omitido"].isna()].merge(df[["partido_id", "inicio", "local", "visitante"]],
                                               on=["inicio", "local", "visitante"])
+    # Segundo modelo (Elo de clubes) en ensamble: se activa solo donde mejora en validación; α se calibra SOBRE el ensamble.
+    from golmodel.modelos import elo_clubes
+    hp["elo"] = elo_clubes.calibrar_ensamble(df, pred, cfg)
+    pred = elo_clubes.aplicar_a_pred(pred, df, hp["elo"], cfg)
     hp["alpha"] = calibrar_alpha(pred, cuotas_pre, cfg["mercado"]["metodo_devig"])
     return hp
 

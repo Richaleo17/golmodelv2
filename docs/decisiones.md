@@ -154,3 +154,14 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   (exige 300 partidos con cuota previa por liga; hoy solo alcanza el agrupado).
 * Pendiente (siguiente paso): segundo modelo (Elo de clubes) en ensamble con Dixon-Coles, que solo se active si en walk-forward le
   gana al mercado en su liga; y otra fuente de xG (Understat bloquea a Render).
+
+### 2026-11-18 (c) · Segundo modelo: Elo de clubes en ensamble · Boletos de 7
+* `modelos/elo_clubes.py`: Elo con nuestro histórico (K 20, diferencia de goles, ventaja local aprendida por liga, regresión 20%
+  entre temporadas) → 1X2 con logit ordenado. Ensamble p = w·DC + (1−w)·Elo, decidido en la calibración semanal (w en el primer
+  60% de la ventana walk-forward, validación en el último 40%; se activa solo si mejora ≥ 0.002 de log loss y solo en las ligas
+  donde mejora). α contra el mercado se calibra DESPUÉS sobre el ensamble.
+  Experimento (football-data 2016-2026, 8 ligas europeas, validación 2025, 1,338 partidos): DC 0.9773 → ensamble (w = 0.6) 0.9731;
+  mejora en EPL, LaLiga, Bundesliga, Ligue 1, Eredivisie y Bélgica; no en Serie A ni Portugal. Pinnacle (cierre): 0.9507, y
+  mezclarlo con DC o ensamble no lo mejora (α = 0 óptimo): el mercado sigue mandando en el 1X2 donde hay cuota.
+* Boletos de 7 (Parlays → 🏆): una pierna por partido de cualquier mercado (Gana, PA(1), goles, ambos anotan, el otro anota,
+  NFL, tenis) en tres bandas de probabilidad por pierna (seguro 75-92%, balanceado 66-85%, paga más 58-75%), sin repetir partidos.
