@@ -435,7 +435,7 @@ async function vMeter() {
   const { d, error } = await parlaysUsuario();
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">03</b> Qué meter</h2>` +
     `<p class="lead">2 a 3 parlays de 3 a 5 partidos. Cada pierna es <b>Gana</b> o <b>PA(1)</b> (anota el primer gol), la más probable de su partido; ` +
-    `se mezclan ligas y hasta 3 días. Las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
+    `se mezclan ligas y hasta 3 días. Si hay juegos de <b>NFL</b> también entran (pierna «Gana», moneyline). Las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
   if (error) return fallo("Qué meter", "No se pudieron armar los parlays: " + error);
   return { html: cab + htmlSeccionParlays(d, "que_meter", "Todavía no hay suficientes partidos para armar parlays") };
 }
@@ -511,7 +511,7 @@ function tablaRangos(rs) {
 }
 
 async function vDashboard() {
-  const r = await api("GET", "/dashboard?dias=60");
+  const [r, rn] = await Promise.all([api("GET", "/dashboard?dias=60"), api("GET", "/nfl/dashboard")]);
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Dashboard</h2>` +
     `<p class="lead">Qué tan seguido se cumple lo que te muestra la app, KPI por KPI, y cómo va mejorando cada día que el modelo aprende. ` +
     `Solo cuenta la predicción que viste <b>antes</b> de cada partido.</p>`;
@@ -533,14 +533,46 @@ async function vDashboard() {
   const pie = `<div class="card"><div class="ind"><span class="lab">ERROR DE PROBABILIDAD (LOG-LOSS 1X2 · MENOS ES MEJOR)</span>` +
     `<span class="txt">App <b>${ll(d.log_loss_app)}</b> · Mercado <b>${ll(d.log_loss_mercado)}</b></span><span class="pct">${d.log_loss_app != null && d.log_loss_mercado != null ? (d.log_loss_app <= d.log_loss_mercado ? "✅" : "⚠️") : ""}</span></div>` +
     `<p class="meta">Línea sólida = app (acumulado) · punteada = mercado · horizontal = línea base histórica. «PA(1)» solo cuenta los partidos donde se sabe quién anotó primero sin el minuto del gol.</p></div>`;
-  return { html: cab + hero + vacio + `<div class="kpis">${ks.map(tarjetaKpi).join("")}</div>` + pie };
+  return { html: cab + hero + vacio + `<div class="kpis">${ks.map(tarjetaKpi).join("")}</div>` + pie + dashboardNfl(rn) };
+}
+
+/* Apartado NFL del Dashboard: récord de la temporada con la predicción previa, curva acumulada semana a semana, cambio vs la
+   semana anterior, contra Las Vegas y contra la temporada pasada. */
+function dashboardNfl(r) {
+  const cab = `<h3>🏈 NFL · efectividad del modelo</h3>`;
+  if (!r || !r.ok) return cab + `<div class="card meta">Sin datos NFL todavía${r && r.error ? ` (${esc(r.error)})` : ""}. Ve a la pestaña NFL → «Actualizar NFL».</div>`;
+  const d = r.data, m = d.desempeno || {}, v = m.vegas || {}, tp = d.temporada_pasada || {};
+  Object.assign(NFL_NOMBRES, d.nombres || {});
+  if (!m.partidos) {
+    return cab + `<div class="card meta">La temporada ${esc(d.temporada)} todavía no tiene juegos evaluados.` +
+      (tp.partidos ? ` Temporada ${esc(tp.temporada)}: <b>${esc(tp.record)}</b> (${pct(tp.pct_aciertos, 1)}).` : "") + `</div>`;
+  }
+  const col = colorP(m.pct_aciertos);
+  const serie = (d.curva || []).map((c) => ({ pct: c.pct_acum, pct_mercado: c.vegas_acum }));
+  const difVegas = v.pct_aciertos != null ? m.pct_aciertos - v.pct_aciertos : null;
+  const chipVegas = difVegas == null ? "" : Math.abs(difVegas) < 0.0005 ? `<span class="chip">igual que Las Vegas</span>`
+    : `<span class="chip ${difVegas > 0 ? "ok" : "rojo"}">${difVegas > 0 ? "le gana" : "por debajo de"} Las Vegas ${signoPts(difVegas)}</span>`;
+  const difPasada = tp.partidos ? m.pct_aciertos - tp.pct_aciertos : null;
+  const chipPasada = difPasada == null ? "" : `<span class="chip ${difPasada >= 0 ? "ok" : "rojo"}">vs temporada ${esc(tp.temporada)} (${pct(tp.pct_aciertos, 1)}): ${signoPts(difPasada)}</span>`;
+  const cal = (m.calibracion || []).map((c) => ({ rango: c.rango, total: c.partidos, aciertos: Math.round(c.pct_real * c.partidos), pct: c.pct_real, esperado: c.prob_media }));
+  const semanas = (d.curva || []).slice().reverse().map((c) => `<tr><td>${esc(c.semana)}</td><td>${esc(c.record)}</td><td>${pct(c.pct_semana)}</td><td><b>${pct(c.pct_acum, 1)}</b></td><td>${c.vegas_acum != null ? pct(c.vegas_acum, 1) : "—"}</td></tr>`).join("");
+  return cab + `<div class="kpis"><div class="kpi kpi-nfl">` +
+    `<div class="kpi-top"><div class="kpi-anillo">${anillo(m.pct_aciertos, col)}<b style="color:${col}">${pct(m.pct_aciertos, 1)}</b></div>` +
+    `<div class="kpi-txt"><div class="kpi-tit">Quién gana · temporada ${esc(d.temporada)}</div><div class="kpi-num">${esc(m.record)} (${esc(m.partidos)} juegos)</div>` +
+    `<div class="delta ${claseDelta(d.delta_semana)}">${d.delta_semana == null ? "esperando la 2.ª semana" : signoPts(d.delta_semana) + " vs la semana anterior"}</div>` +
+    `<div class="meta">esperaba ${num(m.aciertos_esperados, 1)} aciertos · Brier ${num(m.brier, 3)}${v.brier != null ? ` (Las Vegas ${num(v.brier, 3)})` : ""}</div></div></div>` +
+    curva(serie, tp.partidos ? tp.pct_aciertos : null) + `<div class="kpi-chips">${chipVegas}${chipPasada}</div>` +
+    (cal.length ? tablaRangos(cal) : "") +
+    `<details class="rangos"><summary>Semana por semana (acumulado)</summary><table class="nfl"><thead><tr><th>Sem.</th><th>Récord</th><th>% sem.</th><th>% acum.</th><th>Vegas acum.</th></tr></thead><tbody>${semanas}</tbody></table></details>` +
+    `</div></div><p class="meta">Línea sólida = modelo (acumulado por semana) · punteada = favorito de Las Vegas · horizontal = temporada pasada. ` +
+    `Pick = el lado con más de 50%.${m.batacazo ? ` 💥 Batacazo: ${esc(nflNom(m.batacazo.ganador))} ganó con ${pct(m.batacazo.p)}.` : ""}</p>`;
 }
 
 // ------------------------------------------------------------------ Soñadoras
 async function vSonadoras() {
   const { d, error } = await parlaysUsuario();
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">04</b> Soñadoras</h2>` +
-    `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas: <b>Gana</b> o <b>PA(1)</b>, hasta 3 días, sin repetir partidos entre opciones. ` +
+    `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas: <b>Gana</b> o <b>PA(1)</b> (y <b>Gana</b> en NFL si hay juegos), hasta 3 días, sin repetir partidos entre opciones. ` +
     `Son de alto riesgo: juega montos chicos.</p>`;
   if (error) return fallo("Soñadoras", "No se pudieron armar las soñadoras: " + error);
   return { html: cab + htmlSeccionParlays(d, "sonadoras", "Todavía no hay suficientes partidos para una soñadora de 6+") };
@@ -555,6 +587,7 @@ async function vNfl() {
   if (S.rol === "admin") h += `<div class="card"><button id="nfl-act" class="btn" type="button" style="width:100%">Actualizar NFL (calendario, EPA y cuotas ≈ 3 créditos)</button><div id="nfl-prog" class="meta"></div></div>`;
   if (!r.ok) return { html: h + `<div class="card"><p class="error">${esc(r.error)}</p></div>`, alMontar: montarNfl };
   const d = r.data, a = d.actualizacion || {};
+  Object.assign(NFL_NOMBRES, d.nombres || {});
   h += `<div class="aviso-prov">${esc(d.aviso)}</div>`;
   if (a.estado === "error") h += `<p class="error">Última actualización NFL: ${esc(a.error)}</p>`;
   h += `<p class="meta">Historial: ${esc(d.n_juegos_historico)} juegos · σ margen ${num(d.sigma_margen, 1)} · σ total ${num(d.sigma_total, 1)}</p>`;
@@ -576,6 +609,9 @@ async function vNfl() {
   return { html: h, alMontar: montarNfl };
 }
 
+const NFL_NOMBRES = {};
+const nflNom = (a) => NFL_NOMBRES[a] || a;
+
 function nflPronosticos(juegos) {
   const filas = (juegos || []).map((j) => {
     const ml = j.mercados.find((m) => m.mercado === "Moneyline" && m.seleccion === "local");
@@ -583,7 +619,8 @@ function nflPronosticos(juegos) {
     const p = ml.p_final != null ? ml.p_final : ml.p_modelo;
     const loc = p >= 0.5;
     const fecha = j.inicio ? new Date(j.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "";
-    return { eq: loc ? j.local : j.visitante, rival: loc ? j.visitante : j.local, lugar: loc ? "en casa" : "de visita", p: loc ? p : 1 - p, sub: fecha };
+    const eq = loc ? j.local : j.visitante, riv = loc ? j.visitante : j.local;
+    return { eq: nflNom(eq), rival: nflNom(riv), lugar: (loc ? "en casa" : "de visita") + ` · ${riv}`, p: loc ? p : 1 - p, sub: `${eq} · ${fecha}` };
   }).filter(Boolean).sort((a, b) => b.p - a.p);
   if (!filas.length) return "";
   return `<h3>🏈 Mis pronósticos · quién gana</h3>` + barrasRanking(`Semana ${esc(juegos[0].semana)} · de mayor a menor`, filas,
@@ -601,7 +638,7 @@ function nflDesempeno(d) {
     `<p class="meta">Brier ${num(m.brier, 3)} (moneda al aire 0.250${v.brier != null ? ` · Las Vegas ${num(v.brier, 3)}, diferencia ${signo(m.brier - v.brier)}` : ""}) · log loss ${num(m.log_loss, 3)}</p>` +
     `<p class="meta">Eligiendo al local: ${esc(m.aciertos_local)}/${esc(m.picks_local)} · al visitante: ${esc(m.aciertos_visita)}/${esc(m.picks_visita)} · «siempre el local» acertaría ${pct(m.pct_siempre_local, 1)}</p>` +
     (v.partidos ? `<p class="meta">Favorito de Las Vegas: ${pct(v.pct_aciertos, 1)} de aciertos · el modelo coincide con Las Vegas en ${pct(v.coincide, 1)} de los picks</p>` : "") +
-    (m.batacazo ? `<p class="meta">💥 Batacazo de la temporada: <b>${esc(m.batacazo.ganador)}</b> ganó con solo ${pct(m.batacazo.p)} (semana ${esc(m.batacazo.semana)}: ${esc(m.batacazo.marcador)})</p>` : "") +
+    (m.batacazo ? `<p class="meta">💥 Batacazo de la temporada: <b>${esc(nflNom(m.batacazo.ganador))}</b> ganó con solo ${pct(m.batacazo.p)} (semana ${esc(m.batacazo.semana)}: ${esc(m.batacazo.marcador)})</p>` : "") +
     (d.hfa_puntos != null ? `<p class="meta">Ventaja de local aprendida: ${num(d.hfa_puntos, 1)} puntos</p>` : "") + `</div>`;
   if (m.calibracion && m.calibracion.length) {
     h += `<div class="card"><b>Calibración</b> <small class="meta">(si dice 70% y acierta ~70%, se puede confiar en ese rango)</small>` +
@@ -619,11 +656,11 @@ function nflDesempeno(d) {
 
 function nflDestacados(x) {
   if (!x || !x.mas_seguro) return "";
-  const fila = (ico, titulo, f, extra) => `<p>${ico} <b>${titulo}</b> · ${esc(f.partido)} → <b>${esc(f.pick)}</b> ${pct(f.p_pick, 1)}${extra || ""}</p>`;
+  const fila = (ico, titulo, f, extra) => `<p>${ico} <b>${titulo}</b> · ${esc(f.partido)} → <b>${esc(nflNom(f.pick))}</b> ${pct(f.p_pick, 1)}${extra || ""}</p>`;
   return `<h3>⭐ Destacados de los próximos juegos</h3><div class="card">` +
     fila("🔒", "El más seguro", x.mas_seguro) +
     fila("🪙", "La moneda al aire", x.moneda_al_aire, ` <small class="meta">(margen esperado ${num(x.moneda_al_aire.margen, 1)} pts)</small>`) +
-    (x.sorpresa ? fila("😮", "La sorpresa", x.sorpresa, ` <small class="meta">— Las Vegas va con ${esc(x.sorpresa.favorito_vegas)} (${pct(x.sorpresa.p_vegas, 1)})</small>`) : "") +
+    (x.sorpresa ? fila("😮", "La sorpresa", x.sorpresa, ` <small class="meta">— Las Vegas va con ${esc(nflNom(x.sorpresa.favorito_vegas))} (${pct(x.sorpresa.p_vegas, 1)})</small>`) : "") +
     `</div>`;
 }
 
@@ -633,7 +670,7 @@ function nflRanking(r) {
   return `<details class="card"><summary><b>🧠 Ranking Elo (la memoria del modelo)</b></summary>` +
     `<p class="meta">El Elo se ajusta después de cada juego: sube más si ganas por mucho o contra un rival fuerte. Entre temporadas regresa un tercio al promedio.</p>` +
     `<table class="nfl"><thead><tr><th>#</th><th>Equipo</th><th>Elo</th><th>Última sem.</th><th>Temporada</th></tr></thead><tbody>` +
-    r.map((f) => `<tr><td>${esc(f.lugar)}</td><td>${esc(f.equipo)}</td><td>${num(f.elo, 0)}</td><td>${d(f.cambio_semana)}</td><td>${d(f.cambio_temporada)}</td></tr>`).join("") +
+    r.map((f) => `<tr><td>${esc(f.lugar)}</td><td><b>${esc(f.equipo)}</b> <small class="meta">${esc(nflNom(f.equipo))}</small></td><td>${num(f.elo, 0)}</td><td>${d(f.cambio_semana)}</td><td>${d(f.cambio_temporada)}</td></tr>`).join("") +
     `</tbody></table></details>`;
 }
 
@@ -642,7 +679,7 @@ function nflProyeccion(p) {
   return `<details class="card"><summary><b>🎲 Proyección de temporada (Monte Carlo)</b></summary>` +
     `<p class="meta">Miles de temporadas simuladas con el modelo actual. Desempates de la NFL simplificados (sorteo).</p>` +
     `<table class="nfl"><thead><tr><th>Equipo</th><th>V. hoy</th><th>V. proy.</th><th>Playoffs</th><th>División</th><th>Super Bowl</th></tr></thead><tbody>` +
-    p.map((f) => `<tr><td>${esc(f.equipo)} <small class="meta">${esc(f.division)}</small></td><td>${num(f.victorias_actuales, 1)}</td><td>${num(f.victorias_proy, 1)}</td>` +
+    p.map((f) => `<tr><td><b>${esc(f.equipo)}</b> <small class="meta">${esc(nflNom(f.equipo))} · ${esc(f.division)}</small></td><td>${num(f.victorias_actuales, 1)}</td><td>${num(f.victorias_proy, 1)}</td>` +
       `<td><b style="color:${colorP(f.pct_playoffs)}">${pct(f.pct_playoffs)}</b></td><td>${pct(f.pct_division)}</td><td>${pct(f.pct_super_bowl, 1)}</td></tr>`).join("") +
     `</tbody></table></details>`;
 }

@@ -74,14 +74,16 @@ def evaluar(p: dict[str, float], gl: int, gv: int) -> dict[str, bool | None]:
         pa = None                                          # 0-0 (nadie) o ambos anotaron (no se sabe quién primero)
     if tot == 0:
         pa = False                                         # PA(1) pierde con 0-0
+    # bool() explícito: si las probabilidades vienen de numpy, la comparación da numpy.bool y /aciertos no se puede
+    # serializar a JSON (500 en el cuadro de aciertos del Diario, 16-11-2026).
     return {
-        "Ganador": gf > gr,
-        "Ambos anotan": (gl > 0 and gv > 0) == (p["btts"] >= 0.5),
-        "Más de 1.5": (tot >= 2) == (p["o15"] >= 0.5),
-        "Más de 2.5": (tot >= 3) == (p["o25"] >= 0.5),
-        "Menos de 3.5": (tot <= 3) == (p["u35"] >= 0.5),
+        "Ganador": bool(gf > gr),
+        "Ambos anotan": bool((gl > 0 and gv > 0) == (p["btts"] >= 0.5)),
+        "Más de 1.5": bool((tot >= 2) == (p["o15"] >= 0.5)),
+        "Más de 2.5": bool((tot >= 3) == (p["o25"] >= 0.5)),
+        "Menos de 3.5": bool((tot <= 3) == (p["u35"] >= 0.5)),
         "PA(1) primer gol": pa,
-        "El otro anota": (gr > 0) == ((p["av"] if fav_l else p["al"]) >= 0.5),
+        "El otro anota": bool((gr > 0) == ((p["av"] if fav_l else p["al"]) >= 0.5)),
     }
 
 

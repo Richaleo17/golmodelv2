@@ -90,15 +90,32 @@ def actualizar(conn, fuente: FuenteNFL, cfg: dict, ahora: datetime) -> dict:
     return res
 
 
+_CACHE_ESTADO: dict = {}
+
+
 def _estado(conn, cfg: dict, desde_temporada: int | None = None) -> tuple[md.EstadoNFL, list[dict]]:
-    """Estado del modelo (todo el histórico, juego a juego) y la predicción previa de cada juego desde `desde_temporada`."""
+    """Estado del modelo (todo el histórico, juego a juego) y la predicción previa de cada juego desde `desde_temporada`.
+    Se guarda en memoria hasta que cambian los datos (marcadores, EPA) o la configuración del modelo."""
+    firma = conn.execute("""SELECT (SELECT count(*) FROM nfl_juegos WHERE puntos_local IS NOT NULL) AS n,
+                                   (SELECT max(actualizado_en) FROM nfl_juegos) AS t,
+                                   (SELECT count(*) FROM nfl_epa_juego) AS e, current_database() AS db""").fetchone()
+    clave = (firma["db"], firma["n"], str(firma["t"]), firma["e"], repr(sorted(cfg["nfl"]["modelo"].items())))
+    if _CACHE_ESTADO.get("clave") != clave:          # se guardan TODOS los registros; cada vista filtra su temporada
+        _CACHE_ESTADO.update(clave=clave, valor=_estado_sin_cache(conn, cfg, 0))
+    est, registros = _CACHE_ESTADO["valor"]
+    if desde_temporada is None:
+        return est, []
+    return est, [r for r in registros if r["temporada"] >= desde_temporada]
+
+
+def _estado_sin_cache(conn, cfg: dict, desde_temporada: int | None) -> tuple[md.EstadoNFL, list[dict]]:
     juegos = [md.Juego(r["juego_id"], r["temporada"], r["semana"], r["local"], r["visitante"], r["puntos_local"],
                        r["puntos_visitante"], r["neutral"], r["tipo"])
               for r in conn.execute("SELECT * FROM nfl_juegos WHERE puntos_local IS NOT NULL")]
     epa: dict = defaultdict(dict)
     for r in conn.execute("SELECT juego_id, equipo, epa_of, epa_def, jugadas FROM nfl_epa_juego"):
         epa[r["juego_id"]][r["equipo"]] = (r["epa_of"], r["epa_def"], r["jugadas"])
-    return ev.recorrer(juegos, cfg, epa, desde_temporada=desde_temporada if desde_temporada is not None else 10**6)
+    return ev.recorrer(juegos, cfg, epa, desde_temporada=desde_temporada)
 
 
 def _ultimas_cuotas(conn, juego_id: str) -> list[dict]:
@@ -187,7 +204,7 @@ def semana(conn, cfg: dict, ahora: datetime) -> dict:
             f["valor"] = bool(f.get("p_mercado") is not None and f["p_final"] - f["p_mercado"] >= umbral and f.get("ev", -1) > 0)
         juegos.append(salida)
     return {"juegos": juegos, "n_juegos_historico": est.n_juegos, "sigma_margen": sig_m, "sigma_total": sig_t,
-            "version": md.VERSION, "aviso": n["aviso"], "peso_modelo": alfa,
+            "version": md.VERSION, "aviso": n["aviso"], "peso_modelo": alfa, "nombres": NOMBRES,
             "hfa_puntos": md.hfa_elo(est, cfg) / float(n["modelo"]["elo_por_punto"]),
             **resumen_temporada(conn, cfg, est, registros, actual, juegos, sig_m)}
 
@@ -251,3 +268,70 @@ def resumen_temporada(conn, cfg: dict, est: md.EstadoNFL, registros: list[dict],
 
 
 _CACHE_SIM: dict = {}
+
+
+def dashboard(conn, cfg: dict, ahora: datetime) -> dict:
+    """Efectividad del modelo NFL para el Dashboard: temporada actual (con la predicción previa a cada juego), su curva
+    acumulada semana a semana, el cambio contra la semana anterior y la temporada pasada como punto de comparación."""
+    n = cfg["nfl"]
+    actual = temporada_actual(ahora)
+    est, registros = _estado(conn, cfg, desde_temporada=actual - 1)
+    sig = float(n["modelo"]["sigma_margen"])
+    if est.n_juegos >= int(n["modelo"]["min_juegos_sigma"]):
+        sig = md.ajustar_sigmas(est)[0]
+    vegas = {}
+    for t in (actual - 1, actual):
+        vegas.update({k: v for k, v in _vegas(conn, t, sig).items() if v is not None})
+    reg = [r for r in registros if r["temporada"] == actual and r["tipo"] == "REG"]
+    previa = [r for r in registros if r["temporada"] == actual - 1]
+    m = ev.metricas(reg, vegas)
+    curva, acum = [], []
+    for w in sorted({r["semana"] for r in reg}):
+        acum += [r for r in reg if r["semana"] == w]
+        ma = ev.metricas(acum, vegas)
+        sem = ev.metricas([r for r in reg if r["semana"] == w], vegas)
+        curva.append({"semana": w, "record": sem["record"], "pct_semana": sem["pct_aciertos"], "pct_acum": ma["pct_aciertos"],
+                      "brier_acum": ma["brier"], "vegas_acum": ma.get("vegas", {}).get("pct_aciertos")})
+    delta = curva[-1]["pct_acum"] - curva[-2]["pct_acum"] if len(curva) >= 2 else None
+    mp = ev.metricas(previa, vegas) if previa else {"partidos": 0}
+    return {"temporada": actual, "desempeno": m, "curva": curva, "delta_semana": delta,
+            "temporada_pasada": {k: mp.get(k) for k in ("partidos", "record", "pct_aciertos", "brier")} | {"temporada": actual - 1},
+            "nombres": NOMBRES, "version": md.VERSION}
+
+
+def piernas_parlay(conn, cfg: dict, ahora: datetime, hasta: datetime, p_min: float) -> list[dict]:
+    """Piernas NFL para «Qué meter» y «Soñadoras»: «Gana <equipo>» (moneyline) con la probabilidad final (modelo mezclado
+    con Las Vegas cuando hay cuota), solo juegos que no han empezado y con p ≥ p_min. Mismo formato que las de fútbol."""
+    from zoneinfo import ZoneInfo
+    n = cfg["nfl"]
+    zona = ZoneInfo(cfg["zona_horaria"])
+    u = float(cfg["valor"]["umbral_edge"])
+    alfa = float(n.get("peso_modelo", 1.0))
+    est, _ = _estado(conn, cfg, desde_temporada=None)
+    sig = float(n["modelo"]["sigma_margen"])
+    if est.n_juegos >= int(n["modelo"]["min_juegos_sigma"]):
+        sig = md.ajustar_sigmas(est)[0]
+    casas = list(n["casas_preferidas"])
+    salida = []
+    for j in conn.execute("""SELECT * FROM nfl_juegos WHERE puntos_local IS NULL AND inicio > %s AND inicio < %s
+                             ORDER BY inicio""", (ahora, hasta)):
+        pr = md.prediccion(est, j["local"], j["visitante"], cfg, j["neutral"])
+        ml = mk.moneyline(pr["mu_margen"], sig)
+        h2h = _mercado(_ultimas_cuotas(conn, j["juego_id"]), "h2h", casas)
+        p_loc = alfa * ml["local"] + (1 - alfa) * h2h["p_mercado"]["local"] if h2h else ml["local"]
+        lado = "local" if p_loc >= 0.5 else "visitante"
+        p = p_loc if lado == "local" else 1 - p_loc
+        if p < p_min:
+            continue
+        eq = j[lado]
+        loc_dt = j["inicio"].astimezone(zona)
+        salida.append({"partido_id": f"nfl:{j['juego_id']}", "dia": str(loc_dt.date()),
+                       "dia_texto": f"{('lun', 'mar', 'mié', 'jue', 'vie', 'sáb', 'dom')[loc_dt.weekday()]} {loc_dt.day:02d}/{loc_dt.month:02d}",
+                       "hora": loc_dt.strftime("%H:%M"), "inicio": loc_dt.isoformat(), "liga": "🏈 NFL",
+                       "partido": f"{NOMBRES.get(j['local'], j['local'])} vs {NOMBRES.get(j['visitante'], j['visitante'])}",
+                       "tipo": "nfl_gana", "jugada": f"Gana {NOMBRES.get(eq, eq)}",
+                       "detalle": "gana el juego (moneyline, incluye tiempo extra)" + ("" if lado == "local" else " · de visita"),
+                       "p": p, "cuota_justa": 1 / p, "cuota_min": (1 + u) / p, "confianza": None,
+                       "fuente": "modelo NFL + Las Vegas" if h2h else "modelo NFL (sin cuota)",
+                       "cuota": h2h[lado]["cuota"] if h2h else None})
+    return salida

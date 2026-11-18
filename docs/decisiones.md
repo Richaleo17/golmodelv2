@@ -117,3 +117,11 @@ comparación, Monte Carlo de temporada y seguimiento semanal en reels). Walk-for
   (α = 0 → 0.2096; α = 0.1 → 0.2101). `nfl.peso_modelo: 0.15` define `p_final` y el «valor» se mide con ella: antes cualquier
   diferencia de 4 pts del Elo contra Las Vegas se marcaba como valor, y el walk-forward dice que esas diferencias son mayormente ruido.
 * Pendiente: calibrar `peso_epa` (requiere descargar el play-by-play histórico) y un ajuste por cambio de quarterback.
+
+### 2026-11-16 (b) · NFL en el Dashboard y en los parlays; nombres completos
+* Dashboard: apartado «🏈 NFL · efectividad del modelo» (`/nfl/dashboard`): récord de la temporada con la predicción previa a
+  cada juego, curva acumulada semana a semana, cambio vs la semana anterior, contra el favorito de Las Vegas y contra la temporada
+  pasada, calibración por rango y batacazo.
+* Qué meter / Soñadoras: suman piernas NFL «Gana <equipo>» (moneyline, `p_final` = 15% modelo + 85% Las Vegas) con la misma regla
+  `p ≥ p_min` y la misma ventana de días (`parlays_usuario.incluir_nfl`). Si la NFL falla, siguen los parlays de fútbol con aviso.
+* Pestaña NFL: nombre completo de cada equipo junto a la abreviatura. El estado del modelo NFL se cachea hasta que cambian los datos.
