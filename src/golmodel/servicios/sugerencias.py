@@ -176,7 +176,7 @@ def _cargar(conn, d: date) -> list[dict]:
         JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
         LEFT JOIN LATERAL (SELECT * FROM predicciones x WHERE x.partido_id = p.id AND x.origen = 'produccion'
                            ORDER BY x.creada_en DESC LIMIT 1) pr ON true
-        WHERE dia_mx(p.inicio) = %s AND p.estado NOT IN ('cancelado', 'abandonado', 'pospuesto')
+        WHERE l.activa AND dia_mx(p.inicio) = %s AND p.estado NOT IN ('cancelado', 'abandonado', 'pospuesto')
         ORDER BY p.inicio, l.codigo, el.nombre
     """, (d,)).fetchall()
 
@@ -468,7 +468,7 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
         modelo_equipos = {r["equipo_id"] for r in conn.execute(
             "SELECT equipo_id FROM parametros_equipo WHERE version_id = %s", (ultimo["id"],))}
     sin_historico = {r["codigo"] for r in conn.execute("""
-        SELECT l.codigo FROM ligas l WHERE NOT EXISTS (SELECT 1 FROM partidos p WHERE p.liga_id = l.id
+        SELECT l.codigo FROM ligas l WHERE l.activa AND NOT EXISTS (SELECT 1 FROM partidos p WHERE p.liga_id = l.id
                                                        AND p.estado = 'finalizado')""")}
     casa_ej = cfg["mercado"]["casa_ejecucion"]
     from golmodel.servicios import calibracion_kpi

@@ -10,7 +10,7 @@ const num = (x, d = 2) => (x == null ? "—" : Number(x).toFixed(d));
 const hoyMX = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
 const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var(--lo)");
 const TOKEN = "golmodel.token";
-const LIGAS = { EPL: "Premier League", LL: "LaLiga", SA: "Serie A", BUN: "Bundesliga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", ERE: "Eredivisie", BEL: "Jupiler Pro", POR: "Primeira Liga" };
+const LIGAS = { LL: "LaLiga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", POR: "Primeira Liga" };
 
 const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
 
@@ -29,6 +29,10 @@ async function api(metodo, ruta, cuerpo) {
   if (r.status === 401 && ruta !== "/auth/login") { cerrarSesion("Tu sesión venció. Vuelve a entrar."); return { ok: false, status: 401, error: "Sesión vencida." }; }
   let d = null;
   try { d = await r.json(); } catch (e) { /* sin cuerpo JSON */ }
+  if (r.status === 403 && d && /bloqueado/i.test(String(d.detail || "")) && ruta !== "/auth/login") {
+    cerrarSesion("Tu acceso fue bloqueado por el administrador.");
+    return { ok: false, status: 403, error: d.detail };
+  }
   if (!r.ok) {
     const det = d && d.detail;
     return { ok: false, status: r.status, error: det ? (typeof det === "string" ? det : JSON.stringify(det)) : "Error " + r.status };
@@ -1105,6 +1109,44 @@ function montarCatalogo(v) {
 }
 
 /* ¿Qué competiciones ofrece The Odds API? Responde con certeza si existe, p. ej., Liga MX Femenil (en vez de adivinar su clave). */
+const fechaHora = (x) => (x ? new Date(x).toLocaleString("es-MX", { timeZone: "America/Mexico_City", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) : "nunca");
+const EVENTO = { login: "entró", sesion: "activo", login_fallido: "intento fallido", bloqueado: "bloqueado intentó entrar" };
+
+async function montarAccesos(v) {
+  const z = $("#acc-panel", v);
+  if (!z) return;
+  const pintar = async (nuevo) => {
+    const [u, a] = await Promise.all([api("GET", "/admin/usuarios"), api("GET", "/admin/accesos?limite=40")]);
+    if (!u.ok) { z.innerHTML = `<p class="error">${esc(u.error)}</p>`; return; }
+    const gente = u.data.usuarios || [];
+    let h = `<div class="card"><p class="meta">Cada persona entra con su propio código (solo consulta). Aquí ves quién entra y puedes bloquear a alguien sin cambiar la contraseña de los demás.</p>` +
+      `<div style="display:flex;gap:8px"><input id="acc-nombre" type="text" maxlength="60" placeholder="Nombre de la persona" aria-label="Nombre de la persona" style="flex:1"><button id="acc-crear" class="btn primario" type="button">Crear código</button></div>`;
+    if (nuevo) h += `<div class="aviso-prov" style="margin-top:10px">Código de <b>${esc(nuevo.nombre)}</b>: <b class="mono" style="font-size:18px;letter-spacing:1px">${esc(nuevo.codigo)}</b><br><span class="meta">Entrégaselo ahora: no se vuelve a mostrar (en la base solo queda su huella).</span></div>`;
+    h += `<div id="acc-err" class="error"></div></div>`;
+    h += gente.length ? `<div class="card"><table class="t"><tr><th>Persona</th><th>Última vez</th><th>7 días</th><th></th></tr>` + gente.map((g) =>
+      `<tr><td>${g.bloqueado ? "🚫 " : ""}${esc(g.nombre)}${g.nota ? `<div class="meta">${esc(g.nota)}</div>` : ""}</td><td>${esc(fechaHora(g.ultimo_acceso))}</td><td>${esc(g.accesos_7d)}</td>` +
+      `<td><button class="btn" type="button" data-bloq="${esc(g.id)}" data-val="${g.bloqueado ? "0" : "1"}">${g.bloqueado ? "Reactivar" : "Bloquear"}</button></td></tr>`).join("") + `</table></div>`
+      : `<div class="card vacio">Aún no hay personas con código propio. Quien use la contraseña compartida de solo consulta no se puede identificar ni bloquear por separado.</div>`;
+    const acc = a.ok ? a.data.accesos || [] : [];
+    h += `<details><summary>Últimos accesos (${acc.length})</summary><div class="card"><table class="t"><tr><th>Cuándo</th><th>Quién</th><th>Qué</th><th>Dispositivo · IP</th></tr>` +
+      acc.map((x) => `<tr><td>${esc(fechaHora(x.ts))}</td><td>${esc(x.quien)}</td><td>${esc(EVENTO[x.evento] || x.evento)}</td><td class="meta">${esc(x.dispositivo || "?")} · ${esc(x.ip || "?")}</td></tr>`).join("") + `</table></div></details>`;
+    z.innerHTML = h;
+    $("#acc-crear", z).addEventListener("click", async () => {
+      const nombre = $("#acc-nombre", z).value.trim();
+      const r = await api("POST", "/admin/usuarios", { nombre });
+      if (!r.ok) { $("#acc-err", z).textContent = r.error; return; }
+      pintar(r.data);
+    });
+    z.querySelectorAll("[data-bloq]").forEach((b) => b.addEventListener("click", async () => {
+      b.disabled = true;
+      const r = await api("POST", `/admin/usuarios/${b.dataset.bloq}/bloquear`, { bloqueado: b.dataset.val === "1" });
+      if (!r.ok) { $("#acc-err", z).textContent = r.error; b.disabled = false; return; }
+      pintar();
+    }));
+  };
+  pintar();
+}
+
 function montarCompeticiones(v) {
   const b = $("#comp-rev", v), z = $("#comp-res", v);
   if (!b) return;
@@ -1157,6 +1199,7 @@ async function vDatos() {
     h += `<h3>🌎 Competiciones solo mercado</h3><div class="card"><p class="meta">Revisa qué competiciones ofrece The Odds API (p. ej. si existe <b>Liga MX Femenil</b> y con qué nombre). No gasta créditos.</p>` +
       `<button id="comp-rev" class="btn" type="button" style="width:100%">Revisar qué ofrece The Odds API</button><div id="comp-res"></div></div>`;
   }
+  if (S.rol === "admin") h += `<h3>👥 Accesos</h3><div id="acc-panel"><p class="vacio"><span class="spin"></span>Cargando…</p></div>`;
   h += `<h3>📝 Pendientes</h3><div class="card meta">Nombres de equipo por revisar: <b>${esc(e.alias_pendientes)}</b> · conflictos de datos abiertos: <b>${esc(e.conflictos_abiertos)}</b>. Se resuelven en la versión completa de escritorio (Streamlit, puerto 8501 en tu computadora); no afectan lo que ves aquí.</div>`;
   const u = e.ultima_ejecucion;
   if (u) h += `<h3>🧾 Última actualización</h3><div class="card meta">${esc(u.tipo)} · ${esc(u.estado)}${(u.etapas || []).map((x) => `<br>${x.estado === "ok" ? "✅" : x.estado === "error" ? "❌" : "•"} ${esc(x.etapa)}${x.error ? " — " + esc(x.error) : ""}`).join("")}</div>`;
@@ -1166,6 +1209,7 @@ async function vDatos() {
       montarCatalogo(v);
       montarCompeticiones(v);
       if (S.rol !== "admin") return;
+      montarAccesos(v);
       Object.keys(TIPOS).forEach(async (k) => {
         const c = await api("GET", "/costo/" + k);
         const el = $("#costo-" + k, v);

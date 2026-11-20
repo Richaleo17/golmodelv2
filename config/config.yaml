@@ -5,7 +5,11 @@ zona_horaria: America/Mexico_City
 
 # Cada liga activa gasta ~2 créditos de The Odds API por actualización, pero SOLO si ese día tiene partidos.
 # Si te quedas corto de créditos (plan gratis: 500 al mes), quita ligas de esta lista.
-ligas_activas: [EPL, LL, SA, BUN, L1, MX1, MXF, MLS, BR1, ERE, BEL, POR]
+ligas_activas: [LL, L1, MX1, MXF, MLS, BR1, POR]
+# Ligas FUERA del sistema (2026-11-20, decisión del responsable: precisión sobre cobertura). Se aplican a `ligas.activa` al arrancar la API
+# (repositorio.sincronizar_ligas): no salen en panel, sugerencias, parlays, Dashboard ni calibración y no gastan créditos. Las filas
+# históricas NO se borran (cuotas, predicciones y picks son inmutables = auditoría). Quitar un código de aquí la reactiva.
+ligas_excluidas: [EPL, SA, BUN, ERE, BEL, "MK:soccer_japan_j_league"]
 historico:
   temporadas: 5            # + la temporada en curso
   # EPL y SA: xG de Understat (goles + xG). MX1, MLS, BR1: solo goles.
@@ -77,6 +81,9 @@ auto:
                                    # cada hora todo el día (siempre hay algún partido cerca en alguna liga): ~640 créditos/día
   horas_cerca: 3
   otros_deportes: true             # tras la diaria: NFL y tenis
+  alineaciones: true               # «solo_alineaciones» antes de cada partido con id de API-Football (hoy ninguno: el plan gratis no cubre la temporada actual)
+  alineaciones_cada_min: 15
+  alineaciones_ventana_min: 90
   reintentos: 2
 
 modelo:
@@ -185,9 +192,9 @@ competiciones_mercado:
   max_creditos_por_actualizacion: 60     # tope de créditos (2 por competición con partidos); era 16 con el plan gratis
   max_creditos_resultados: 40            # resultados (/scores, 2 créditos c/u) de TODAS las competiciones solo-mercado con partidos pendientes de cerrar + selecciones
   patrones: [uefa_champs, uefa_europa, uefa_conf, nations_league, friendl, qualif, world_cup, euro,
-             efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan,
+             efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi,
              libertadores, sudamericana, concacaf, copa]
-  excluir: [winner, outright, women, womens]
+  excluir: [winner, outright, women, womens, japan]
   # Femeniles INCLUIDAS por decisión del responsable (2026-11-10) aunque `excluir` tenga women/womens. Reglas de TOKENS sobre la clave del deporte de
   # The Odds API (cada grupo = alternativas; deben aparecer los 3 grupos/2 grupos). Las claves exactas NO están verificadas (sin acceso a GET /v4/sports):
   # si la API no ofrece la competición, no aparece. Sin histórico ni modelo: solo mercado, sin picks ni tickets V3, fuera de la calibración.
@@ -199,7 +206,7 @@ competiciones_mercado:
 # Mercados NUEVOS (2026-11-11). Modelos PARALELOS: no cambian Dixon-Coles, la matriz de goles ni los tickets V3.
 # Valores de diseño, PROVISIONALES hasta medirlos en walk-forward con datos reales.
 corners:
-  ligas: [EPL, LL, SA, BUN, L1, ERE, BEL, POR]   # las que traen córners en los CSV de football-data (HC/AC). Árbitro: solo EPL.
+  ligas: [LL, L1, POR]   # las que traen córners en los CSV de football-data (HC/AC). Árbitro: solo EPL.
   decaimiento_xi: 0.002            # mismo orden que el modelo de goles (vida media ≈ 1 año)
   l2: 2.0                          # encogimiento de ataque/concede hacia el promedio
   l2_arbitro: 20.0                 # el efecto árbitro se encoge mucho (es pequeño y ruidoso)
@@ -210,7 +217,7 @@ corners:
 
 tarjetas:                          # amarillas por equipo (mismo modelo NB que córners; HY/AY de football-data)
   activo: true
-  ligas: [EPL, LL, SA, BUN, L1, ERE, BEL, POR]
+  ligas: [LL, L1, POR]
   decaimiento_xi: 0.002
   l2: 3.0
   l2_arbitro: 5.0                  # en tarjetas el árbitro pesa mucho más que en córners: se encoge menos
@@ -219,7 +226,7 @@ tarjetas:                          # amarillas por equipo (mismo modelo NB que c
   lineas_total: [2.5, 3.5, 4.5, 5.5]
 
 props:
-  ligas: [EPL, SA, LL, BUN, L1]    # las que tienen xG por jugador (Understat)
+  ligas: [LL, L1]    # las que tienen xG por jugador (Understat)
   minutos_min_temporada: 450       # menos minutos = sin prop (muestra chica)
   minutos_titular: 85
   minutos_suplente: 15

@@ -44,9 +44,16 @@ def decidir(metodo: str, ruta: str, authorization: str | None, env: Mapping[str,
     rol = acceso.validar_token(token, acceso.secreto(admin, lector, env))
     if rol is None:
         return 401, "No autenticado: inicia sesión.", None
-    if rol != acceso.ADMIN and metodo.upper() not in METODOS_LECTURA:
+    if rol != acceso.ADMIN and (metodo.upper() not in METODOS_LECTURA or ruta.startswith("/admin")):
         return 403, "Solo el administrador puede hacer esto.", rol
     return None, None, rol
+
+
+def identidad(authorization: str | None, env: Mapping[str, str]) -> tuple[str, int | None] | None:
+    """(rol, uid) del token de la petición (uid solo si la persona entró con su código propio). None si no hay token válido."""
+    admin, lector = acceso.claves_desde_env(env)
+    token = authorization[7:].strip() if authorization and authorization[:7].lower() == "bearer " else None
+    return acceso.leer_token(token, acceso.secreto(admin, lector, env))
 
 
 limitador = acceso.Limitador()

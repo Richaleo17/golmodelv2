@@ -173,7 +173,7 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
                p.visitante_id::text AS visitante, p.goles_local, p.goles_visitante,
                p.xg_local::float8 AS xg_local, p.xg_visitante::float8 AS xg_visitante, p.estado
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
-        WHERE p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
+        WHERE l.activa AND p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
         ORDER BY p.inicio""" if sin_est else """
         SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.temporada, p.local_id::text AS local,
                p.visitante_id::text AS visitante, p.goles_local, p.goles_visitante,
@@ -182,7 +182,7 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
                         + %(b)s * greatest(e.tiros_visitante - e.tiros_arco_visitante, 0))::float8 AS xg_visitante, p.estado
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
         LEFT JOIN estadisticas_partido e ON e.partido_id = p.id
-        WHERE p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
+        WHERE l.activa AND p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
         ORDER BY p.inicio
     """), {"a": a, "b": b, "h": hasta}).fetchall()
     df = pd.DataFrame(filas)
@@ -195,6 +195,15 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
     for c in ("xg_local", "xg_visitante"):
         df[c] = pd.to_numeric(df[c], errors="coerce").astype(float)
     return df
+
+
+def sincronizar_ligas(conn, cfg: dict) -> list[str]:
+    """Aplica `ligas_excluidas` (config) a la columna `ligas.activa`. Las excluidas dejan de aparecer en el panel, las sugerencias,
+    los parlays, el Dashboard y la calibración, y dejan de gastar créditos. NO se borran filas (cuotas, predicciones y picks son
+    inmutables por diseño: son la auditoría). Quitar una liga de la lista la reactiva. Devuelve los códigos que quedaron inactivos."""
+    excluidas = [str(x) for x in (cfg.get("ligas_excluidas") or [])]
+    conn.execute("UPDATE ligas SET activa = (codigo <> ALL(%s))", (excluidas,))
+    return [r["codigo"] for r in conn.execute("SELECT codigo FROM ligas WHERE NOT activa ORDER BY codigo")]
 
 
 def asegurar_liga_mercado(conn, clave_deporte: str, titulo: str) -> dict:
@@ -232,7 +241,7 @@ def partidos_de_dias(conn, dias: list[date]) -> list[dict]:
         SELECT p.*, l.codigo AS liga, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
         JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
-        WHERE dia_mx(p.inicio) = ANY(%s) AND p.estado = 'programado'
+        WHERE l.activa AND dia_mx(p.inicio) = ANY(%s) AND p.estado = 'programado'
         ORDER BY p.inicio
     """, (dias,)).fetchall()
 

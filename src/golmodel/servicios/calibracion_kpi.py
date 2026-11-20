@@ -99,7 +99,8 @@ def ajustar_kpi(kpi: str, filas: list[tuple[str, float, bool]], cfg: dict) -> Re
 def correr(conn, cfg: dict) -> list[dict]:
     """Ajusta las 6 subramas con todo el histórico guardado y guarda una versión por KPI (solo si cambió algo)."""
     filas: dict[str, list] = {k: [] for k in KPIS}
-    for r in conn.execute("""SELECT kpi, dia, p, acierto FROM dashboard_registro WHERE fuente = 'decision' AND acierto IS NOT NULL""").fetchall():
+    for r in conn.execute("""SELECT kpi, dia, p, acierto FROM dashboard_registro d JOIN partidos pp ON pp.id = d.partido_id JOIN ligas ll ON ll.id = pp.liga_id
+                             WHERE ll.activa AND d.fuente = 'decision' AND d.acierto IS NOT NULL""").fetchall():
         if r["kpi"] in filas:
             filas[r["kpi"]].append((str(r["dia"]), r["p"], r["acierto"]))
     out = []

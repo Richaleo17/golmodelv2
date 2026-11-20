@@ -445,7 +445,7 @@ class Pipeline:
             with st.conn.transaction():
                 pendientes = {r["clave"] for r in st.conn.execute("""
                     SELECT DISTINCT l.odds_api_sport_key AS clave FROM partidos p JOIN ligas l ON l.id = p.liga_id
-                    WHERE l.solo_mercado AND l.odds_api_sport_key IS NOT NULL AND p.estado = 'programado'
+                    WHERE l.activa AND l.solo_mercado AND l.odds_api_sport_key IS NOT NULL AND p.estado = 'programado'
                       AND p.inicio < now() - interval '2 hours' AND p.inicio > now() - interval '3 days'""").fetchall()}
         except Exception:                                         # noqa: BLE001
             pendientes = set()

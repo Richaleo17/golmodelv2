@@ -234,7 +234,7 @@ def _cuota_de(df: pd.DataFrame, seleccion: str, cfg: dict) -> float | None:
 def candidatas_dia(conn, dia: date, cfg: dict, ahora: datetime) -> tuple[list[sa.CandidataExt], list[dm.PartidoExt], float]:
     from golmodel.servicios.sugerencias import texto_jugada
     partidos = conn.execute("""SELECT p.id FROM partidos p JOIN ligas l ON l.id = p.liga_id
-                               WHERE dia_mx(p.inicio) = %s AND p.estado = 'programado' AND NOT l.solo_mercado
+                               WHERE l.activa AND dia_mx(p.inicio) = %s AND p.estado = 'programado' AND NOT l.solo_mercado
                                ORDER BY p.inicio""", (dia,)).fetchall()
     cands, exts, rhos = [], [], []
     for r in partidos:
