@@ -50,6 +50,8 @@ class Servicio:
             migraciones.aplicar(c)
             if self.registrador is not None:       # construcción real (producción/local); las pruebas inyectan proveedores simulados
                 repo.sincronizar_ligas(c, self.cfg)
+                for nombre, dup, liga in repo.reparar_duplicados_mercado(c):
+                    logging.getLogger(__name__).warning("Equipo duplicado fundido: %s (%s → %s)", nombre, dup, liga)
                 c.commit()
             c.close()
         except psycopg.Error as e:

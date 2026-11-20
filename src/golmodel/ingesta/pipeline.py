@@ -369,6 +369,10 @@ class Pipeline:
                     p = repo.buscar_partido(st.conn, liga["id"], lid, vid, q.inicio or st.ahora) if lid and vid else None
                 if p is None:
                     res["sin_partido"] += 1
+                    detalle = res.setdefault("sin_partido_detalle", [])
+                    resumen = f"{codigo}: {q.local} vs {q.visitante}"
+                    if len(detalle) < 30 and resumen not in detalle:
+                        detalle.append(resumen)                         # visible en el resumen de la etapa: qué eventos no encontraron su partido
                     continue
                 if q.id_partido_externo and r.proveedor == "odds_api" and not p["odds_api_id"]:
                     st.conn.execute("""UPDATE partidos SET odds_api_id = %s WHERE id = %s

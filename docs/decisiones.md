@@ -177,3 +177,40 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
 * Córners y tarjetas salen del desplegable: mosaico en el Diario (la línea más cercana a 72% de probabilidad), en el Ranking
   (🚩 / 🟨) y como piernas posibles de los Boletos de 7.
 * Corrección: `llamadas_api` no aceptaba el proveedor `tennis_data` (CheckViolation): toda descarga de tenis habría fallado.
+
+### 2026-11-20 · Ligas fuera, equipos duplicados, acceso por persona, alineaciones, NBA
+* **Ligas excluidas** (decisión del responsable: precisión sobre cobertura): EPL, Serie A, Bundesliga, Eredivisie, Pro League (Bélgica) y
+  la J League. `config.ligas_excluidas` → `ligas.activa = false` (`repositorio.sincronizar_ligas`, al arrancar la API). Fuera del panel,
+  sugerencias, parlays, Dashboard, calibración (`historial`, `calibracion_kpi`), córners/tarjetas/props, cierres y créditos. NO se
+  borraron filas: cuotas, predicciones y picks son inmutables por diseño (triggers = auditoría); borrarlas exigiría desactivarlos.
+  Quitar un código de la lista reactiva la liga. `japan` sale de las competiciones solo-mercado.
+* **Equipos duplicados (causa de los «juegos que no aparecen»)**: las competiciones solo-mercado (Champions, Copa, Segunda…) creaban
+  «Real Madrid», «Barcelona», «Lyon»… con `pais` vacío y un alias de The Odds API; el resolvedor de la liga devolvía ese duplicado y
+  las cuotas de LaLiga/Ligue 1 no encontraban su partido (en silencio: solo un contador `sin_partido`; hoy 6 de 10 partidos de LaLiga y
+  3 de 9 de Ligue 1 sin una cuota). ~33 duplicados medidos en producción, más los de nombre distinto (Celta Vigo/Celta, Real Betis/Betis).
+  Arreglo: (1) el resolvedor da prioridad a la tabla explícita `alias_equipos.yaml`, ignora los alias hacia duplicados de pais vacío y
+  los funde (`fusionar_equipo`); (2) `equipo_mercado` ya no crea un equipo si existe en una liga con modelo; (3) `reparar_duplicados_mercado`
+  corre al arrancar; (4) el resumen de la etapa de cuotas lista `sin_partido_detalle`. El historial del modelo de clubes excluye las
+  competiciones solo-mercado (siguen fuera de la calibración, como dice su sección de config).
+  También se corrige el alias automático equivocado «Paris Saint-Germain FC → Paris FC» (y «RCD Espanyol de Barcelona → Barcelona»): lo
+  corrige la tabla explícita. Los partidos YA guardados con el PSG como «Paris FC» (p. ej. el del 7-nov contra Troyes) NO se tocaron:
+  hace falta el calendario autoritativo para reasignarlos; quedan señalados en el resumen.
+* **Acceso por persona** (`usuarios.py`, migración 013): cada persona entra con su código (solo se guarda su huella), el token lleva su
+  id, bloquear es inmediato (caché de 15 s) y se registra quién entra (login, fallidos, bloqueos y un latido cada 10 min con ruta, IP
+  real detrás del proxy y dispositivo). `/admin/*` solo para el administrador; panel en Datos → Accesos. La contraseña compartida de
+  lector sigue funcionando (no se puede identificar ni bloquear por separado): quitar `APP_VIEWER_PASSWORD` fuerza el uso de códigos.
+* **Alineaciones**: la etapa existía pero nunca guardó nada (0 filas): el plan gratis de API-Football no cubre la temporada actual,
+  así que ningún partido vigente tiene `api_football_id` (lesiones tampoco: 0). `jobs/automatico` programa ahora `solo_alineaciones`
+  cada 15 min en la ventana de 90 min previa a cada partido con id y sin alineación; no cuesta nada mientras no haya ids. Siguen sin
+  modificar λ (fase posterior). Requiere un plan de API-Football con temporada actual (o una fuente que se pueda probar).
+* **NBA — backtest walk-forward** (`scripts/backtest_nba.py`; box scores de hoopR/ESPN y líneas de CIERRE de 9 casas, 2020-2026;
+  temporadas de prueba 2023-24, 2024-25 y 2025-26, ~1,315 juegos con línea cada una; pesos del blend ajustados solo con temporadas
+  anteriores). Modelo: ORtg/DRtg/Pace con media vida de 14 juegos, regresión 30% entre temporadas, localía 2.6 y descanso.
+  Resultado: el modelo NO le gana a la línea de cierre. MAE margen: mercado 10.63 / 10.63 / 10.95, modelo 11.17 / 11.19 / 11.49; el
+  peso del modelo en la regresión sobre el mercado es −0.06 / −0.07 / −0.02 (el mercado ya lo contiene todo). Contra el spread, el modelo
+  cubre 49.1-49.9% (ROI −5 a −8% a −110; el punto de equilibrio es 52.4%). Total: igual (MAE 14.1 mercado vs 14.8 modelo).
+  Ganador: mercado 68.9-69.1%, modelo 64.8-69.2%. Lo que SÍ sirve es el mercado bien calibrado: favorito por spread 0-3: 52.7%, 3-5: 59.6%,
+  5-7: 65.8%, 7-9: 76.9%, 9-12: 78.5%, 12+: 89.3%; las líneas alternativas siguen una normal centrada en la línea (σ margen 13.3, σ total
+  17.8) con error < 2 puntos en todo el rango. Conclusión: si se agrega la NBA, va «mercado primero» (como el fútbol con α = 0): probabilidades
+  de la línea de cierre + normal para líneas alternativas y totales; el modelo propio solo como contexto (descanso, ritmo).
+  Falta el dato crítico de lesiones: no está en esta fuente y es donde un modelo podría adelantarse a la línea.
