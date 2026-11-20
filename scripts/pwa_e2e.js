@@ -72,6 +72,27 @@ const KPI = (clave, titulo, pct, delta, base) => ({ clave, titulo, aciertos: Mat
     { rango: "81-90%", aciertos: 3, total: 3, pct: 1, esperado: 0.85 }, { rango: "91-100%", aciertos: 0, total: 0, pct: null, esperado: null }],
   laboratorio: clave === "Ganador" ? { version: 4, n: 240, n_ajuste: 170, n_prueba: 70, a: -0.05, b: 0.82, sesgo: 0.04, brier_antes: 0.231, brier_despues: 0.224,
     estado: "activa", lectura: "Ajuste activo: Brier 0.231 → 0.224 en los días recientes; la app promete 4.0 pts de más." } : null });
+const _phi = (x) => { const t = 1 / (1 + 0.2316419 * Math.abs(x)), d = 0.3989423 * Math.exp(-x * x / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274)))); return x > 0 ? 1 - p : p; };
+const _esc = (sp, tot) => ({ spreads_local: Array.from({ length: 31 }, (_, i) => ({ linea: i - 15 + 0.5, p: _phi((-sp + (i - 15 + 0.5)) / 13.3) })),
+  spreads_visitante: Array.from({ length: 31 }, (_, i) => ({ linea: i - 15 + 0.5, p: _phi((sp + (i - 15 + 0.5)) / 13.3) })),
+  totales: Array.from({ length: 45 }, (_, i) => ({ linea: Math.floor(tot) + 0.5 + i - 22, p_over: 1 - _phi((Math.floor(tot) + 0.5 + i - 22 - tot) / 17.8), p_under: _phi((Math.floor(tot) + 0.5 + i - 22 - tot) / 17.8) })) });
+const NBA = { metodo: "mercado primero", nota: "La probabilidad sale de la línea de DraftKings. El modelo propio no mejoró al mercado.", actualizacion: { estado: "ok" },
+  juegos: [
+    { id: "n1", inicio: "2026-11-21T00:00:00+00:00", estado: "programado", dia_texto: "jue 20/11", hora: "18:00", marcador: null,
+      local: { nombre: "Atlanta Hawks", abrev: "ATL" }, visitante: { nombre: "Charlotte Hornets", abrev: "CHA" },
+      linea: { spread_local: -7.5, total: 218.5, ml_local: 1.361, ml_visitante: 3.27, proveedor: "DraftKings" }, descanso: { local: false, visitante: true },
+      lesiones: { local: { nivel: "medio", bajas: [{ jugador: "Kingston <b>Flemings</b>", estado: "Out", clave: true, min: 30, pts: 14 }] }, visitante: { nivel: "bajo", bajas: [] } },
+      avisos: ["Atlanta Hawks: baja a vigilar (Kingston Flemings)", "Back-to-back: Charlotte Hornets"], nivel_lesiones: "medio",
+      prob: { gana_local: 0.7137, gana_visitante: 0.2863, margen_esperado: 7.5, total_esperado: 218.5, ml_mercado_local: 0.7426, dif_ml_vs_spread: 0.029 },
+      favorito: { nombre: "Atlanta Hawks", p: 0.7137 }, escalera: _esc(-7.5, 218.5),
+      recomendadas: [{ tipo: "ml", jugada: "Gana Atlanta Hawks", p: 0.7137 }, { tipo: "spread_alt", jugada: "Atlanta Hawks +6.5", p: 0.85 }] },
+    { id: "n2", inicio: "2026-11-21T00:30:00+00:00", estado: "programado", dia_texto: "jue 20/11", hora: "18:30", marcador: null,
+      local: { nombre: "Brooklyn Nets", abrev: "BKN" }, visitante: { nombre: "Orlando Magic", abrev: "ORL" },
+      linea: { spread_local: 6.5, total: 224.5, ml_local: 2.9, ml_visitante: 1.42, proveedor: "DraftKings" }, descanso: { local: false, visitante: false },
+      lesiones: { local: { nivel: "alto", bajas: [] }, visitante: { nivel: "bajo", bajas: [] } }, avisos: [], nivel_lesiones: "alto",
+      prob: { gana_local: 0.31, gana_visitante: 0.69, margen_esperado: -6.5, total_esperado: 224.5, ml_mercado_local: 0.33, dif_ml_vs_spread: 0.02 },
+      favorito: { nombre: "Orlando Magic", p: 0.69 }, escalera: _esc(6.5, 224.5), recomendadas: [{ tipo: "ml", jugada: "Gana Orlando Magic", p: 0.69 }] }] };
 const TENIS = { version: "tenis-elo-sup-v1", aviso: "Tenis v1", n_historico: 30000, peso_modelo: 0.3, actualizacion: { estado: "ok" },
   partidos: [
     { id: "e1", tour: "atp", torneo: "ATP Finals", superficie: "Hard", best_of: 3, inicio: "2026-11-19T13:00:00-06:00", jugador1: "Jannik Sinner", jugador2: "Taylor Fritz",
@@ -143,6 +164,9 @@ async function simular(page) {
   await page.route(/\/dashboard\?/, (r) => r.fulfill(j(DASH)));
   await page.route(/\/nfl\/dashboard$/, (r) => r.fulfill(j(NFLDASH)));
   await page.route(/\/tenis\/semana$/, (r) => r.fulfill(j(TENIS)));
+  await page.route(/\/nba\/semana$/, (r) => r.fulfill(j(NBA)));
+  await page.route(/\/nba\/dashboard$/, (r) => r.fulfill(j({ n: 0, buckets: [], referencia: { juegos: 3944, favorito_por_spread: [{ spread: "0-3", gana: 0.527 }, { spread: "12+", gana: 0.893 }],
+    modelo_vs_mercado: "el modelo propio NO mejora a la línea de cierre" } })));
   await page.route(/\/tenis\/dashboard$/, (r) => r.fulfill(j({ temporada: 2026, desempeno: { partidos: 0 }, curva: [], temporada_pasada: {} })));
   await page.route(/\/parlays\//, (r) => r.fulfill(j(PARLAYS)));
   await page.route(/\/costo\//, (r) => r.fulfill(j({ tipo: "x", etapas: [], costo_estimado: { odds_api: 2 } })));
@@ -166,7 +190,7 @@ async function simular(page) {
   await page.fill("#clave", "clave-equivocada");
   await page.click("#login-form button[type=submit]");
   await page.waitForSelector("#login-error:not([hidden])");
-  ok(/incorrecta/i.test(await page.textContent("#login-error")), "una contraseña mala muestra error y no entra");
+  ok(/incorrect[ao]/i.test(await page.textContent("#login-error")), "una contraseña mala muestra error y no entra");
   await page.screenshot({ path: `${OUT}/00-login.png` });
   await page.fill("#clave", ADMIN);
   await page.click("#login-form button[type=submit]");
@@ -241,6 +265,9 @@ async function simular(page) {
   await page.click('#deportes [data-dep="tenis"]');
   await page.waitForFunction(() => /Tenis · efectividad del modelo/i.test(document.querySelector("#vista").textContent));
   ok(true, "Dashboard Tenis: apartado presente");
+  await page.click('#deportes [data-dep="nba"]');
+  await page.waitForFunction(() => /NBA · cómo va el mercado/i.test(document.querySelector("#vista").textContent));
+  ok(/Backtest de referencia/.test(await page.textContent("#vista")) && /Todavía no hay juegos terminados/.test(await page.textContent("#vista")), "Dashboard NBA: vacío con el backtest de referencia");
   await page.click('#deportes [data-dep="futbol"]');
   await page.waitForSelector("#vista .kpi");
 
@@ -257,6 +284,20 @@ async function simular(page) {
        "Hoy Tenis: pronósticos en barras, tarjetas, efectividad vs Pinnacle");
   }
   await page.screenshot({ path: `${OUT}/09-tenis.png`, fullPage: true });
+  // --- Hoy → NBA (mercado primero)
+  await page.click('#deportes [data-dep="nba"]');
+  await page.waitForFunction(() => /NBA/.test(document.querySelector("#vista h2") ? document.querySelector("#vista h2").textContent : ""));
+  ok(!(await page.isVisible(".fechabar")), "Hoy NBA: sin barra de fecha");
+  if (MODO === "mock") {
+    await page.waitForSelector("#vista .rk-fila");
+    const psn = await page.$$eval("#vista .rk-p", (es) => es.map((e) => parseFloat(e.textContent)));
+    const nbat = await page.textContent("#vista");
+    ok(psn.length === 2 && psn[0] >= psn[1] && /Atlanta Hawks/.test(nbat) && /Orlando Magic/.test(nbat) && /71%/.test(nbat) && /DraftKings/.test(nbat),
+       "Hoy NBA: favoritos en barras de mayor a menor y tarjetas con la línea");
+    ok(/Charlotte Hornets/.test(nbat) && /back-to-back/.test(nbat) && /baja importante/.test(nbat) && /Atlanta Hawks \+6\.5/.test(nbat), "Hoy NBA: descanso, aviso de baja y jugada alternativa");
+    ok(!(await page.$("#vista details b b")) && /Kingston <b>Flemings<\/b>/.test(await page.textContent("#vista")), "Hoy NBA: el HTML de un nombre de jugador se escapa (no se ejecuta)");
+  }
+  await page.screenshot({ path: `${OUT}/10-nba.png`, fullPage: true });
   await page.click('#deportes [data-dep="futbol"]');
   await page.waitForSelector("#chips-rango");
 

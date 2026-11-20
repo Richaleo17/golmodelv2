@@ -88,25 +88,36 @@ def test_apagado_y_arranque_solo_en_render(bd, monkeypatch):
     assert automatico.arrancar(s) is None                                   # fuera de Render (pruebas, local): no arranca
 
 
-def test_alineaciones_solo_con_id_de_api_football_y_en_la_ventana(bd):
+def _partido_en(bd, liga_codigo, inicio, api_id=None):
+    liga = bd.execute("SELECT id FROM ligas WHERE codigo = %s", (liga_codigo,)).fetchone()["id"]
+    a = bd.execute("INSERT INTO equipos (nombre, pais) VALUES (%s, 'X') RETURNING id", (f"A-{uuid.uuid4().hex[:5]}",)).fetchone()["id"]
+    b = bd.execute("INSERT INTO equipos (nombre, pais) VALUES (%s, 'X') RETURNING id", (f"B-{uuid.uuid4().hex[:5]}",)).fetchone()["id"]
+    return bd.execute("INSERT INTO partidos (liga_id, temporada, inicio, local_id, visitante_id, api_football_id) VALUES (%s, '2026', %s, %s, %s, %s) "
+                      "RETURNING id", (liga, inicio, a, b, api_id)).fetchone()["id"], a
+
+
+def test_alineaciones_se_piden_en_la_ventana_y_solo_si_falta(bd):
     _ejec(bd, "actualizar_todo", _t(7, 15))
     _ejec(bd, "solo_cuotas", _t(13, 0))
-    liga = bd.execute("SELECT id FROM ligas WHERE codigo = 'LL'").fetchone()["id"]
-    a = bd.execute("INSERT INTO equipos (nombre, pais) VALUES ('A1', 'X') RETURNING id").fetchone()["id"]
-    b = bd.execute("INSERT INTO equipos (nombre, pais) VALUES ('B1', 'X') RETURNING id").fetchone()["id"]
-    pid = bd.execute("INSERT INTO partidos (liga_id, temporada, inicio, local_id, visitante_id) VALUES (%s, '2026', %s, %s, %s) RETURNING id",
-                     (liga, _t(15), a, b)).fetchone()["id"]
-    assert automatico.decidir(bd, CFG, _t(13, 10)) is None                           # sin id de API-Football: nada que pedir
-    bd.execute("UPDATE partidos SET api_football_id = 123 WHERE id = %s", (pid,))
-    assert automatico.decidir(bd, CFG, _t(13, 10)) is None                           # faltan 110 min: aún fuera de la ventana de 90
+    pid, local = _partido_en(bd, "LL", _t(15))                                        # LaLiga: ESPN publica su alineación
+    assert automatico.decidir(bd, CFG, _t(13, 10)) is None                           # faltan 110 min: aún fuera de la ventana de 100
     assert automatico.decidir(bd, CFG, _t(13, 45)) == "solo_alineaciones"            # a 75 min: toca
     _ejec(bd, "solo_alineaciones", _t(13, 45))
-    assert automatico.decidir(bd, CFG, _t(13, 50)) is None                           # recién intentado: espera 15 min
-    assert automatico.decidir(bd, CFG, _t(14, 5)) == "solo_alineaciones"             # a los 20 min vuelve a intentar
-    bd.execute("INSERT INTO alineaciones (partido_id, equipo_id, jugador_nombre, titular, confirmada, fuente) VALUES (%s, %s, 'J', true, true, 'api_football')",
-               (pid, a))
-    assert automatico.decidir(bd, CFG, _t(14, 5)) is None                            # ya hay alineación confirmada: no insiste
+    assert automatico.decidir(bd, CFG, _t(13, 50)) is None                           # recién intentado: espera 10 min
+    assert automatico.decidir(bd, CFG, _t(13, 58)) == "solo_alineaciones"            # 13 min después vuelve a intentar
+    bd.execute("INSERT INTO alineaciones (partido_id, equipo_id, jugador_nombre, titular, confirmada, fuente) VALUES (%s, %s, 'J', true, true, 'espn')",
+               (pid, local))
+    assert automatico.decidir(bd, CFG, _t(13, 58)) is None                           # ya hay alineación confirmada: no insiste
     cfg = copy.deepcopy(CFG)
     cfg["auto"]["alineaciones"] = False
     bd.execute("DELETE FROM alineaciones")
-    assert automatico.decidir(bd, cfg, _t(14, 5)) is None                            # se puede apagar
+    assert automatico.decidir(bd, cfg, _t(13, 58)) is None                           # se puede apagar
+
+
+def test_alineaciones_ligas_sin_fuente_solo_con_id_de_api_football(bd):
+    _ejec(bd, "actualizar_todo", _t(7, 15))
+    _ejec(bd, "solo_cuotas", _t(13, 0))
+    pid, _ = _partido_en(bd, "MXF", _t(15))                                          # Liga MX Femenil: ESPN no está mapeada
+    assert automatico.decidir(bd, CFG, _t(13, 45)) is None
+    bd.execute("UPDATE partidos SET api_football_id = 123 WHERE id = %s", (pid,))
+    assert automatico.decidir(bd, CFG, _t(13, 45)) == "solo_alineaciones"           # con id de API-Football sí

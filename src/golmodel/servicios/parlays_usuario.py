@@ -151,6 +151,15 @@ def armar_opciones(piernas: list[dict], tamanos: list[int]) -> tuple[list[dict],
     return out, repetidos
 
 
+def una_por_partido(piernas: list[dict]) -> list[dict]:
+    """La más probable de cada partido (Qué meter y Soñadoras asumen una pierna por partido; los Boletos eligen entre varias)."""
+    mejor: dict = {}
+    for x in piernas:
+        if x["partido_id"] not in mejor or x["p"] > mejor[x["partido_id"]]["p"]:
+            mejor[x["partido_id"]] = x
+    return list(mejor.values())
+
+
 def armar(conn, cfg: dict, dia: date, ahora: datetime) -> dict:
     from golmodel.servicios import sugerencias
     cp = cfg.get("parlays_usuario") or {}
@@ -172,12 +181,15 @@ def armar(conn, cfg: dict, dia: date, ahora: datetime) -> dict:
     if cp.get("incluir_tenis", True) and (cfg.get("tenis") or {}).get("activo"):
         from golmodel.motor_tenis import servicio as tenis
         fuentes.append(("tenis", "Tenis", tenis.piernas_parlay))
+    if cp.get("incluir_nba", True) and (cfg.get("nba") or {}).get("activo"):
+        from golmodel.motor_nba import servicio as nba
+        fuentes.append(("nba", "NBA", nba.piernas_parlay))
     for clave, nombre, fn in fuentes:                            # otros deportes: si fallan, siguen los parlays de fútbol
         conn.execute(f"SAVEPOINT parlays_{clave}")
         try:
             extra = fn(conn, cfg, ahora, hasta, float(cp.get("p_min", 0.55)))
             conn.execute(f"RELEASE SAVEPOINT parlays_{clave}")
-            piernas += extra
+            piernas += una_por_partido(extra)
             cands += extra
             extras[clave] = len(extra)
         except Exception as e:                                   # noqa: BLE001
@@ -206,8 +218,8 @@ def armar(conn, cfg: dict, dia: date, ahora: datetime) -> dict:
     for clave, lista in (("que_meter", qm), ("sonadoras", so)):
         for i, x in enumerate(lista):
             x["titulo"] = nombres[clave][i] if i < 3 else f"Opción {i + 1}"
-    return {"dias": [str(d) for d in dias], "piernas_disponibles": len(piernas), "piernas_nfl": extras.get("nfl", 0), "piernas_tenis": extras.get("tenis", 0), "que_meter": qm, "sonadoras": so, "boletos": boletos,
+    return {"dias": [str(d) for d in dias], "piernas_disponibles": len(piernas), "piernas_nfl": extras.get("nfl", 0), "piernas_tenis": extras.get("tenis", 0), "piernas_nba": extras.get("nba", 0), "que_meter": qm, "sonadoras": so, "boletos": boletos,
             "repiten_partidos": {"que_meter": rep_qm, "sonadoras": rep_so}, "avisos": avisos,
             "nota": "Fútbol: cada pierna es «Gana» o «PA(1)» (anota el primer gol), la más probable de su partido. NFL y tenis: «Gana» "
-                    "(moneyline). Probabilidad del parlay = "
+                    "(moneyline). NBA: moneyline o spread/total alternativo ≈ 85% de la línea de DraftKings. Probabilidad del parlay = "
                     "producto de sus piernas (partidos distintos). Ninguna combinada es segura."}

@@ -1,0 +1,376 @@
+{
+ "rosters": [
+  {
+   "homeAway": "home",
+   "team": {
+    "id": "160",
+    "displayName": "Paris Saint-Germain"
+   },
+   "formation": "4-3-3",
+   "roster": [
+    {
+     "starter": true,
+     "jersey": "39",
+     "athlete": {
+      "id": "248699",
+      "displayName": "Matvei Safonov"
+     },
+     "position": {
+      "abbreviation": "G"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "51",
+     "athlete": {
+      "id": "287005",
+      "displayName": "Willian Pacho"
+     },
+     "position": {
+      "abbreviation": "CD-L"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "6",
+     "athlete": {
+      "id": "304503",
+      "displayName": "Illia Zabarnyi"
+     },
+     "position": {
+      "abbreviation": "CD-R"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "21",
+     "athlete": {
+      "id": "196200",
+      "displayName": "Lucas Hernández"
+     },
+     "position": {
+      "abbreviation": "LB"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "33",
+     "athlete": {
+      "id": "345581",
+      "displayName": "Warren Zaïre-Emery"
+     },
+     "position": {
+      "abbreviation": "RB"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "17",
+     "athlete": {
+      "id": "288897",
+      "displayName": "Vitinha"
+     },
+     "position": {
+      "abbreviation": "CM"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "8",
+     "athlete": {
+      "id": "214596",
+      "displayName": "Fabián Ruiz"
+     },
+     "position": {
+      "abbreviation": "LM"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "24",
+     "athlete": {
+      "id": "379088",
+      "displayName": "Senny Mayulu"
+     },
+     "position": {
+      "abbreviation": "RM"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "9",
+     "athlete": {
+      "id": "265869",
+      "displayName": "Ferran Torres"
+     },
+     "position": {
+      "abbreviation": "F"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "22",
+     "athlete": {
+      "id": "353363",
+      "displayName": "Mika Godts"
+     },
+     "position": {
+      "abbreviation": "LF"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "14",
+     "athlete": {
+      "id": "336388",
+      "displayName": "Désiré Doué"
+     },
+     "position": {
+      "abbreviation": "RF"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "30",
+     "athlete": {
+      "id": "288925",
+      "displayName": "Lucas Chevalier"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "46",
+     "athlete": {
+      "id": "3121652",
+      "displayName": "Younes Idder"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "87",
+     "athlete": {
+      "id": "355061",
+      "displayName": "João Neves"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "47",
+     "athlete": {
+      "id": "403419",
+      "displayName": "Quentin Ndjantou"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "12",
+     "athlete": {
+      "id": "160115",
+      "displayName": "Lucas Digne"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    }
+   ]
+  },
+  {
+   "homeAway": "away",
+   "team": {
+    "id": "170",
+    "displayName": "Troyes"
+   },
+   "formation": "4-5-1",
+   "roster": [
+    {
+     "starter": true,
+     "jersey": "40",
+     "athlete": {
+      "id": "206835",
+      "displayName": "Hillel Konaté"
+     },
+     "position": {
+      "abbreviation": "G"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "4",
+     "athlete": {
+      "id": "112988",
+      "displayName": "Michel Diaz"
+     },
+     "position": {
+      "abbreviation": "CD-L"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "6",
+     "athlete": {
+      "id": "181582",
+      "displayName": "Adrien Monfray"
+     },
+     "position": {
+      "abbreviation": "CD-R"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "14",
+     "athlete": {
+      "id": "304898",
+      "displayName": "Ismael Boura"
+     },
+     "position": {
+      "abbreviation": "LB"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "2",
+     "athlete": {
+      "id": "334281",
+      "displayName": "Lucas Maronnier"
+     },
+     "position": {
+      "abbreviation": "RB"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "8",
+     "athlete": {
+      "id": "346359",
+      "displayName": "Mouhamed Diop"
+     },
+     "position": {
+      "abbreviation": "CM-L"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "17",
+     "athlete": {
+      "id": "270173",
+      "displayName": "Antoine Mille"
+     },
+     "position": {
+      "abbreviation": "CM-R"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "29",
+     "athlete": {
+      "id": "323058",
+      "displayName": "Dermane Karim"
+     },
+     "position": {
+      "abbreviation": "AM"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "7",
+     "athlete": {
+      "id": "298511",
+      "displayName": "Kandet Diawara"
+     },
+     "position": {
+      "abbreviation": "LM"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "10",
+     "athlete": {
+      "id": "386387",
+      "displayName": "Merwan Ifnaoui"
+     },
+     "position": {
+      "abbreviation": "RM"
+     }
+    },
+    {
+     "starter": true,
+     "jersey": "20",
+     "athlete": {
+      "id": "176406",
+      "displayName": "Renaud Ripart"
+     },
+     "position": {
+      "abbreviation": "F"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "9",
+     "athlete": {
+      "id": "305693",
+      "displayName": "Jeremy Le Douaron"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "36",
+     "athlete": {
+      "id": "3131916",
+      "displayName": "Idrissa Soukouna"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "44",
+     "athlete": {
+      "id": "371562",
+      "displayName": "Yvann Titi"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "22",
+     "athlete": {
+      "id": "351379",
+      "displayName": "Hugo Picard"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    },
+    {
+     "starter": false,
+     "jersey": "11",
+     "athlete": {
+      "id": "286972",
+      "displayName": "Iron Gomis"
+     },
+     "position": {
+      "abbreviation": "SUB"
+     }
+    }
+   ]
+  }
+ ]
+}

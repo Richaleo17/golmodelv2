@@ -118,7 +118,7 @@ function cambiarDia(iso) {
 
 /* Rediseño 2026-11-18 (varios deportes): menú de 5 (Hoy · Dashboard · Parlays · Cuotas · Datos) y selector de deporte.
    Los nombres viejos siguen funcionando: diario/nfl/tenis → Hoy de ese deporte; meter/sonadoras → pestaña de Parlays. */
-const ALIAS_VISTA = { diario: ["hoy", "futbol"], nfl: ["hoy", "nfl"], tenis: ["hoy", "tenis"], meter: ["parlays", null, "meter"], sonadoras: ["parlays", null, "sonadoras"] };
+const ALIAS_VISTA = { diario: ["hoy", "futbol"], nfl: ["hoy", "nfl"], tenis: ["hoy", "tenis"], nba: ["hoy", "nba"], meter: ["parlays", null, "meter"], sonadoras: ["parlays", null, "sonadoras"] };
 
 function ir(v) {
   const a = ALIAS_VISTA[v];
@@ -225,6 +225,13 @@ function tarjetaDiario(p, nombres) {
     `Goles esperados ${num(ge.local, 1)}–${num(ge.visitante, 1)}</div>`;
   if (p.factores && p.factores.length) h += `<div class="meta">🏔️ ${p.factores.map(esc).join("<br>")}</div>`;
   if (p.rompe) h += `<div class="rompe">💥 ${esc((p.rompe.razones || []).join("; "))}</div>`;
+  if (p.alineacion && p.alineacion.estado === "publicada") {
+    const al = p.alineacion, mal = al.nivel === "medio" || al.nivel === "alto";
+    h += `<div class="${mal ? "rompe" : "meta"}">${mal ? "⚠️" : "✅"} ${esc(al.aviso)}` +
+      `${al.local && al.local.formacion ? ` <small>(${esc(al.local.formacion)} · ${esc((al.visitante || {}).formacion || "")})</small>` : ""}</div>`;
+  } else if (p.alineacion && p.alineacion.estado === "pendiente" && p.estado === "programado") {
+    h += `<div class="meta">🕐 Alineación aún no publicada: se revisa sola desde ~100 min antes.</div>`;
+  }
   if (p.jugadas && p.jugadas.length) {
     const j = p.jugadas[0];
     h += `<div class="jug">🎯 ${esc(j.jugada)} · ${pct(j.p)} · mete si paga ≥ <b>${num(j.cuota_min)}</b></div>`;
@@ -538,6 +545,7 @@ function tablaRangos(rs) {
 async function vDashboard() {
   if (S.deporte === "nfl") return { html: cabDashboard() + dashboardNfl(await api("GET", "/nfl/dashboard")) };
   if (S.deporte === "tenis") return { html: cabDashboard() + dashboardTenis(await api("GET", "/tenis/dashboard")) };
+  if (S.deporte === "nba") return { html: cabDashboard() + dashboardNba(await api("GET", "/nba/dashboard")) };
   const r = await api("GET", "/dashboard?dias=60");
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">02</b> Dashboard</h2>` +
     `<p class="lead">Qué tan seguido se cumple lo que te muestra la app, KPI por KPI, y cómo va mejorando cada día que el modelo aprende. ` +
@@ -682,9 +690,110 @@ function montarTenis(v) {
   });
 }
 
+// ------------------------------------------------------------------ NBA (mercado primero)
+/* La probabilidad sale de la línea de DraftKings (ESPN) con la dispersión medida en 3 temporadas de backtest: el modelo propio no mejoró
+   al mercado, así que no se usa. Lesiones y descanso se muestran y avisan; no mueven el número. */
+const cercanas = (lista, clave, objetivos) => {
+  const vistas = new Set();
+  return objetivos.map((o) => (lista || []).reduce((m, x) => (m == null || Math.abs(x[clave] - o) < Math.abs(m[clave] - o) ? x : m), null))
+    .filter((x) => x && !vistas.has(x.linea) && vistas.add(x.linea));
+};
+const signo = (n) => (n == null ? "—" : (n > 0 ? "+" : "") + n);
+
+function tarjetaNba(x) {
+  const lin = x.linea || {}, pr = x.prob;
+  const fav = x.favorito;
+  let h = `<div class="mc"><div class="mc-top"><span>🏀 NBA${x.estado === "en_juego" ? " · en juego" : ""}</span><span>${esc(x.dia_texto)} ${esc(x.hora)}${x.marcador ? " · " + esc(x.marcador) : ""}</span></div>` +
+    `<div class="mc-eq">${esc(x.local.nombre)} vs ${esc(x.visitante.nombre)}</div>`;
+  const chips = [];
+  if (x.descanso && x.descanso.local) chips.push(`<span class="chip viejo">${esc(x.local.abrev)} back-to-back</span>`);
+  if (x.descanso && x.descanso.visitante) chips.push(`<span class="chip viejo">${esc(x.visitante.abrev)} back-to-back</span>`);
+  if (x.nivel_lesiones === "alto") chips.push('<span class="chip rojo">⚠ baja importante</span>');
+  else if (x.nivel_lesiones === "medio") chips.push('<span class="chip viejo">baja a vigilar</span>');
+  if (chips.length) h += `<div class="mc-badges">${chips.join("")}</div>`;
+  if (pr) {
+    h += `<div class="meta">Línea ${esc(lin.proveedor || "")}: ${esc(x.local.abrev)} ${signo(lin.spread_local)} · total ${num(lin.total, 1)}</div>` +
+      `<table class="nfl"><thead><tr><th>Equipo</th><th>Gana</th><th>Cuota</th><th>Justa</th></tr></thead><tbody>` +
+      [[x.local, pr.gana_local, lin.ml_local], [x.visitante, pr.gana_visitante, lin.ml_visitante]].map(([e, p, c]) =>
+        `<tr><td><b>${esc(e.nombre)}</b></td><td><b style="color:${colorP(p)}">${pct(p)}</b></td><td>${c ? num(c) : "—"}</td><td>${num(1 / p)}</td></tr>`).join("") +
+      `</tbody></table><div class="meta">Margen esperado ${esc(fav.nombre)} por ${Math.abs(pr.margen_esperado)} · el moneyline del mercado dice ${pr.ml_mercado_local != null ? pct(pr.ml_mercado_local) + " para " + esc(x.local.nombre) : "—"}</div>`;
+  }
+  (x.avisos || []).forEach((a) => (h += `<div class="rompe">⚠️ ${esc(a)}</div>`));
+  const bajas = (lado, e) => ((x.lesiones || {})[lado] || {}).bajas || [];
+  const fila = (lado, e) => bajas(lado).length ? `<div class="meta"><b>${esc(e.abrev)}</b>: ${bajas(lado).slice(0, 5).map((b) => `${b.estado === "Out" ? "❌" : "❓"} ${esc(b.jugador)}${b.clave ? " ⭐" : ""}`).join(" · ")}</div>` : "";
+  const les = fila("local", x.local) + fila("visitante", x.visitante);
+  if (les) h += `<details><summary>🩺 Lesiones (❌ fuera · ❓ duda · ⭐ jugador clave)</summary>${les}</details>`;
+  (x.recomendadas || []).forEach((r) => (h += `<div class="jug">🎯 ${esc(r.jugada)} · ${pct(r.p)} · cuota justa ${num(1 / r.p)}</div>`));
+  if (x.escalera && pr) {
+    const obj = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3];
+    const sl = cercanas(x.escalera.spreads_local, "p", obj), sv = cercanas(x.escalera.spreads_visitante, "p", obj);
+    const to = cercanas(x.escalera.totales, "p_over", obj);
+    h += `<details><summary>📐 Líneas alternativas (probabilidad de cada una)</summary>` +
+      `<table class="nfl"><thead><tr><th>${esc(x.local.abrev)}</th><th></th><th>${esc(x.visitante.abrev)}</th></tr></thead><tbody>` +
+      sl.map((a, i) => `<tr><td>${esc(x.local.abrev)} ${signo(a.linea)} · <b>${pct(a.p)}</b></td><td></td><td>${sv[i] ? `${esc(x.visitante.abrev)} ${signo(sv[i].linea)} · <b>${pct(sv[i].p)}</b>` : ""}</td></tr>`).join("") +
+      `</tbody></table><table class="nfl"><thead><tr><th>Total</th><th>Más</th><th>Menos</th></tr></thead><tbody>` +
+      to.map((t) => `<tr><td>${num(t.linea, 1)}</td><td><b>${pct(t.p_over)}</b></td><td><b>${pct(t.p_under)}</b></td></tr>`).join("") + `</tbody></table></details>`;
+  }
+  return h + `</div>`;
+}
+
+async function vNba() {
+  const r = await api("GET", "/nba/semana");
+  let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">🏀</b> NBA</h2><p class="lead">Mercado primero: la probabilidad sale de la línea de DraftKings. ` +
+    `Un modelo propio no la mejoró en 3 temporadas de prueba, así que no se usa. Las lesiones y el descanso avisan.</p>`;
+  if (S.rol === "admin") h += `<div class="card"><button id="nba-act" class="btn" type="button" style="width:100%">Actualizar NBA (gratis)</button><div id="nba-prog" class="meta"></div></div>`;
+  if (!r.ok) return { html: h + `<div class="card"><p class="error">${esc(r.error)}</p></div>`, alMontar: montarNba };
+  const d = r.data, a = d.actualizacion || {};
+  h += `<div class="aviso-prov">${esc(d.nota)}</div>`;
+  if (a.estado === "error") h += `<p class="error">Última actualización de NBA: ${esc(a.error)}</p>`;
+  const js = d.juegos || [];
+  if (!js.length) h += `<div class="card meta">No hay juegos de NBA en los próximos días. Usa «Actualizar NBA».</div>`;
+  const filas = js.filter((x) => x.favorito).map((x) => ({ eq: x.favorito.nombre, rival: x.favorito.nombre === x.local.nombre ? x.visitante.nombre : x.local.nombre,
+    lugar: `${x.dia_texto} ${x.hora}`, p: x.favorito.p, sub: x.nivel_lesiones === "alto" ? "⚠ baja importante" : "" })).sort((p, q) => q.p - p.p);
+  if (filas.length) h += `<h3>🏀 Mis pronósticos · quién gana</h3>` + barrasRanking("NBA · de mayor a menor", filas,
+    "Probabilidad = línea de DraftKings con la dispersión medida en 3 temporadas (σ margen 13.3). Barra fuerte = 60% o más.");
+  h += js.map(tarjetaNba).join("");
+  return { html: h, alMontar: montarNba };
+}
+
+function montarNba(v) {
+  const b = $("#nba-act", v);
+  if (!b) return;
+  b.addEventListener("click", async () => {
+    b.disabled = true;
+    const zona = $("#nba-prog", v);
+    zona.innerHTML = '<span class="spin"></span>Descargando calendario, líneas y lesiones de la NBA…';
+    const r = await api("POST", "/nba/actualizar");
+    if (!r.ok) { zona.innerHTML = `<p class="error">${esc(r.error)}</p>`; b.disabled = false; return; }
+    for (let i = 0; i < 100; i++) {
+      await new Promise((res) => setTimeout(res, 3000));
+      const e = await api("GET", "/nba/semana");
+      const est = e.ok ? (e.data.actualizacion || {}).estado : "error";
+      if (est !== "en_curso") { render(); return; }
+    }
+    b.disabled = false;
+  });
+}
+
+function dashboardNba(r) {
+  let h = `<h3>🏀 NBA · cómo va el mercado</h3>`;
+  if (!r.ok) return h + `<div class="card"><p class="error">${esc(r.error)}</p></div>`;
+  const d = r.data, ref = d.referencia || {};
+  if (!d.n) h += `<div class="card meta">Todavía no hay juegos terminados con su línea guardada: la app los va midiendo desde que se activó la NBA.</div>`;
+  else h += `<div class="card"><p>El favorito de la línea ganó <b>${pct(d.acierto_favorito, 1)}</b> de ${esc(d.n)} juegos (la línea prometía ${pct(d.prometido_favorito, 1)}).</p>` +
+    `<p class="meta">Error medio del margen ${num(d.mae_margen, 1)} pts · del total ${d.mae_total != null ? num(d.mae_total, 1) : "—"} pts</p>` +
+    ((d.buckets || []).length ? `<table class="nfl"><thead><tr><th>Spread</th><th>Juegos</th><th>Prometido</th><th>Real</th></tr></thead><tbody>` +
+      d.buckets.map((b) => `<tr><td>${esc(b.spread)}</td><td>${esc(b.n)}</td><td>${pct(b.prometido)}</td><td><b style="color:${colorP(b.gana)}">${pct(b.gana)}</b></td></tr>`).join("") + `</tbody></table>` : "") + `</div>`;
+  if ((ref.favorito_por_spread || []).length) h += `<details class="card"><summary><b>📚 Backtest de referencia</b> · ${esc(ref.juegos)} juegos (3 temporadas)</summary>` +
+    `<table class="nfl"><thead><tr><th>Spread</th><th>Gana el favorito</th></tr></thead><tbody>` +
+    ref.favorito_por_spread.map((b) => `<tr><td>${esc(b.spread)}</td><td>${pct(b.gana)}</td></tr>`).join("") + `</tbody></table>` +
+    `<p class="meta">${esc(ref.modelo_vs_mercado)}</p></details>`;
+  return h;
+}
+
 // ------------------------------------------------------------------ Hoy y Parlays (rediseño multideporte)
 function vHoy() {
-  return ({ futbol: vDiario, nfl: vNfl, tenis: vTenis }[S.deporte] || vDiario)();
+  return ({ futbol: vDiario, nfl: vNfl, tenis: vTenis, nba: vNba }[S.deporte] || vDiario)();
 }
 
 async function vParlays() {

@@ -214,3 +214,32 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   17.8) con error < 2 puntos en todo el rango. Conclusión: si se agrega la NBA, va «mercado primero» (como el fútbol con α = 0): probabilidades
   de la línea de cierre + normal para líneas alternativas y totales; el modelo propio solo como contexto (descanso, ritmo).
   Falta el dato crítico de lesiones: no está en esta fuente y es donde un modelo podría adelantarse a la línea.
+
+### 2026-11-20 (b) · Ligas menores fuera, alineaciones con ESPN, correcciones del PSG/Espanyol, NBA «mercado primero»
+* **Ligas menores fuera**: `ligas_excluidas_patrones` (config) desactiva las competiciones solo-mercado cuya clave de The Odds API contenga
+  efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi o japan, y salen de `competiciones_mercado.patrones`
+  (ya no se descubren ni gastan créditos). Quedan Champions, Europa, Conference, selecciones, copas, Libertadores, Sudamericana y Concacaf.
+* **Alineaciones: la fuente es ESPN** (API pública, sin llave; `ingesta/proveedores/espn.py`). Medido: ESPN NO publica lesiones de fútbol
+  (0 de 1,169 jugadores de LaLiga y Ligue 1; `/injuries` de cada liga vacío; todos «Active»). Sí publica la alineación oficial desde ~1 h
+  antes (11 titulares, banca, formación) y por equipo las estadísticas de cada jugador (apariciones, suplencias, goles, asistencias).
+  Por eso «principal» = ≥ 60% de titularidades del equipo (mín. 4 partidos) y «ausente» = no está en la convocatoria o está en la banca;
+  el motivo (lesión, sanción, descanso) no se conoce y no se inventa. Nivel: fuera pesa el doble que banca; alto = arquero habitual no
+  titular, falta quien más aporta (≥ 25% de goles+asistencias) o suma ≥ 2. **No mueve probabilidades** (en el 1X2 manda el mercado, α = 0, y
+  el mercado ya incorpora la alineación publicada; un ajuste propio sin calibrar solo añade ruido): avisa en el panel y baja la confianza
+  (−0.5 / −1.0), con lo que el partido deja de entrar solo a los boletos (exigen confianza mínima). Verificado contra ESPN en vivo
+  (Athletic–Espanyol del 20-nov: Espanyol sin Edu Expósito, 3 principales del Athletic en la banca).
+  `solo_alineaciones` corre cada 10 min en la ventana de 100 min previa a cada partido sin alineación (ligas mapeadas: LL, L1, POR, MX1,
+  MLS, BR1 y Champions/Europa/Conference/Copa del Rey) y ya NO recalcula predicciones (llenaría `predicciones` de filas idénticas).
+  Migración 014 (alias `espn`, tabla `plantilla_jugadores`, columnas en `alineaciones`, `partidos.espn_id`).
+* **Correcciones de partidos** (migración 015, guardada por id): el alias «Paris Saint-Germain FC → Paris FC» y «RCD Espanyol de Barcelona →
+  Barcelona» dejaron 4 partidos con el equipo equivocado (PSG–Troyes del 7-nov, Nice–PSG del 21-nov, Espanyol–Deportivo del 7-nov y
+  Athletic–Espanyol del 20-nov), verificados contra el calendario de ESPN. Se detectaron buscando equipos con dos partidos en < 40 h.
+* **NBA «mercado primero»** (`motor_nba/`, migración 016, `/nba/semana`, `/nba/dashboard`, `/nba/actualizar`, vista 🏀, piernas en Boletos):
+  fuente única ESPN y gratis (calendario con spread, total y moneyline de DraftKings; lesiones Out/Day-To-Day; promedios por jugador). Sin
+  The Odds API a propósito: cero créditos; si se quiere consenso de varias casas se puede sumar después. Probabilidades = línea con
+  σ margen 13.3 y σ total 17.8 (backtest); moneyline, spreads y totales alternativos; lesiones y descanso avisan, no mueven el número
+  (el backtest no tiene lesiones: no se puede validar un ajuste). Un jugador es clave si promedia ≥ 25 min o ≥ 15 pts; el nivel de bajas es
+  alto si sale una estrella (≥ 20 pts o ≥ 32 min) o 2 clave. Los juegos con baja importante no entran a los boletos. La línea se
+  actualiza solo mientras el juego está programado: la última es la de cierre y con ella el Dashboard mide al mercado con sus propios juegos.
+* Pruebas: la suite corrió 1,082 pruebas con 3 fallos, todos de este cambio de ligas/mensajes y ya corregidos (la prueba de tarjetas pedía
+  mosaicos de EPL; la de catálogo usaba Argentina; el e2e esperaba «incorrecta» en el login).
