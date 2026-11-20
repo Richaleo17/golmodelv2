@@ -18,7 +18,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from golmodel import acceso, db, migraciones, repositorio as repo
+from golmodel import acceso, db, migraciones, repositorio as repo, usuarios
 from golmodel.api import seguridad
 from golmodel.config import cargar_v3
 from golmodel.config import cargar
@@ -48,6 +48,11 @@ class Servicio:
         try:    # cambios de esquema posteriores a la creación de la base
             c = db.conectar(dsn)
             migraciones.aplicar(c)
+            if self.registrador is not None:       # construcción real (producción/local); las pruebas inyectan proveedores simulados
+                repo.sincronizar_ligas(c, self.cfg)
+                for nombre, dup, liga in repo.reparar_duplicados_mercado(c):
+                    logging.getLogger(__name__).warning("Equipo duplicado fundido: %s (%s → %s)", nombre, dup, liga)
+                c.commit()
             c.close()
         except psycopg.Error as e:
             logging.getLogger(__name__).warning("No se pudieron aplicar migraciones: %s", e)
@@ -73,7 +78,46 @@ async def proteger(request: Request, call_next):
     if status:
         return JSONResponse({"detail": detalle}, status_code=status)
     request.state.rol = rol
+    ruta = request.url.path
+    if not seguridad.es_publica(ruta) and seguridad.modo(os.environ) == "login":
+        try:                                                                  # el registro de accesos nunca tumba una petición
+            ident = seguridad.identidad(request.headers.get("authorization"), os.environ)
+            if ident:
+                r, uid = ident
+                ip, disp = _ip(request), usuarios.dispositivo_corto(request.headers.get("user-agent"))
+                ctl = control()
+                if uid is not None:
+                    ok, nombre = ctl.activa(uid)
+                    if not ok:
+                        ctl.anotar(nombre, "bloqueado", uid, ruta, ip, disp, cada=600)
+                        return JSONResponse({"detail": "Tu acceso fue bloqueado por el administrador."}, status_code=403)
+                    ctl.latido(nombre, uid, ruta, ip, disp)
+                else:
+                    ctl.latido("admin" if r == acceso.ADMIN else "lector (compartido)", None, ruta, ip, disp)
+        except Exception:                                                     # noqa: BLE001
+            logging.getLogger(__name__).warning("acceso: falló el registro", exc_info=True)
     return await call_next(request)
+
+
+_control: usuarios.Control | None = None
+
+
+def _dsn() -> str | None:
+    """DSN sin construir el Servicio (que arma proveedores y migra): el del servicio ya creado, o el del entorno (None)."""
+    return _servicio.dsn if _servicio is not None else None
+
+
+def control() -> usuarios.Control:
+    global _control
+    if _control is None or _control.dsn != _dsn():
+        _control = usuarios.Control(_dsn())
+    return _control
+
+
+def _ip(request: Request) -> str:
+    """IP real de quien entra (Render va detrás de un proxy: la primera de X-Forwarded-For)."""
+    xff = request.headers.get("x-forwarded-for", "")
+    return xff.split(",")[0].strip() or (request.client.host if request.client else "")
 
 
 class Login(BaseModel):
@@ -86,7 +130,7 @@ def get_auth_estado():
 
 
 @app.post("/auth/login")
-def post_login(l: Login):
+def post_login(l: Login, request: Request):
     m = seguridad.modo(os.environ)
     if m == "abierto":
         return {"modo": m, "rol": acceso.ADMIN, "token": None}
@@ -96,12 +140,41 @@ def post_login(l: Login):
     if espera > 0:
         raise HTTPException(429, f"Demasiados intentos. Espera {int(espera) + 1} s.", headers={"Retry-After": str(int(espera) + 1)})
     admin, lector = acceso.claves_desde_env(os.environ)
+    ip, disp = _ip(request), usuarios.dispositivo_corto(request.headers.get("user-agent"))
     rol = acceso.verificar(l.clave, admin, lector)
+    uid = nombre = None
+    if rol is None and l.clave.strip():                       # ¿es el código personal de alguien?
+        try:
+            conn = db.conectar(_dsn())
+            try:
+                persona = usuarios.entrar(conn, l.clave)
+            finally:
+                conn.close()
+        except Exception:                                      # noqa: BLE001
+            logging.getLogger(__name__).warning("acceso: no se pudo revisar el código", exc_info=True)
+            persona = None
+        if persona and persona["bloqueado"]:
+            control().anotar(persona["nombre"], "bloqueado", persona["id"], "/auth/login", ip, disp)
+            raise HTTPException(403, "Tu acceso fue bloqueado por el administrador.")
+        if persona:
+            rol, uid, nombre = acceso.LECTOR, persona["id"], persona["nombre"]
     if rol is None:
         seguridad.limitador.fallo()
-        raise HTTPException(401, "Contraseña incorrecta.")
+        control().anotar("?", "login_fallido", None, "/auth/login", ip, disp)
+        raise HTTPException(401, "Contraseña o código incorrecto.")
     seguridad.limitador.exito()
-    return {"modo": m, "rol": rol, "token": acceso.crear_token(rol, acceso.secreto(admin, lector, os.environ)), "dias": acceso.DIAS_TOKEN}
+    control().anotar(nombre or ("admin" if rol == acceso.ADMIN else "lector (compartido)"), "login", uid, "/auth/login", ip, disp)
+    return {"modo": m, "rol": rol, "nombre": nombre, "dias": acceso.DIAS_TOKEN,
+            "token": acceso.crear_token(rol, acceso.secreto(admin, lector, os.environ), uid=uid)}
+
+
+class NuevaPersona(BaseModel):
+    nombre: str = Field(max_length=80)
+    nota: str | None = Field(default=None, max_length=200)
+
+
+class Bloqueo(BaseModel):
+    bloqueado: bool
 
 
 @app.get("/", include_in_schema=False)
@@ -147,6 +220,37 @@ def conexion(s: Servicio = Depends(servicio)) -> Iterator[psycopg.Connection]:
         conn.commit()
     finally:
         conn.close()
+
+
+@app.get("/admin/usuarios")
+def get_admin_usuarios(conn=Depends(conexion)):
+    """Solo administrador (ver api/seguridad.py): personas con código propio, su última entrada y si están bloqueadas."""
+    return {"usuarios": usuarios.listar(conn)}
+
+
+@app.post("/admin/usuarios")
+def post_admin_usuario(b: NuevaPersona, conn=Depends(conexion)):
+    """Crea una persona y devuelve su código UNA sola vez (en la base queda solo la huella)."""
+    try:
+        return usuarios.crear(conn, b.nombre, b.nota)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+
+
+@app.post("/admin/usuarios/{uid}/bloquear")
+def post_admin_bloquear(uid: int, b: Bloqueo, conn=Depends(conexion)):
+    """Bloquea o reactiva a una persona. Efecto inmediato en este servidor (la caché de estado se invalida)."""
+    r = usuarios.bloquear(conn, uid, b.bloqueado)
+    if r is None:
+        raise HTTPException(404, "No existe esa persona.")
+    conn.commit()
+    control().invalidar(uid)
+    return r
+
+
+@app.get("/admin/accesos")
+def get_admin_accesos(limite: int = 100, usuario_id: int | None = None, conn=Depends(conexion)):
+    return {"accesos": usuarios.recientes(conn, limite, usuario_id)}
 
 
 # Los parlays que hoy genera el motor (motor/modulo2.py) multiplican probabilidades asumiendo independencia entre

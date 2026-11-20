@@ -163,7 +163,7 @@ def estado(conn, cfg: dict, ahora: datetime, interruptores: dict | None = None) 
             SELECT l.codigo AS liga, count(*) AS partidos, count(p.xg_local) AS con_xg,
                    max(p.inicio) FILTER (WHERE p.xg_local IS NOT NULL) AS ultimo_con_xg
             FROM partidos p JOIN ligas l ON l.id = p.liga_id
-            WHERE l.usa_xg AND p.estado = 'finalizado'
+            WHERE l.activa AND l.usa_xg AND p.estado = 'finalizado'
             GROUP BY l.codigo ORDER BY l.codigo""").fetchall(),
     }
 
@@ -184,7 +184,7 @@ def dia(conn, cfg: dict, d: date, ahora: datetime) -> list[dict]:
     for p in conn.execute("""
         SELECT p.*, l.codigo AS liga, el.nombre AS local, ev.nombre AS visitante
         FROM partidos p JOIN ligas l ON l.id = p.liga_id JOIN equipos el ON el.id = p.local_id
-        JOIN equipos ev ON ev.id = p.visitante_id WHERE dia_mx(p.inicio) = %s ORDER BY p.inicio
+        JOIN equipos ev ON ev.id = p.visitante_id WHERE l.activa AND dia_mx(p.inicio) = %s ORDER BY p.inicio
     """, (d,)).fetchall():
         pr = conn.execute("SELECT * FROM predicciones WHERE partido_id = %s AND origen = 'produccion' "
                           "ORDER BY creada_en DESC LIMIT 1", (p["id"],)).fetchone()

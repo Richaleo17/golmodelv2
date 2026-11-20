@@ -95,7 +95,7 @@ def _filas(conn, desde: date, hasta: date) -> list[dict]:
         FROM partidos p JOIN ligas l ON l.id = p.liga_id JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
         JOIN LATERAL (SELECT * FROM predicciones x WHERE x.partido_id = p.id AND x.origen = 'produccion' AND x.creada_en < p.inicio
                       ORDER BY x.creada_en DESC LIMIT 1) pr ON true
-        WHERE p.estado = 'finalizado' AND p.goles_local IS NOT NULL AND dia_mx(p.inicio) BETWEEN %s AND %s
+        WHERE l.activa AND p.estado = 'finalizado' AND p.goles_local IS NOT NULL AND dia_mx(p.inicio) BETWEEN %s AND %s
         ORDER BY p.inicio""", (desde, hasta)).fetchall()]
 
 
@@ -264,7 +264,8 @@ def detalle_guardado(conn, desde: date, hasta: date) -> list[dict]:
     """Reconstruye el «detalle» del dashboard desde la tabla (lo guardado al cierre de cada día)."""
     por: dict[int, dict] = {}
     for r in conn.execute("""SELECT r.partido_id, r.kpi, r.fuente, r.dia, r.pick, r.p, r.acierto, r.grupo, r.log_loss_1x2
-                             FROM dashboard_registro r WHERE r.dia BETWEEN %s AND %s""", (desde, hasta)).fetchall():
+                             FROM dashboard_registro r JOIN partidos pp ON pp.id = r.partido_id JOIN ligas ll ON ll.id = pp.liga_id
+                             WHERE ll.activa AND r.dia BETWEEN %s AND %s""", (desde, hasta)).fetchall():
         f = por.setdefault(r["partido_id"], {"dia": str(r["dia"]), "grupo": r["grupo"], "ll": {}, "p": {}})
         f.setdefault(r["fuente"], {})[r["kpi"]] = r["acierto"]
         f["p"].setdefault(r["fuente"], {})[r["kpi"]] = r["p"]

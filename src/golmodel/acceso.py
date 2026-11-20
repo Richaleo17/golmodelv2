@@ -47,24 +47,42 @@ def secreto(admin: str, lector: str, env: Mapping[str, str]) -> bytes:
     return hashlib.sha256(f"golmodelv2|{base}".encode()).digest()
 
 
-def _firma(sec: bytes, rol: str, exp: int) -> str:
-    return hmac.new(sec, f"{rol}.{exp}".encode(), hashlib.sha256).hexdigest()[:32]
+def _firma(sec: bytes, rol: str, exp: int, uid: int | None = None) -> str:
+    base = f"{rol}.{exp}" if uid is None else f"{rol}.{exp}.u{uid}"
+    return hmac.new(sec, base.encode(), hashlib.sha256).hexdigest()[:32]
 
 
-def crear_token(rol: str, sec: bytes, ahora: float | None = None, dias: int = DIAS_TOKEN) -> str:
+def crear_token(rol: str, sec: bytes, ahora: float | None = None, dias: int = DIAS_TOKEN, uid: int | None = None) -> str:
+    """Sin `uid` (admin y lector compartido): `rol.exp.firma`. Con `uid` (persona con código propio): `rol.exp.uid.firma`."""
     exp = int((ahora if ahora is not None else time.time()) + dias * 86400)
-    return f"{rol}.{exp}.{_firma(sec, rol, exp)}"
+    if uid is None:
+        return f"{rol}.{exp}.{_firma(sec, rol, exp)}"
+    return f"{rol}.{exp}.{int(uid)}.{_firma(sec, rol, exp, int(uid))}"
 
 
-def validar_token(token: str | None, sec: bytes, ahora: float | None = None) -> str | None:
+def leer_token(token: str | None, sec: bytes, ahora: float | None = None) -> tuple[str, int | None] | None:
+    """(rol, uid | None) si el token es válido y no venció; None si no."""
+    partes = (token or "").split(".")
     try:
-        rol, exp_txt, firma = (token or "").split(".")
+        if len(partes) == 3:
+            rol, exp_txt, firma = partes
+            uid = None
+        elif len(partes) == 4:
+            rol, exp_txt, uid_txt, firma = partes
+            uid = int(uid_txt)
+        else:
+            return None
         exp = int(exp_txt)
     except ValueError:
         return None
-    if rol not in (ADMIN, LECTOR) or not hmac.compare_digest(firma, _firma(sec, rol, exp)):
+    if rol not in (ADMIN, LECTOR) or (uid is not None and rol == ADMIN) or not hmac.compare_digest(firma, _firma(sec, rol, exp, uid)):
         return None
-    return rol if (ahora if ahora is not None else time.time()) <= exp else None
+    return (rol, uid) if (ahora if ahora is not None else time.time()) <= exp else None
+
+
+def validar_token(token: str | None, sec: bytes, ahora: float | None = None) -> str | None:
+    r = leer_token(token, sec, ahora)
+    return r[0] if r else None
 
 
 @dataclass

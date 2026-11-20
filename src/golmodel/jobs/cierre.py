@@ -24,7 +24,7 @@ def procesar_pendientes(conn, cfg: dict, cadenas: dict, ahora: datetime) -> dict
     pend = conn.execute("""
         SELECT c.*, p.liga_id, p.inicio, p.odds_api_id, p.api_football_id, p.local_id, p.visitante_id, l.codigo AS liga
         FROM cierres_programados c JOIN partidos p ON p.id = c.partido_id JOIN ligas l ON l.id = p.liga_id
-        WHERE c.estado = 'pendiente' AND c.programado_para <= %s AND p.inicio > %s
+        WHERE l.activa AND c.estado = 'pendiente' AND c.programado_para <= %s AND p.inicio > %s
     """, (ahora, ahora - timedelta(minutes=1))).fetchall()
     cad = cadenas.get(Capacidad.CUOTAS_CIERRE)
     resolver = ResolverEquipos(conn)

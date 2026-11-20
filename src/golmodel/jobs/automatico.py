@@ -8,6 +8,8 @@ era la mayor fuente de error evitable. Este hilo corre dentro de la API (mismo p
   Después, NFL y tenis si están activos.
 * Durante el día (entre `hora_inicio` y `hora_fin`): «solo_cuotas» cada `cuotas_cada_min`, o cada `cuotas_cerca_min` si
   algún partido empieza en las próximas `horas_cerca` horas.
+* «solo_alineaciones» cada `alineaciones_cada_min` mientras haya un partido que empieza en `alineaciones_ventana_min` sin alineación
+  guardada (las alineaciones salen ~1 h antes). Requiere ids de API-Football (plan con temporada actual).
 * Nunca si ya hay una actualización en curso (del usuario o del job), y nunca si el presupuesto de créditos no alcanza
   (el pipeline lo revisa en cada proveedor).
 """
@@ -26,6 +28,25 @@ log = logging.getLogger("golmodel.automatico")
 def _hora(txt: str) -> dtime:
     h, m = (int(x) for x in str(txt).split(":"))
     return dtime(h, m)
+
+
+def _toca_alineaciones(conn, a: dict, ahora: datetime) -> bool:
+    """¿Hay un partido que empieza en la ventana (por defecto 90 min) sin alineación guardada, con id de API-Football y sin intento reciente?
+    Las alineaciones salen ~1 h antes: a las 07:10 (la actualización completa) todavía no existen. Sin ids de API-Football (plan gratis sin
+    temporada actual) esto nunca se cumple y no cuesta nada."""
+    cada = float(a.get("alineaciones_cada_min", 15))
+    ventana = float(a.get("alineaciones_ventana_min", 90))
+    pendiente = conn.execute("""
+        SELECT 1 FROM partidos p JOIN ligas l ON l.id = p.liga_id
+        WHERE l.activa AND p.estado = 'programado' AND p.api_football_id IS NOT NULL
+          AND p.inicio > %s AND p.inicio < %s
+          AND NOT EXISTS (SELECT 1 FROM alineaciones x WHERE x.partido_id = p.id AND x.confirmada)
+        LIMIT 1""", (ahora, ahora + timedelta(minutes=ventana))).fetchone()
+    if not pendiente:
+        return False
+    reciente = conn.execute("""SELECT 1 FROM ejecuciones WHERE tipo = 'solo_alineaciones' AND iniciada_en > %s LIMIT 1""",
+                            (ahora - timedelta(minutes=cada),)).fetchone()
+    return reciente is None
 
 
 def decidir(conn, cfg: dict, ahora: datetime) -> str | None:
@@ -47,6 +68,8 @@ def decidir(conn, cfg: dict, ahora: datetime) -> str | None:
                                 AND iniciada_en >= %s LIMIT 1""", (inicio_hoy,)).fetchone()
         if not hecho:
             return "actualizar_todo"
+    if a.get("alineaciones", True) and _toca_alineaciones(conn, a, ahora):
+        return "solo_alineaciones"
     ultima = conn.execute("""SELECT max(iniciada_en) AS t FROM ejecuciones
                              WHERE tipo IN ('solo_cuotas','actualizar_todo') AND estado IN ('ok','parcial')""").fetchone()["t"]
     cerca = conn.execute("""SELECT 1 FROM partidos WHERE estado = 'programado' AND inicio > %s AND inicio < %s LIMIT 1""",

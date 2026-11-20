@@ -92,7 +92,7 @@ def leer_historico(conn, desde: datetime, hasta: datetime, casa: str) -> tuple[p
     filas = conn.execute("""
         SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.local_id::text AS local, p.visitante_id::text AS visitante,
                p.estado, p.goles_local, p.goles_visitante
-        FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE p.inicio >= %s AND p.inicio < %s
+        FROM partidos p JOIN ligas l ON l.id = p.liga_id WHERE l.activa AND p.inicio >= %s AND p.inicio < %s
           AND NOT l.solo_mercado ORDER BY p.inicio, p.id""",           # las competiciones SOLO-MERCADO (sin histórico ni modelo) no entran al ajuste
                          (desde, hasta)).fetchall()
     pool = pd.DataFrame(filas, columns=["partido_id", "inicio", "liga", "local", "visitante", "estado",
