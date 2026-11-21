@@ -1,0 +1,114 @@
+{
+ "events": [
+  {
+   "id": "401909305",
+   "date": "2026-11-21T00:00Z",
+   "status": {
+    "type": {
+     "name": "STATUS_SCHEDULED"
+    }
+   },
+   "competitions": [
+    {
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "team": {
+        "id": "1",
+        "displayName": "Atlanta Hawks",
+        "abbreviation": "ATL"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "team": {
+        "id": "30",
+        "displayName": "Charlotte Hornets",
+        "abbreviation": "CHA"
+       }
+      }
+     ],
+     "odds": [
+      {
+       "provider": {
+        "name": "DraftKings"
+       },
+       "details": "ATL -7.5",
+       "overUnder": 218.5,
+       "spread": -7.5,
+       "moneyline": {
+        "home": {
+         "close": {
+          "odds": "-277"
+         }
+        },
+        "away": {
+         "close": {
+          "odds": "+227"
+         }
+        }
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401909306",
+   "date": "2026-11-21T00:30Z",
+   "status": {
+    "type": {
+     "name": "STATUS_SCHEDULED"
+    }
+   },
+   "competitions": [
+    {
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "team": {
+        "id": "17",
+        "displayName": "Brooklyn Nets",
+        "abbreviation": "BKN"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "team": {
+        "id": "19",
+        "displayName": "Orlando Magic",
+        "abbreviation": "ORL"
+       }
+      }
+     ],
+     "odds": [
+      {
+       "provider": {
+        "name": "DraftKings"
+       },
+       "details": "ORL -6.5",
+       "overUnder": 224.5,
+       "spread": 6.5,
+       "moneyline": {
+        "home": {
+         "close": {
+          "odds": "+217"
+         }
+        },
+        "away": {
+         "close": {
+          "odds": "-264"
+         }
+        }
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

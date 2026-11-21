@@ -32,7 +32,9 @@ ETAPAS = {
     "actualizar_todo": ["resultados_xg", "liquidacion_clv", "reajuste_modelo", "lesiones", "alineaciones",
                         "cuotas", "recalculo_modulos"],
     "solo_cuotas": ["cuotas", "recalculo_modulos"],
-    "solo_alineaciones": ["alineaciones", "recalculo_modulos"],
+    # Sin recalcular: las alineaciones solo avisan en el panel (no cambian ninguna probabilidad) y el job las pide cada 10 min; recalcular
+    # cada vez llenaría `predicciones` (inmutables) de filas idénticas.
+    "solo_alineaciones": ["alineaciones"],
     "recalcular": ["recalculo_modulos"],          # con las cuotas ya guardadas: 0 consultas a APIs
 }
 
@@ -64,9 +66,10 @@ class Estado:
 
 class Pipeline:
     def __init__(self, cfg: dict, cadenas: dict[Capacidad, Cadena], *, dsn: str | None = None,
-                 reloj: Callable[[], datetime] = ahora_utc, registrador=None):
+                 reloj: Callable[[], datetime] = ahora_utc, registrador=None, espn=None):
         self.cfg, self.cadenas, self.dsn, self.reloj = cfg, cadenas, dsn, reloj
         self.registrador = registrador
+        self.espn = espn                                          # FuenteESPN (None en pruebas: sin red)
 
     def _http_football_data(self):
         """Cliente HTTP de football-data.co.uk (el del proveedor de CSV de la cadena), o None si no está."""
@@ -336,7 +339,16 @@ class Pipeline:
                                    fuente, capturada_en) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
                                 (p["id"], eid, a.jugador, a.titular, a.confirmada, r.proveedor, st.ahora))
                 res["jugadores"] += 1
-        res["nota"] = "las alineaciones se guardan y muestran; aún no modifican λ (fase posterior)"
+        res["nota"] = "las alineaciones se guardan y avisan en el panel (titulares habituales ausentes); no modifican las probabilidades"
+        a = (self.cfg.get("alineaciones") or {}).get("espn") or {}
+        if self.espn is not None and a.get("activo", True):
+            from golmodel.servicios import alineaciones as _al
+            try:
+                with st.conn.transaction():
+                    res["espn"] = _al.sincronizar(st.conn, self.espn, st.ahora, ventana_min=float(a.get("ventana_min", 100)),
+                                                  horizonte_h=float(a.get("horizonte_h", 36)))
+            except Exception as e:                                # noqa: BLE001 — ESPN es opcional: no tumba la etapa
+                res["espn"] = {"error": f"{type(e).__name__}: {e}"[:200]}
         return res
 
     def _etapa_cuotas(self, st: Estado, *, tipo: str = "actual", cap: Capacidad = Capacidad.CUOTAS,

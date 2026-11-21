@@ -1,0 +1,66 @@
+{
+ "events": [
+  {
+   "id": "401876407",
+   "date": "2026-11-07T20:05Z",
+   "status": {
+    "type": {
+     "name": "STATUS_FULL_TIME"
+    }
+   },
+   "competitions": [
+    {
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "1",
+       "team": {
+        "id": "160",
+        "displayName": "Paris Saint-Germain"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "team": {
+        "id": "170",
+        "displayName": "Troyes"
+       }
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "401876398",
+   "date": "2026-11-21T16:15Z",
+   "status": {
+    "type": {
+     "name": "STATUS_SCHEDULED"
+    }
+   },
+   "competitions": [
+    {
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "0",
+       "team": {
+        "id": "2502",
+        "displayName": "Nice"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "0",
+       "team": {
+        "id": "160",
+        "displayName": "Paris Saint-Germain"
+       }
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -244,10 +244,10 @@ def test_una_femenil_pedida_sin_patron_no_queda_al_final_bajo_el_tope_de_credito
     # Enmienda 2026-11-11: Liga MX Femenil tiene MODELO PROPIO y salió de las reglas solo-mercado de la config. El MECANISMO
     # (una femenil pedida sin patrón no queda al final) se sigue probando con una regla explícita.
     cm = {**cm, "femeniles": [*cm["femeniles"], {"nombre": "Liga MX Femenil", "todos": [["ligamx", "liga_mx"], ["women", "womens", "femenil"]]}]}
-    dep = [_d("soccer_spain_copa_del_rey"), _d("soccer_argentina_primera_division"), _d("soccer_mexico_ligamx_women"), _d("soccer_uefa_champs_league")]
+    dep = [_d("soccer_spain_copa_del_rey"), _d("soccer_conmebol_copa_sudamericana"), _d("soccer_mexico_ligamx_women"), _d("soccer_uefa_champs_league")]
     k = [d["key"] for d in elegir_competiciones(dep, set(), cm)]
     assert set(k) == {d["key"] for d in dep}
-    assert k.index("soccer_mexico_ligamx_women") < k.index("soccer_argentina_primera_division") < k.index("soccer_spain_copa_del_rey")   # antes que las de patrones bajos
+    assert k.index("soccer_mexico_ligamx_women") < k.index("soccer_conmebol_copa_sudamericana") < k.index("soccer_spain_copa_del_rey")   # antes que las de patrones bajos
     assert k.index("soccer_uefa_champs_league") <= k.index("soccer_mexico_ligamx_women") or k.index("soccer_mexico_ligamx_women") == 0          # la Champions no se desplaza hacia atrás por ella
 
 

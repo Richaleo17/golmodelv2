@@ -1,0 +1,38 @@
+{
+ "events": [
+  {
+   "id": "401910019",
+   "date": "2026-11-20T01:00Z",
+   "status": {
+    "type": {
+     "name": "STATUS_FINAL"
+    }
+   },
+   "competitions": [
+    {
+     "competitors": [
+      {
+       "homeAway": "home",
+       "score": "126",
+       "team": {
+        "id": "29",
+        "displayName": "Memphis Grizzlies",
+        "abbreviation": "MEM"
+       }
+      },
+      {
+       "homeAway": "away",
+       "score": "98",
+       "team": {
+        "id": "9",
+        "displayName": "Golden State Warriors",
+        "abbreviation": "GS"
+       }
+      }
+     ],
+     "odds": null
+    }
+   ]
+  }
+ ]
+}

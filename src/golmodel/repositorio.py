@@ -198,11 +198,15 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
 
 
 def sincronizar_ligas(conn, cfg: dict) -> list[str]:
-    """Aplica `ligas_excluidas` (config) a la columna `ligas.activa`. Las excluidas dejan de aparecer en el panel, las sugerencias,
+    """Aplica `ligas_excluidas` (códigos) y `ligas_excluidas_patrones` (texto en la clave de The Odds API, solo competiciones solo-mercado)
+    a la columna `ligas.activa`. Las excluidas dejan de aparecer en el panel, las sugerencias,
     los parlays, el Dashboard y la calibración, y dejan de gastar créditos. NO se borran filas (cuotas, predicciones y picks son
     inmutables por diseño: son la auditoría). Quitar una liga de la lista la reactiva. Devuelve los códigos que quedaron inactivos."""
     excluidas = [str(x) for x in (cfg.get("ligas_excluidas") or [])]
-    conn.execute("UPDATE ligas SET activa = (codigo <> ALL(%s))", (excluidas,))
+    patrones = [str(x).lower() for x in (cfg.get("ligas_excluidas_patrones") or [])]
+    conn.execute("""UPDATE ligas SET activa = (codigo <> ALL(%(c)s) AND NOT (solo_mercado AND EXISTS (
+                        SELECT 1 FROM unnest(%(p)s::text[]) pt WHERE position(pt in lower(coalesce(odds_api_sport_key, ''))) > 0)))""",
+                 {"c": excluidas, "p": patrones})
     return [r["codigo"] for r in conn.execute("SELECT codigo FROM ligas WHERE NOT activa ORDER BY codigo")]
 
 

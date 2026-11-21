@@ -9,7 +9,7 @@ era la mayor fuente de error evitable. Este hilo corre dentro de la API (mismo p
 * Durante el día (entre `hora_inicio` y `hora_fin`): «solo_cuotas» cada `cuotas_cada_min`, o cada `cuotas_cerca_min` si
   algún partido empieza en las próximas `horas_cerca` horas.
 * «solo_alineaciones» cada `alineaciones_cada_min` mientras haya un partido que empieza en `alineaciones_ventana_min` sin alineación
-  guardada (las alineaciones salen ~1 h antes). Requiere ids de API-Football (plan con temporada actual).
+  guardada (salen ~1 h antes). Fuente: ESPN (ligas y competiciones mapeadas en proveedores/espn.py) o API-Football si el partido tiene id.
 * Nunca si ya hay una actualización en curso (del usuario o del job), y nunca si el presupuesto de créditos no alcanza
   (el pipeline lo revisa en cada proveedor).
 """
@@ -34,14 +34,16 @@ def _toca_alineaciones(conn, a: dict, ahora: datetime) -> bool:
     """¿Hay un partido que empieza en la ventana (por defecto 90 min) sin alineación guardada, con id de API-Football y sin intento reciente?
     Las alineaciones salen ~1 h antes: a las 07:10 (la actualización completa) todavía no existen. Sin ids de API-Football (plan gratis sin
     temporada actual) esto nunca se cumple y no cuesta nada."""
-    cada = float(a.get("alineaciones_cada_min", 15))
-    ventana = float(a.get("alineaciones_ventana_min", 90))
+    from golmodel.ingesta.proveedores.espn import CLAVES_MERCADO_ESPN, LIGAS_ESPN
+    cada = float(a.get("alineaciones_cada_min", 10))
+    ventana = float(a.get("alineaciones_ventana_min", 100))
     pendiente = conn.execute("""
         SELECT 1 FROM partidos p JOIN ligas l ON l.id = p.liga_id
-        WHERE l.activa AND p.estado = 'programado' AND p.api_football_id IS NOT NULL
+        WHERE l.activa AND p.estado = 'programado'
+          AND (p.api_football_id IS NOT NULL OR l.codigo = ANY(%s) OR l.odds_api_sport_key = ANY(%s))
           AND p.inicio > %s AND p.inicio < %s
           AND NOT EXISTS (SELECT 1 FROM alineaciones x WHERE x.partido_id = p.id AND x.confirmada)
-        LIMIT 1""", (ahora, ahora + timedelta(minutes=ventana))).fetchone()
+        LIMIT 1""", (list(LIGAS_ESPN), list(CLAVES_MERCADO_ESPN), ahora, ahora + timedelta(minutes=ventana))).fetchone()
     if not pendiente:
         return False
     reciente = conn.execute("""SELECT 1 FROM ejecuciones WHERE tipo = 'solo_alineaciones' AND iniciada_en > %s LIMIT 1""",
@@ -107,6 +109,25 @@ def _otros_deportes(s, cfg: dict, ahora: datetime) -> None:
             c.close()
 
 
+def _nba(s, cfg: dict) -> None:
+    """NBA (ESPN, gratis): calendario, líneas, resultados y lesiones. Se corre con cada actualización porque las líneas y las bajas se mueven."""
+    if not (cfg.get("nba") or {}).get("activo"):
+        return
+    from golmodel import db
+    from golmodel.motor_nba import servicio as nba
+    from golmodel.motor_nba.datos import FuenteNBA
+    kw = {"registrar": s.registrador} if s.registrador else {}
+    c = db.conectar(s.dsn)
+    try:
+        nba.actualizar(c, FuenteNBA(**kw), cfg, s.reloj())
+        c.commit()
+    except Exception:                                       # noqa: BLE001
+        c.rollback()
+        log.exception("auto: NBA falló")
+    finally:
+        c.close()
+
+
 def un_paso(s) -> str | None:
     """Revisa y, si toca, corre UNA actualización (bloqueante). Devuelve el tipo corrido."""
     from golmodel import db, repositorio as repo
@@ -133,6 +154,8 @@ def un_paso(s) -> str | None:
         c.close()
     if tipo == "actualizar_todo" and (s.cfg.get("auto") or {}).get("otros_deportes", True):
         _otros_deportes(s, s.cfg, s.reloj())
+    if tipo in ("actualizar_todo", "solo_cuotas") and (s.cfg.get("auto") or {}).get("otros_deportes", True):
+        _nba(s, s.cfg)
     return tipo
 
 

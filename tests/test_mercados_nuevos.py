@@ -369,7 +369,7 @@ def test_tarjetas_modelo_y_mosaicos_del_diario(bd):
     arb = df["arbitro"].dropna().iloc[0]
     assert mt.arbitro.get(arb, 0) > 0                                 # el árbitro duro saca más tarjetas
     ids = [r["id"] for r in bd.execute("SELECT id FROM equipos ORDER BY id LIMIT 2")]
-    mos = mx.mosaicos_extra(bd, cfg, "EPL", liga["id"], ids[0], ids[1], None, AHORA)
+    mos = mx.mosaicos_extra(bd, cfg, "LL", liga["id"], ids[0], ids[1], None, AHORA)
     claves = {m["clave"] for m in mos}
     assert claves == {"corners", "tarjetas"}
     for m in mos:

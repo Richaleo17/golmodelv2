@@ -44,7 +44,11 @@ class Servicio:
             provs = construir_proveedores(self.cfg, dict(os.environ), registrar=self.registrador)
             self.presupuestos = construir_presupuestos(self.cfg)
             cadenas = construir_cadenas(self.cfg, provs, self.presupuestos, self.interruptor)
-        self.pipeline = Pipeline(self.cfg, cadenas, dsn=dsn, reloj=reloj, registrador=self.registrador)
+        espn = None
+        if self.registrador is not None:                          # construcción real; las pruebas inyectan proveedores simulados y no usan la red
+            from golmodel.ingesta.proveedores.espn import FuenteESPN
+            espn = FuenteESPN(registrar=self.registrador)
+        self.pipeline = Pipeline(self.cfg, cadenas, dsn=dsn, reloj=reloj, registrador=self.registrador, espn=espn)
         try:    # cambios de esquema posteriores a la creación de la base
             c = db.conectar(dsn)
             migraciones.aplicar(c)
@@ -574,6 +578,57 @@ def post_tenis_actualizar(s: Servicio = Depends(servicio)):
         except Exception as e:                                                   # noqa: BLE001
             c.rollback()
             _TENIS.update(estado="error", error=f"{type(e).__name__}: {str(e)[:200]}")
+        finally:
+            c.close()
+    threading.Thread(target=correr, daemon=True).start()
+    return {"estado": "en_curso"}
+
+
+_NBA = {"estado": "inactivo", "resumen": None, "error": None, "inicio": None}
+
+
+def _tablas_nba(fn):
+    try:
+        return fn()
+    except psycopg.errors.UndefinedTable:
+        raise HTTPException(503, "Faltan las tablas de la NBA: reinicia la API para aplicar la migración 016.")
+
+
+@app.get("/nba/semana")
+def get_nba_semana(s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """NBA «mercado primero»: próximos juegos con la línea de DraftKings, probabilidades (moneyline, spreads y totales alternativos),
+    lesiones y descanso. El modelo propio no mejoró al mercado en el backtest, por eso no se usa."""
+    from golmodel.motor_nba import servicio as nba
+    out = _tablas_nba(lambda: nba.semana(conn, s.cfg, s.reloj()))
+    out["actualizacion"] = {k: (v.isoformat() if hasattr(v, "isoformat") else v) for k, v in _NBA.items()}
+    return out
+
+
+@app.get("/nba/dashboard")
+def get_nba_dashboard(s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    from golmodel.motor_nba import servicio as nba
+    return _tablas_nba(lambda: nba.dashboard(conn, s.cfg, s.reloj()))
+
+
+@app.post("/nba/actualizar", status_code=202)
+def post_nba_actualizar(s: Servicio = Depends(servicio)):
+    """Descarga calendario, líneas, resultados, lesiones y promedios (ESPN, gratis). Corre en segundo plano."""
+    from golmodel.motor_nba import servicio as nba
+    from golmodel.motor_nba.datos import FuenteNBA
+    if _NBA["estado"] == "en_curso":
+        raise HTTPException(409, "Ya hay una actualización de NBA en curso")
+    _NBA.update(estado="en_curso", error=None, inicio=s.reloj())
+
+    def correr():
+        c = db.conectar(s.dsn)
+        try:
+            kw = {"registrar": s.registrador} if s.registrador else {}
+            r = nba.actualizar(c, FuenteNBA(**kw), s.cfg, s.reloj())
+            c.commit()
+            _NBA.update(resumen=r, estado="ok")
+        except Exception as e:                                                   # noqa: BLE001
+            c.rollback()
+            _NBA.update(estado="error", error=f"{type(e).__name__}: {str(e)[:200]}")
         finally:
             c.close()
     threading.Thread(target=correr, daemon=True).start()

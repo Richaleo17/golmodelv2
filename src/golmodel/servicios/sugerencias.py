@@ -24,6 +24,7 @@ from golmodel import repositorio as repo
 from golmodel.modelos.matriz import matriz_marcadores
 from golmodel.modelos.mercados import APTAS_PARLAY, CONDICIONES, probabilidad
 from golmodel.motor.valor import umbral_efectivo
+from golmodel.servicios import alineaciones
 from golmodel.servicios.prediccion import vigente
 
 EXCLUIDAS = {"1X2:X", "ANOTA:local:no", "ANOTA:visitante:no", "BTTS:no"}
@@ -475,6 +476,7 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
     cal_kpi = {k: v for k, v in calibracion_kpi.vigentes(conn).items() if v.get("estado") == "activa"}
 
     con_estadisticas = repo.tiene_tabla(conn, "estadisticas_partido")
+    con_alineaciones = repo.tiene_tabla(conn, "plantilla_jugadores")          # base sin la migración 014
     partidos, piernas_todas, rompe = [], [], []
     for f in filas:
         if not f["prediccion_id"]:
@@ -497,6 +499,12 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
                                              if casa == "manual" else casa.capitalize()}
         info = analizar_partido(f, sels.get(f["prediccion_id"], {}), pesos_v.get(f["version_id"], {}), forma, ejec, cfg, zona)
         _calibrar_tarjetas(info, cal_kpi, cfg)
+        if con_alineaciones and f["estado"] == "programado":
+            try:
+                with conn.transaction():
+                    alineaciones.aplicar_a_info(info, alineaciones.analizar(conn, f["partido_id"]))
+            except Exception:                                    # noqa: BLE001 — la alineación nunca tumba el panel
+                pass
         if info.get("mercados") is not None and not f["solo_mercado"] and con_estadisticas:
             conn.execute("SAVEPOINT mosaicos_extra")     # córners y tarjetas (modelos paralelos; si fallan, el Diario sigue)
             try:

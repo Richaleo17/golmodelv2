@@ -10,6 +10,9 @@ ligas_activas: [LL, L1, MX1, MXF, MLS, BR1, POR]
 # (repositorio.sincronizar_ligas): no salen en panel, sugerencias, parlays, Dashboard ni calibración y no gastan créditos. Las filas
 # históricas NO se borran (cuotas, predicciones y picks son inmutables = auditoría). Quitar un código de aquí la reactiva.
 ligas_excluidas: [EPL, SA, BUN, ERE, BEL, "MK:soccer_japan_j_league"]
+# Competiciones solo-mercado MENORES fuera (2026-11-20): se desactivan las que ya existen cuyo `odds_api_sport_key` contenga cualquiera de
+# estos textos. Quedan: Champions, Europa, Conference, selecciones, copas (Copa del Rey…), Libertadores, Sudamericana y Concacaf.
+ligas_excluidas_patrones: [efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan]
 historico:
   temporadas: 5            # + la temporada en curso
   # EPL y SA: xG de Understat (goles + xG). MX1, MLS, BR1: solo goles.
@@ -81,9 +84,9 @@ auto:
                                    # cada hora todo el día (siempre hay algún partido cerca en alguna liga): ~640 créditos/día
   horas_cerca: 3
   otros_deportes: true             # tras la diaria: NFL y tenis
-  alineaciones: true               # «solo_alineaciones» antes de cada partido con id de API-Football (hoy ninguno: el plan gratis no cubre la temporada actual)
-  alineaciones_cada_min: 15
-  alineaciones_ventana_min: 90
+  alineaciones: true               # «solo_alineaciones» antes de cada partido (ESPN: alineación oficial ~1 h antes)
+  alineaciones_cada_min: 10
+  alineaciones_ventana_min: 100
   reintentos: 2
 
 modelo:
@@ -192,7 +195,6 @@ competiciones_mercado:
   max_creditos_por_actualizacion: 60     # tope de créditos (2 por competición con partidos); era 16 con el plan gratis
   max_creditos_resultados: 40            # resultados (/scores, 2 créditos c/u) de TODAS las competiciones solo-mercado con partidos pendientes de cerrar + selecciones
   patrones: [uefa_champs, uefa_europa, uefa_conf, nations_league, friendl, qualif, world_cup, euro,
-             efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi,
              libertadores, sudamericana, concacaf, copa]
   excluir: [winner, outright, women, womens, japan]
   # Femeniles INCLUIDAS por decisión del responsable (2026-11-10) aunque `excluir` tenga women/womens. Reglas de TOKENS sobre la clave del deporte de
@@ -434,6 +436,7 @@ parlays_usuario:
   confianza_min: 3.5               # confianza de datos mínima (0-10)
   incluir_nfl: true                # suma juegos NFL («Gana» moneyline, p ≥ p_min) a Qué meter y Soñadoras
   incluir_tenis: true              # suma partidos de tenis («Gana <jugador>», con momio) a Qué meter y Soñadoras
+  incluir_nba: true                # suma juegos NBA (moneyline y spread/total alternativos ≈ 85%) a Qué meter, Soñadoras y Boletos
 
 # Dashboard de aprendizaje (servicios/aciertos.py, /dashboard). Línea base = walk-forward de selecciones 2024-07→2026-10 (2,420 partidos):
 # el punto de partida contra el que se mide si la app va mejorando. PA(1) no tiene línea base (el CSV no trae el minuto de los goles).
@@ -453,3 +456,18 @@ calibracion_kpi:
   frac_prueba: 0.3                 # último 30% de los días = prueba (nunca se usa para ajustar)
   l2: 5.0                          # tirón hacia «sin ajuste» (a=0, b=1): con pocos datos casi no se mueve
   mejora_min: 0.002                # mejora mínima del Brier en prueba para activarlo
+
+# Alineaciones oficiales y plantillas (ESPN, sin llave). ESPN NO publica lesiones de fútbol: una «ausencia» es un principal (≥ 60% de
+# titularidades) que no está en la convocatoria publicada o está en la banca. Avisa en el panel y baja la confianza; no mueve probabilidades.
+alineaciones:
+  espn:
+    activo: true
+    ventana_min: 100         # solo se piden las alineaciones de partidos que empiezan en menos de esto
+    horizonte_h: 36          # emparejamiento y plantillas de los partidos de las próximas horas
+
+# NBA «mercado primero» (motor_nba/): fuente ESPN (calendario con líneas de DraftKings, lesiones, promedios). El backtest de 3 temporadas
+# mostró que un modelo propio no mejora a la línea de cierre; la probabilidad sale de la línea con σ margen 13.3 y σ total 17.8.
+nba:
+  activo: true
+  dias: 3                    # ayer (descanso/resultados) … +2 días
+  max_jugadores: 80          # promedios de lesionados que se piden por actualización (una vez al día cada uno)

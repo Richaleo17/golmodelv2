@@ -56,6 +56,10 @@ def test_config_excluye_las_ligas_pedidas():
     for sec in ("corners", "tarjetas", "props"):
         assert not set(CFG["ligas_excluidas"]) & set(CFG[sec]["ligas"])                # tampoco en mercados extra
     assert "japan" not in CFG["competiciones_mercado"]["patrones"]
+    menores = set(CFG["ligas_excluidas_patrones"])
+    assert {"efl_champ", "bundesliga2", "ligue_two", "serie_b", "segunda", "spl", "turkey", "argentina", "saudi", "japan"} <= menores
+    assert not menores & set(CFG["competiciones_mercado"]["patrones"])                  # lo excluido tampoco se descubre
+    assert {"uefa_champs", "uefa_europa", "nations_league", "libertadores", "copa"} <= set(CFG["competiciones_mercado"]["patrones"])
 
 
 def test_sincronizar_oculta_en_historial_dia_y_proximos(bd):
@@ -98,3 +102,18 @@ def test_dashboard_guardado_ignora_ligas_excluidas(bd):
     cfg["ligas_excluidas"] = ["EPL"]
     repo.sincronizar_ligas(bd, cfg)
     assert len(aciertos.detalle_guardado(bd, d0, d1)) == 1
+
+
+def test_patrones_desactivan_las_competiciones_menores_y_dejan_las_demas(bd):
+    claves = {"soccer_germany_bundesliga2": False, "soccer_france_ligue_two": False, "soccer_efl_champ": False, "soccer_italy_serie_b": False,
+              "soccer_brazil_serie_b": False, "soccer_spain_segunda_division": False, "soccer_spl": False, "soccer_turkey_super_league": False,
+              "soccer_argentina_primera_division": False, "soccer_saudi_arabia_pro_league": False, "soccer_japan_j_league": False,
+              "soccer_uefa_champs_league": True, "soccer_uefa_europa_league": True, "soccer_spain_copa_del_rey": True,
+              "soccer_conmebol_copa_libertadores": True, "soccer_uefa_nations_league": True}
+    for k in claves:
+        repo.asegurar_liga_mercado(bd, k, k)
+    repo.sincronizar_ligas(bd, CFG)
+    activas = {r["codigo"][3:]: r["activa"] for r in bd.execute("SELECT codigo, activa FROM ligas WHERE codigo LIKE 'MK:%'")}
+    assert activas == claves
+    assert not bd.execute("SELECT activa FROM ligas WHERE codigo = 'BUN'").fetchone()["activa"]       # las 5 con modelo propio, también
+    assert bd.execute("SELECT activa FROM ligas WHERE codigo = 'LL'").fetchone()["activa"]
