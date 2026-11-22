@@ -342,3 +342,17 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   * La captura por texto acepta «−600 +350», y el lector de boletos devuelve `cuota_americana`, que se convierte en código (no se le
     pide la aritmética al lector).
   * La app muestra la cuota mínima y la justa también en americano, p. ej. «1.17 (−600)».
+
+## 2026-11-22 (f) — Memoria del tenis (Render: 512 MB)
+
+* La «Actualizar datos» de las 05:03 UTC falló con «la API se reinició durante la actualización». **Causa:** se lanzó 2 segundos
+  antes de que Render cambiara al servidor del PR #27; el servidor viejo se apagó a media corrida. No es un error del código: basta
+  repetirla.
+* **Riesgo de memoria al revisarlo.** El servidor usa 220-330 MB de 512. Con los Challenger, el estado del Elo (~80 mil partidos)
+  agregaba ~100 MB, porque guardaba todos los renglones de la consulta y la predicción de cada partido desde 2020.
+* **Cambio en `_estado`:**
+  * Un solo recorrido con cursor de tuplas, sin guardar los renglones.
+  * Nombres internados.
+  * El registro partido a partido solo desde el 1-ene del año anterior, que es lo único que usan la efectividad y el Dashboard.
+  * Se suelta el estado viejo antes de construir el nuevo.
+* **Resultado:** +25 MB en lugar de +100 MB (pico medido 270 MB contra 345 MB, mismo acierto).

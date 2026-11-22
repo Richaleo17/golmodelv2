@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import gc
 import re
+import sys
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
+
+from psycopg.rows import tuple_row
 
 from golmodel.motor_tenis import modelo as md
 from golmodel.motor_tenis.datos import FuenteTenis, _plano, claves_nombre_completo, resolver, resultados_espn
@@ -207,26 +210,32 @@ def _espn(conn, fuente, cfg: dict, ahora: datetime, res: dict) -> None:
 
 
 def _estado(conn, cfg: dict):
+    """Elo de todo el histórico (cacheado mientras no cambien los datos). Cuida la memoria (Render: 512 MB, ~80 mil partidos con los
+    Challenger): un solo recorrido sin guardar los renglones, nombres internados (cada jugador aparece cientos de veces) y la
+    predicción partido a partido solo desde el 1-ene del año anterior (lo único que usan la efectividad y el Dashboard)."""
     firma = conn.execute("""SELECT (SELECT count(*) FROM tenis_partidos) AS n, (SELECT max(fecha) FROM tenis_partidos) AS f,
                                    current_database() AS db""").fetchone()
     clave = (firma["db"], firma["n"], str(firma["f"]), repr(sorted(cfg["tenis"]["modelo"].items())))
     if _CACHE.get("clave") != clave:
-        filas = conn.execute("""SELECT id, tour, fecha, superficie, ganador, perdedor, best_of, orden, cuota_g, cuota_p, torneo
-                                FROM tenis_partidos ORDER BY fecha, orden""").fetchall()
-        partidos = [md.Partido(r["tour"], r["fecha"].isoformat(), r["superficie"], r["ganador"], r["perdedor"], int(r["best_of"] or 3),
-                               int(r["orden"] or 0), r["id"]) for r in filas]
-        est, reg = md.construir(partidos, cfg, desde_eval="0000")
-        mercado = {}
-        for r in filas:
-            if r["cuota_g"] and r["cuota_p"]:
-                a, b = 1 / float(r["cuota_g"]), 1 / float(r["cuota_p"])
-                mercado[r["id"]] = a / (a + b)
-        torneos = {}
-        for r in filas:                                            # superficie más reciente de cada torneo
-            torneos[_plano(r["torneo"])] = md.superficie_norm(r["superficie"])
-        conocidos = {}
-        for r in filas:
-            conocidos.setdefault(r["tour"], set()).update((r["ganador"], r["perdedor"]))
+        _CACHE.clear()                                             # no tener el estado viejo y el nuevo a la vez
+        gc.collect()
+        desde = f"{firma['f'].year - 1}-01-01" if firma["f"] else "0000"
+        partidos, mercado, torneos, conocidos = [], {}, {}, {}
+        it = sys.intern
+        with conn.cursor(row_factory=tuple_row) as cur:
+            cur.execute("""SELECT id, tour, fecha, superficie, ganador, perdedor, best_of, orden, cuota_g, cuota_p, torneo
+                           FROM tenis_partidos ORDER BY fecha, orden""")
+            for (pid, tour, fecha, sup, g, p, bo, orden, cg, cp, torneo) in cur:
+                tour, g, p = it(tour), it(g), it(p)
+                partidos.append(md.Partido(tour, fecha.isoformat(), it(sup or "Hard"), g, p, int(bo or 3), int(orden or 0), pid))
+                if cg and cp:
+                    a, b = 1 / float(cg), 1 / float(cp)
+                    mercado[pid] = a / (a + b)
+                torneos[_plano(torneo)] = md.superficie_norm(sup)      # superficie más reciente de cada torneo
+                conocidos.setdefault(tour, set()).update((g, p))
+        est, reg = md.construir(partidos, cfg, desde_eval=desde)
+        del partidos
+        gc.collect()
         _CACHE.update(clave=clave, valor=(est, reg, mercado, torneos, conocidos))
     return _CACHE["valor"]
 
