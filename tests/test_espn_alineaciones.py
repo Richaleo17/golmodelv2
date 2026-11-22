@@ -112,6 +112,12 @@ class FuenteFalsa:
         self.llamadas["plantilla"] += 1
         return E.parse_plantilla(_fx("roster_psg")) if equipo_id == "160" else []
 
+    def calendario(self, liga, equipo_id):
+        return []
+
+    def participacion(self, liga, evento_id):
+        return {}
+
 
 def _montar(bd):
     l1 = bd.execute("SELECT id FROM ligas WHERE codigo = 'L1'").fetchone()["id"]
@@ -211,3 +217,136 @@ def test_niveles_fuera_pesa_el_doble_que_la_banca(bd):
     assert A.nivel_de([], []) == "bajo" and A.nivel_de([], [m()]) == "medio" and A.nivel_de([], [m(), m(), m()]) == "medio"
     assert A.nivel_de([m(), m()], []) == "alto" and A.nivel_de([], [m(), m(), m(), m()]) == "alto"
     assert A.nivel_de([], [m("G")]) == "alto" and A.nivel_de([m("F", 0.3)], []) == "alto" and A.nivel_de([m()], []) == "medio"
+
+
+# ------------------------------------------------------------------ bajas probables antes de la alineación
+def test_parsers_de_calendario_y_participacion_reales():
+    cal = E.parse_calendario(_fx("calendario_psg"))
+    assert cal and cal == sorted(cal) and all(isinstance(e, str) for _, e in cal)          # solo jugados, del más viejo al más reciente
+    part = E.parse_participacion(_fx("summary_participacion"))
+    psg = part["160"]
+    assert psg["248699"]["titular"] and psg["248699"]["jugo"] and not psg["248699"]["roja"]       # Safonov, titular
+    entraron = [j for j in psg.values() if not j["titular"] and j["jugo"]]
+    banca = [j for j in psg.values() if not j["titular"] and not j["jugo"]]
+    assert entraron and banca and len([j for j in psg.values() if j["titular"]]) == 11
+
+
+class FuenteConHistoria(FuenteFalsa):
+    """Los 2 últimos partidos del PSG: Ferran Torres no jugó ninguno; a Vitinha lo expulsaron en el último."""
+
+    def calendario(self, liga, equipo_id):
+        return [(datetime(2026, 11, 1, 20, tzinfo=timezone.utc), "e1"), (datetime(2026, 11, 8, 20, tzinfo=timezone.utc), "e2")] if equipo_id == "160" else []
+
+    def participacion(self, liga, evento_id):
+        base = E.parse_participacion(_fx("summary_participacion"))["160"]
+        psg = {k: dict(v, jugo=True, titular=True, roja=False) for k, v in base.items()}
+        torres = next(k for k, v in psg.items() if v["nombre"] == "Ferran Torres")
+        vitinha = next(k for k, v in psg.items() if v["nombre"] == "Vitinha")
+        psg[torres].update(jugo=False, titular=False)
+        if evento_id == "e2":
+            psg[vitinha]["roja"] = True
+        return {"160": psg}
+
+
+def test_bajas_probables_antes_de_la_alineacion(bd):
+    pid, ids = _montar(bd)
+    f = FuenteConHistoria(publicar=False)
+    r = A.sincronizar(bd, f, AHORA - timedelta(hours=10))                     # aún sin alineación
+    assert r["participaciones"] == 2
+    a = A.analizar(bd, pid)
+    assert a["estado"] == "pendiente" and a["nivel"] == "alto"
+    motivos = {j["nombre"]: j["motivo"] for j in a["previo"]["visitante"]}
+    assert "posible lesión" in motivos["Ferran Torres"] and "sanción" in motivos["Vitinha"]
+    assert "Bajas probables" in a["aviso"] and "local" not in a["previo"]
+    info = A.aplicar_a_info({"confianza": 4.0, "razones": []}, a)            # también baja la confianza antes de la alineación (señal medida)
+    assert info["confianza"] == 3.0 and info["razones"] == [a["aviso"]]
+    assert A.sincronizar(bd, f, AHORA - timedelta(hours=9))["participaciones"] == 0   # los partidos jugados se bajan una sola vez
+
+
+def test_sin_historia_suficiente_no_hay_bajas_probables(bd):
+    pid, ids = _montar(bd)
+    A.sincronizar(bd, FuenteFalsa(publicar=False), AHORA)
+    assert A.bajas_probables(bd, ids["Paris SG"]) == [] and A.analizar(bd, pid) == {"estado": "pendiente"}
+
+
+# ------------------------------------------------------------------ FotMob: lesiones y sanciones reales
+from golmodel.ingesta.proveedores import fotmob as F
+
+
+def test_parsers_fotmob_reales():
+    ps = {m["id"]: m for m in F.parse_partidos(_fx("fotmob_liga"))}
+    b = ps["5868133"]
+    assert (b["local"], b["visitante"], b["terminado"]) == ("Barcelona", "Villarreal", False)
+    assert b["inicio"] == datetime(2026, 11, 22, 13, 0, tzinfo=timezone.utc)
+    bajas = F.parse_bajas(_fx("fotmob_partido"))
+    loc = {x["nombre"]: x for x in bajas["local"]}
+    assert loc["Rodri"]["tipo"] == "lesión" and loc["Rodri"]["regreso"] == "Early December 2026"
+    assert loc["Jordi Pesquer"]["tipo"] == "con su selección"
+    assert {x["nombre"] for x in bajas["visitante"]} >= {"Gerard Moreno", "Juan Foyth"}
+    assert F.parse_bajas({}) is None and F.parse_partidos(None) == []
+    assert F.liga_fotmob("LL") == 87 and F.liga_fotmob("MK:soccer_uefa_champs_league") == 42 and F.liga_fotmob("EPL") is None
+
+
+class FotMobFalsa:
+    def __init__(self):
+        self.pedidos = 0
+
+    def partidos(self, liga_id):
+        return F.parse_partidos(_fx("fotmob_liga")) if liga_id == 87 else []
+
+    def bajas(self, partido_id):
+        self.pedidos += 1
+        return F.parse_bajas(_fx("fotmob_partido")) if partido_id == "5868133" else None
+
+
+def _montar_barca(bd):
+    ll = bd.execute("SELECT id FROM ligas WHERE codigo = 'LL'").fetchone()["id"]
+    ids = {}
+    for n, alias in (("Barcelona", "FC Barcelona"), ("Villarreal", "Villarreal CF")):
+        eid = bd.execute("INSERT INTO equipos (nombre, pais) VALUES (%s, 'España') RETURNING id", (n,)).fetchone()["id"]
+        bd.execute("INSERT INTO equipo_temporada (equipo_id, liga_id, temporada) VALUES (%s, %s, '2026-2027')", (eid, ll))
+        bd.execute("INSERT INTO equipo_alias (equipo_id, fuente, nombre_externo) VALUES (%s, 'football_data_org', %s)", (eid, alias))
+        ids[n] = eid
+    pid = bd.execute("INSERT INTO partidos (liga_id, temporada, inicio, local_id, visitante_id) VALUES (%s, '2026-2027', %s, %s, %s) RETURNING id",
+                     (ll, datetime(2026, 11, 22, 13, 0, tzinfo=timezone.utc), ids["Barcelona"], ids["Villarreal"])).fetchone()["id"]
+    # titulares habituales (como los deja la plantilla de ESPN): Rodri y Gerard Moreno lo son; Xavi Espart no
+    for eq, filas in ((ids["Barcelona"], [("1", "Rodri", "M", 9, 2), ("2", "Xavi Espart", "D", 1, 0), ("3", "Pedri", "M", 10, 3)]),
+                      (ids["Villarreal"], [("4", "Gerard Moreno", "F", 8, 6), ("5", "Juan Foyth", "D", 2, 0), ("6", "Ayoze", "F", 10, 4)])):
+        for jid, nom, pos, tit, goles in filas:
+            bd.execute("INSERT INTO plantilla_jugadores (equipo_id, jugador_externo, nombre, posicion, apariciones, titularidades, goles, asistencias) "
+                       "VALUES (%s, %s, %s, %s, 10, %s, %s, 0)", (eq, jid, nom, pos, tit, goles))
+    return pid, ids
+
+
+def test_fotmob_lesiones_reales_antes_de_la_alineacion(bd):
+    pid, ids = _montar_barca(bd)
+    f = FotMobFalsa()
+    ahora = datetime(2026, 11, 21, 18, 0, tzinfo=timezone.utc)
+    r = A.sincronizar_fotmob(bd, f, ahora)
+    assert r["emparejados"] == 1 and r["consultados"] == 1 and r["bajas"] == 8 and r["sin_emparejar"] == []
+    assert bd.execute("SELECT fotmob_id FROM partidos WHERE id = %s", (pid,)).fetchone()["fotmob_id"] == "5868133"
+    a = A.analizar(bd, pid)
+    assert a["estado"] == "pendiente"
+    loc = {j["nombre"]: j for j in a["previo"]["local"]}
+    assert loc["Rodri"]["motivo"] == "lesión (regreso: Early December 2026)" and loc["Rodri"]["fuente"] == "FotMob"
+    assert "Xavi Espart" not in loc and any(o["nombre"] == "Xavi Espart" for o in a["otras"]["local"])     # lesionado, pero no es titular habitual
+    vis = {j["nombre"] for j in a["previo"]["visitante"]}
+    assert vis == {"Gerard Moreno"} and a["nivel"] in ("medio", "alto") and "Rodri" in a["aviso"]
+    A.sincronizar_fotmob(bd, f, ahora + timedelta(minutes=30))
+    assert f.pedidos == 1                                                     # a 19 h del partido no se vuelve a pedir antes de 3 h
+    A.sincronizar_fotmob(bd, f, datetime(2026, 11, 22, 11, 30, tzinfo=timezone.utc))
+    assert f.pedidos == 2                                                     # dentro de la ventana previa: se refresca
+
+
+def test_fotmob_da_el_motivo_real_cuando_sale_la_alineacion(bd):
+    pid, ids = _montar_barca(bd)
+    A.sincronizar_fotmob(bd, FotMobFalsa(), datetime(2026, 11, 21, 18, 0, tzinfo=timezone.utc))
+    bd.execute("UPDATE partidos SET espn_id = 'x' WHERE id = %s", (pid,))
+    for eq, nombres in ((ids["Barcelona"], ["Pedri"]), (ids["Villarreal"], ["Ayoze"])):
+        ext = {r["nombre"]: r["jugador_externo"] for r in bd.execute("SELECT nombre, jugador_externo FROM plantilla_jugadores WHERE equipo_id = %s", (eq,))}
+        for n in nombres:
+            bd.execute("INSERT INTO alineaciones (partido_id, equipo_id, jugador_nombre, titular, confirmada, fuente, jugador_externo) VALUES (%s, %s, %s, true, true, 'espn', %s)",
+                       (pid, eq, n, ext[n]))
+    a = A.analizar(bd, pid)
+    fuera = {j["nombre"]: j["motivo"] for j in a["local"]["fuera"]}
+    assert a["estado"] == "publicada" and fuera["Rodri"] == "lesión (regreso: Early December 2026)"     # ya no dice solo «fuera de la convocatoria»

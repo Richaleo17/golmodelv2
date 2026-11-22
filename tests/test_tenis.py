@@ -184,5 +184,23 @@ def test_servicio_tenis_carga_pronostica_y_arma_piernas(bd):
     d = tenis.dashboard(bd, CFG, ahora)
     assert d["desempeno"]["partidos"] > 1000 and d["curva"] and "vegas" in d["desempeno"]
     legs = tenis.piernas_parlay(bd, CFG, ahora, ahora + timedelta(days=3), 0.0)
-    assert len(legs) == 1 and legs[0]["partido_id"] == "tenis:ev1" and legs[0]["jugada"].startswith("Gana ")
+    assert {l["partido_id"] for l in legs} == {"tenis:ev1"} and legs[0]["jugada"].startswith("Gana ")      # «Gana» + mercados por set
+    assert {l["tipo"] for l in legs} >= {"tenis_gana", "tenis_set1"} and all(0 < l["p"] < 1 for l in legs)
+    from golmodel.servicios.parlays_usuario import una_por_partido
+    assert len(una_por_partido(legs)) == 1
     assert tenis.piernas_parlay(bd, CFG, ahora, ahora + timedelta(days=3), 0.99) == []
+
+
+def test_mercados_por_set_calibrados():
+    from golmodel.motor_tenis.modelo import mercados_sets
+    s = mercados_sets(0.75)
+    j1, j2 = s["jugador1"], s["jugador2"]
+    assert 0.66 < j1["set1"] < 0.73 and j1["set1"] + j2["set1"] == pytest.approx(1)              # 1.er set (medido 2025: 69→73% en 70-80%)
+    assert 0.50 < j1["dos_cero"] < 0.58 and j1["dos_cero"] <= 0.75                                 # el 2-0 nunca supera ganar el partido
+    assert j2["dos_cero"] < 0.25 and s["tres_sets"] == pytest.approx(1 - j1["dos_cero"] - j2["dos_cero"], abs=1e-3)
+    assert j2["mas_1_5"] == pytest.approx(1 - j1["menos_1_5"], abs=1e-3)                          # +1.5 del rival = no pierde 2-0
+    inv = mercados_sets(0.25)                                                                      # simétrico: cambia quién es el favorito
+    assert inv["jugador2"] == j1 and inv["jugador1"] == j2
+    assert mercados_sets(0.75, best_of=5) is None and mercados_sets(None) is None
+    parejo = mercados_sets(0.5)
+    assert abs(parejo["jugador1"]["set1"] - 0.5) < 0.05 and 0.3 < parejo["tres_sets"] < 0.45      # medido: 3 sets ≈ 37% en partidos parejos

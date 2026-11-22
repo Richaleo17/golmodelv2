@@ -101,3 +101,42 @@ def nivel_lesiones(bajas: list[dict]) -> str:
     if fuera or dudas:
         return "medio"
     return "bajo"
+
+
+# ------------------------------------------------------------------------------------------------- mercados derivados
+# Medidos en la temporada 2025-26 (1,231 juegos con marcador por cuarto de ESPN y línea de cierre de 9 casas; docs/decisiones.md).
+# Cada tramo: media = k · (total o margen esperado del partido), dispersión normal, y la tasa de empate del tramo con margen 0.
+TRAMOS = {
+    "1T": {"nombre": "1.ª mitad", "k_total": 0.5041, "k_margen": 0.6044, "s_total": 12.11, "s_margen": 11.07, "empate": 0.024},
+    "1C": {"nombre": "1.er cuarto", "k_total": 0.2546, "k_margen": 0.3372, "s_total": 8.19, "s_margen": 8.20, "empate": 0.045},
+}
+SIGMA_EQUIPO = 11.5
+
+
+def _lineas(centro: float, amplitud: int) -> list[float]:
+    c = int(centro) + 0.5
+    return [c + k for k in range(-amplitud, amplitud + 1)]
+
+
+def derivados(spread_local: float, total: float) -> dict:
+    """Puntos por equipo, 1.ª mitad y 1.er cuarto (ganador, 1x2 con empate, spreads y totales) desde la línea del partido."""
+    mu = -spread_local
+    out: dict = {"equipos": {}}
+    for lado, media in (("local", (total + mu) / 2), ("visitante", (total - mu) / 2)):
+        out["equipos"][lado] = {"esperado": round(media, 1), "lineas": [
+            {"linea": ln, "p_over": round(1 - phi((ln - media) / SIGMA_EQUIPO), 4), "p_under": round(phi((ln - media) / SIGMA_EQUIPO), 4)}
+            for ln in _lineas(media, 14)]}
+    for clave, t in TRAMOS.items():
+        m, tt = t["k_margen"] * mu, t["k_total"] * total
+        pl = phi(m / t["s_margen"])
+        emp = t["empate"] * pow(2.718281828, -m * m / (2 * t["s_margen"] ** 2))
+        out[clave] = {
+            "nombre": t["nombre"], "margen_esperado": round(m, 1), "total_esperado": round(tt, 1),
+            "gana_local": round(pl, 4), "gana_visitante": round(1 - pl, 4),                              # moneyline del tramo (empate = devolución)
+            "x12": {"local": round(pl * (1 - emp), 4), "empate": round(emp, 4), "visitante": round((1 - pl) * (1 - emp), 4)},
+            "spreads_local": [{"linea": h, "p": round(phi((m + h) / t["s_margen"]), 4)} for h in _lineas(0, 10)],
+            "spreads_visitante": [{"linea": h, "p": round(phi((-m + h) / t["s_margen"]), 4)} for h in _lineas(0, 10)],
+            "totales": [{"linea": ln, "p_over": round(1 - phi((ln - tt) / t["s_total"]), 4), "p_under": round(phi((ln - tt) / t["s_total"]), 4)}
+                        for ln in _lineas(tt, 14)],
+        }
+    return out

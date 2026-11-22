@@ -66,10 +66,11 @@ class Estado:
 
 class Pipeline:
     def __init__(self, cfg: dict, cadenas: dict[Capacidad, Cadena], *, dsn: str | None = None,
-                 reloj: Callable[[], datetime] = ahora_utc, registrador=None, espn=None):
+                 reloj: Callable[[], datetime] = ahora_utc, registrador=None, espn=None, fotmob=None):
         self.cfg, self.cadenas, self.dsn, self.reloj = cfg, cadenas, dsn, reloj
         self.registrador = registrador
         self.espn = espn                                          # FuenteESPN (None en pruebas: sin red)
+        self.fotmob = fotmob                                      # FuenteFotMob: lesiones y sanciones reales
 
     def _http_football_data(self):
         """Cliente HTTP de football-data.co.uk (el del proveedor de CSV de la cadena), o None si no está."""
@@ -349,6 +350,16 @@ class Pipeline:
                                                   horizonte_h=float(a.get("horizonte_h", 36)))
             except Exception as e:                                # noqa: BLE001 — ESPN es opcional: no tumba la etapa
                 res["espn"] = {"error": f"{type(e).__name__}: {e}"[:200]}
+        f = (self.cfg.get("alineaciones") or {}).get("fotmob") or {}
+        if self.fotmob is not None and f.get("activo", True):
+            from golmodel.servicios import alineaciones as _al
+            try:
+                with st.conn.transaction():
+                    res["fotmob"] = _al.sincronizar_fotmob(st.conn, self.fotmob, st.ahora, horizonte_h=float(f.get("horizonte_h", 48)),
+                                                           refresco_min=float(f.get("refresco_min", 180)),
+                                                           refresco_cerca_min=float(f.get("refresco_cerca_min", 30)))
+            except Exception as e:                                # noqa: BLE001 — FotMob es opcional
+                res["fotmob"] = {"error": f"{type(e).__name__}: {e}"[:200]}
         return res
 
     def _etapa_cuotas(self, st: Estado, *, tipo: str = "actual", cap: Capacidad = Capacidad.CUOTAS,

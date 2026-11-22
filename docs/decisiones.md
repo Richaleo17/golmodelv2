@@ -243,3 +243,25 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   actualiza solo mientras el juego está programado: la última es la de cierre y con ella el Dashboard mide al mercado con sus propios juegos.
 * Pruebas: la suite corrió 1,082 pruebas con 3 fallos, todos de este cambio de ligas/mensajes y ya corregidos (la prueba de tarjetas pedía
   mosaicos de EPL; la de catálogo usaba Argentina; el e2e esperaba «incorrecta» en el login).
+
+### 2026-11-21 · Lesiones reales (FotMob), bajas probables (ESPN), mercados derivados de NBA y por set en tenis
+* **Lesiones de fútbol: FotMob** (`proveedores/fotmob.py`). ESPN no las publica; FotMob trae por partido los jugadores no disponibles con
+  motivo (lesión, sanción, con su selección, enfermedad) y regreso estimado. Ligas: LaLiga 87, Ligue 1 53, Portugal 61, Liga MX 230,
+  MLS 130, Brasil 268, Champions 42, Europa 73, Conference 10216, Copa del Rey 138. Se pide cada 3 h (30 min cerca del partido).
+  Se cruza con los titulares habituales (ESPN): solo los habituales pesan en el nivel; el resto se lista como «otras bajas».
+  Cuando sale la alineación, un habitual fuera de la convocatoria muestra el motivo real («lesión (regreso: …)»).
+  Sofascore y Transfermarkt no se integraron (no se pudieron probar); FotMob es una API web no documentada: si cambia, la etapa lo
+  cuenta como error y siguen funcionando las bajas inferidas.
+* **Bajas probables sin fuente de lesiones** (ESPN, quién jugó cada partido): medido en 211 partidos de LaLiga y Ligue 1 2026-27, un
+  titular habitual que no jugó los 2 partidos anteriores NO fue titular en el siguiente el 80.6% de las veces (72 casos); uno expulsado en el
+  último, el 100% (20 casos); sin señal, 25.3%. Avisa antes de la alineación y baja la confianza igual que una ausencia confirmada.
+  Migración 017 (equipos_espn, participaciones_espn, bajas_partido, partidos.fotmob_id).
+* **NBA: mercados derivados medidos** (temporada 2025-26, 1,231 juegos con marcador por cuarto de ESPN y línea de cierre de 9 casas):
+  1.ª mitad: total = 0.504·T (σ 12.1), margen = 0.604·μ (σ 11.1), empate 2.4%; 1.er cuarto: total = 0.255·T (σ 8.2), margen = 0.337·μ (σ 8.2),
+  empate 4.5%; puntos por equipo = (T ± μ)/2 (σ 11.5). La normal acierta con error ~1 pt en totales alternativos de cada tramo y por equipo.
+  Nuevas sugerencias: puntos del favorito ≈ 85% y spread de 1.ª mitad ≈ 85%; en la tarjeta, ganador, 1x2 con empate, spreads y totales de
+  1.ª mitad y 1.er cuarto. Las piernas de un mismo juego comparten partido_id: Qué meter/Soñadoras usan la más probable; los Boletos eligen.
+* **Tenis: mercados por set** (ganador del 1.er set, 2-0, hándicap ±1.5 sets, 3 sets). Los sets NO son independientes: la fórmula ingenua
+  subestima el 2-0 ~9 pts (favoritos 70-80%: 44.9% calculado vs 53.6% real). Se usan curvas logísticas sobre logit(p del favorito) ajustadas
+  con 2024 y probadas en 2025 (12,337 partidos a 3 sets): error ≤ 4 pts por tramo. Solo partidos a 3 sets (a 5 sets no hay datos para medir).
+* NFL «puntos por equipo / total de TDs / par-impar»: no se agregaron; no hay histórico local con líneas y marcador para medirlos.

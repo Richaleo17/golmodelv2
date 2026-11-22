@@ -131,7 +131,7 @@ def _juega_ayer(conn, juego: dict, cache: dict) -> dict[str, bool]:
     return out
 
 
-def _recomendadas(j: dict, esc: dict, mu: float, total: float | None) -> list[dict]:
+def _recomendadas(j: dict, esc: dict, mu: float, total: float | None, der: dict | None = None) -> list[dict]:
     """Jugadas con buena probabilidad de este partido (la línea del mercado, la alternativa ≈ 85% y el total alternativo ≈ 85%)."""
     fav_local = mu >= 0
     out = []
@@ -147,6 +147,15 @@ def _recomendadas(j: dict, esc: dict, mu: float, total: float | None) -> list[di
             t = M.mas_cercana(esc["totales"], clave, 0.85, 0.75)
             if t:
                 out.append({"tipo": "total_alt", "jugada": f"{txt} {t['linea']:.1f} puntos", "p": t[clave]})
+    if der:
+        fav = "local" if fav_local else "visitante"
+        nombre = j["local"] if fav_local else j["visitante"]
+        e = M.mas_cercana(der["equipos"][fav]["lineas"], "p_over", 0.85, 0.75)                 # el favorito anota al menos N
+        if e:
+            out.append({"tipo": "equipo_total", "jugada": f"{nombre}: más de {e['linea']:.1f} puntos", "p": e["p_over"]})
+        mt = M.mas_cercana(der["1T"]["spreads_local" if fav_local else "spreads_visitante"], "p", 0.85, 0.75)
+        if mt:
+            out.append({"tipo": "mitad_spread", "jugada": f"1.ª mitad: {nombre} {mt['linea']:+.1f}", "p": mt["p"]})
     return out
 
 
@@ -192,7 +201,8 @@ def semana(conn, cfg: dict, ahora: datetime, dias: int | None = None) -> dict:
                             "dif_ml_vs_spread": round(ml[0] - pl, 4) if ml else None}
             item["favorito"] = {"nombre": g["local"] if mu >= 0 else g["visitante"], "p": round(max(pl, 1 - pl), 4)}
             item["escalera"] = esc
-            item["recomendadas"] = _recomendadas(g, esc, mu, tot)
+            item["derivados"] = M.derivados(sp, tot) if tot is not None else None
+            item["recomendadas"] = _recomendadas(g, esc, mu, tot, item["derivados"])
         else:
             item["avisos"].append("Sin línea todavía (las casas la publican uno o dos días antes).")
         juegos.append(item)
@@ -260,7 +270,8 @@ def piernas_parlay(conn, cfg: dict, ahora: datetime, hasta: datetime, p_min: flo
                            "inicio": g["inicio"], "liga": "🏀 NBA", "partido": f"{g['local']['nombre']} vs {g['visitante']['nombre']}",
                            "tipo": f"nba_{r['tipo']}", "jugada": r["jugada"],
                            "detalle": {"ml": "gana el partido", "spread_alt": "cubre el spread alternativo (puede perder por menos de los puntos que se le dan)",
-                                       "total_alt": "total de puntos del partido"}[r["tipo"]],
+                                       "total_alt": "total de puntos del partido", "equipo_total": "puntos de ese equipo en el partido",
+                                       "mitad_spread": "spread de la primera mitad"}[r["tipo"]],
                            "p": r["p"], "cuota_justa": 1 / r["p"], "cuota_min": (1 + u) / r["p"], "confianza": None,
                            "fuente": "línea de DraftKings", "cuota": cuota})
     return salida

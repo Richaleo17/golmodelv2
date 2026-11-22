@@ -464,6 +464,11 @@ alineaciones:
     activo: true
     ventana_min: 100         # solo se piden las alineaciones de partidos que empiezan en menos de esto
     horizonte_h: 36          # emparejamiento y plantillas de los partidos de las próximas horas
+  fotmob:                    # lesiones, sanciones y convocatorias con selección REALES (ESPN no las publica)
+    activo: true
+    horizonte_h: 48
+    refresco_min: 180        # cada 3 h; dentro de la ventana previa al partido, cada 30 min
+    refresco_cerca_min: 30
 
 # NBA «mercado primero» (motor_nba/): fuente ESPN (calendario con líneas de DraftKings, lesiones, promedios). El backtest de 3 temporadas
 # mostró que un modelo propio no mejora a la línea de cierre; la probabilidad sale de la línea con σ margen 13.3 y σ total 17.8.
