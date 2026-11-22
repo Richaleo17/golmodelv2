@@ -456,7 +456,7 @@ def test_11_captura_en_lote_y_recalculo_sin_consultas(dsn, cfg, mundo):
     assert cli.post("/cuotas/manual/lote", json={"items": [{"partido_id": a["partido_id"], "seleccion": "1X2:9", "cuota": 2.0}]}).status_code == 422
     # La casa se nombra en pantalla: "Draftea"
     d = cli.get(f"/dia/{dia}").json()[0]
-    assert {m.get("casa_nombre") for m in d["mercados"] if m.get("casa") == "manual"} <= {"Draftea"}
+    assert {m.get("casa_nombre") for m in d["mercados"] if m.get("casa") == "manual"} <= {"Caliente"}
     # Recalcular con las cuotas guardadas no consulta ninguna API
     llamadas_antes = sum(len(p.llamadas) for p in {id(e.proveedor): e.proveedor for ch in main._servicio.pipeline.cadenas.values() for e in ch.eslabones}.values())
     eid = cli.post("/actualizar/recalcular").json()["ejecucion_id"]

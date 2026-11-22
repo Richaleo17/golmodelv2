@@ -123,7 +123,7 @@ mercado:
   # cuota entre muchas casas sesga el EV hacia arriba (se elige el error más favorable).
   # Una cuota capturada a mano para 'manual' reemplaza a esta si está vigente.
   casa_ejecucion: pinnacle
-  casa_manual_nombre: Draftea       # cómo se llama en pantalla la casa donde capturas cuotas a mano
+  casa_manual_nombre: Caliente      # cómo se llama en pantalla la casa donde capturas cuotas a mano (antes Draftea)
   alpha_por_defecto: 0.25           # si no hay ni α propio ni agrupado: el mercado manda (suele ser más preciso)
   factor_alpha_no_calibrado: 0.5    # α_no_cal = factor × α(1X2 de la liga)
   umbral_extra_no_calibrado: 0.02
@@ -290,7 +290,8 @@ nfl:
 tenis:
   activo: true
   circuitos: [atp, wta]
-  temporadas_historico: 6          # + la actual (tennis-data.co.uk: un Excel por circuito y temporada)
+  temporadas_historico: 6          # + la actual
+  fuente_historico: sackmann       # GitHub de Jeff Sackmann (tennis-data.co.uk responde 403 a Render: 0 partidos cargados en producción)
   dias: 3                          # próximos partidos a mostrar
   peso_modelo: 0.3                 # p_final = 0.3·Elo + 0.7·mercado (PROVISIONAL: se mide en el Dashboard contra el cierre de Pinnacle)
   min_partidos_modelo: 15          # con menos partidos en el histórico, el jugador va «solo mercado»

@@ -29,7 +29,7 @@ const BLOQUE = (h, l, v, j, p, c) => ({ hora: h, local: l, visitante: v, jugada:
 const PANEL = {
   fecha: "2026-11-10",
   partidos: [
-    { partido_id: 1, liga: "EPL", liga_nombre: "Premier League", local: "Arsenal " + XSS, visitante: "Chelsea", hora: "10:30", estado: "programado", marcador: null, prediccion: true, solo_mercado: false,
+    { partido_id: 1, escudo_local: "359", escudo_visitante: "363", liga: "EPL", liga_nombre: "Premier League", local: "Arsenal " + XSS, visitante: "Chelsea", hora: "10:30", estado: "programado", marcador: null, prediccion: true, solo_mercado: false,
       fuente: "modelo+mercado", confianza: 8, crs: { alerta: "ALTA", total: 61 }, rompe: { razones: ["Favorito frágil <b>x</b>"] },
       gana: { favorito: "Arsenal", empate: 0.24, p: 0.55, margen: 0.21, rival: "Chelsea" }, primer_gol: { equipo: "Arsenal", p: 0.41 }, otro_anota: { equipo: "Chelsea", p: 0.62 },
       goles_esperados: { local: 1.8, visitante: 1.1 }, forma: { local: "WWDLW", visitante: "LDWWL" }, over25: 0.58, btts: 0.52, jugadas: [{ jugada: "Más de 1.5 goles", p: 0.8, cuota_min: 1.31 }],
@@ -40,7 +40,7 @@ const PANEL = {
         { clave: "mas25", titulo: "Más de 2.5 goles", pick: "Sí", p: 0.58, cuota_min: 1.85, aprox: false, nivel: "MEDIA" },
         { clave: "menos35", titulo: "Menos de 3.5 goles", pick: "Sí", p: 0.71, cuota_min: 1.51, aprox: false, nivel: "MEDIA" },
         { clave: "primer_gol", titulo: "Primer gol", pick: "Arsenal", p: 0.41, cuota_min: 2.61, aprox: true, nivel: "BAJA" }] },
-    { partido_id: 2, liga: "LL", local: "Girona", visitante: "Getafe", hora: "13:00", estado: "programado", marcador: null, prediccion: false, motivo: "Sin histórico suficiente", jugadas: [], forma: { local: "", visitante: "" } },
+    { partido_id: 2, escudo_local: "x') ;background:url(javascript:alert(1)", bandera_visitante: "es')x", liga: "LL", local: "Girona", visitante: "Getafe", hora: "13:00", estado: "programado", marcador: null, prediccion: false, motivo: "Sin histórico suficiente", jugadas: [], forma: { local: "", visitante: "" } },
   ],
   mejores: [{ partido_id: 1, hora: "10:30", liga: "EPL", partido: "Arsenal vs Chelsea", jugada: "Más de 1.5 goles", detalle: "Goles totales", p: 0.8, cuota_justa: 1.25, cuota_min: 1.31, categoria: "segura", confianza: 8, cuota_casa: null, casa: null, ev: null, ev_sospechoso: false }],
   valor: [], rompe: [{ hora: "10:30", liga: "EPL", partido: "Arsenal vs Chelsea", razones: ["Favorito frágil"], alternativa: { jugada: "Doble oportunidad 1X", p: 0.79, cuota_min: 1.32 } }],
@@ -219,6 +219,30 @@ async function simular(page) {
     await page.fill("#q", "girona");
     ok((await page.$$("#lista-diario .mc")).length === 1, "Diario: el buscador filtra por equipo");
     await page.fill("#q", "");
+    const total = (await page.$$("#lista-diario .mc")).length;
+    await page.selectOption("#f-liga", "LL");
+    const soloLL = (await page.$$("#lista-diario .mc")).length;
+    ok(soloLL >= 1 && soloLL < total && /Girona/.test(await page.textContent("#lista-diario")) && !/Arsenal/.test(await page.textContent("#lista-diario")),
+       "Filtros: elegir una liga muestra solo esa (sin apagar las demás una por una)");
+    await page.click('#chips-pmin [data-pmin="0.6"]');
+    ok(!/Girona/.test(await page.textContent("#lista-diario")) && /Ningún partido coincide/.test(await page.textContent("#lista-diario")),
+       "Filtros: probabilidad mínima quita los partidos sin pronóstico o por debajo");
+    await page.click("#f-limpiar");
+    await page.waitForSelector("#lista-diario .mc");
+    ok((await page.$$("#lista-diario .mc")).length === total && (await page.$eval("#f-liga", (e) => e.value)) === "", "Filtros: «Limpiar filtros» regresa todo");
+    await page.click('#chips-estado [data-estado="pend"]');
+    ok((await page.$$("#lista-diario .mc")).length <= total && /de \d+ partido/.test(await page.textContent("#f-cuenta")), "Filtros: «Por jugar» y contador de partidos");
+    await page.click('#chips-estado [data-estado="todos"]');
+    const escudos = await page.$$eval("#lista-diario .escudo", (es) => es.map((e) => e.style.backgroundImage));
+    ok(escudos.length >= 2 && escudos.every((u) => /a\.espncdn\.com\/i\/teamlogos\/soccer\/500\/\d+\.png/.test(u)),
+       "Escudos: solo URLs de ESPN armadas con el número del equipo (el valor malicioso se ignora)");
+    ok((await page.$$("#lista-diario img")).length === 0, "Escudos: se pintan como fondo, sin ningún <img>");
+    await page.evaluate(() => { const p = { bandera_local: "es", bandera_visitante: "gb-eng", escudo_local: "164" };
+      document.body.insertAdjacentHTML("beforeend", `<div id="t-band">${escudoFut(p, "local")}${escudoFut(p, "visitante")}${escudoFut({ bandera_local: "es')x" }, "local")}</div>`); });
+    const bands = await page.$$eval("#t-band .escudo", (es) => es.map((e) => e.style.backgroundImage));
+    ok(bands.length === 2 && /flagcdn\.com\/w80\/es\.png/.test(bands[0]) && /gb-eng\.png/.test(bands[1]),
+       "Banderas: las selecciones llevan su bandera (antes que el escudo) y un código inválido se ignora");
+    await page.evaluate(() => document.getElementById("t-band").remove());
     await page.click('#chips-rango [data-rango="1"]');
     await page.waitForSelector("#lista-diario .mc");
     ok(!/Lyon/.test(await page.textContent("#vista")), "Diario: «Solo este día» quita los días siguientes");
@@ -239,7 +263,7 @@ async function simular(page) {
   }
   await page.screenshot({ path: `${OUT}/01b-ranking.png`, fullPage: true });
   await page.click('#chips-dvista [data-dvista="tarjetas"]');
-  await page.waitForSelector("#chips-ligas, #lista-diario .vacio, #vista .vacio");
+  await page.waitForSelector("#f-liga, #lista-diario .vacio, #vista .vacio");
 
   // --- Dashboard
   await page.click('#nav button[data-v="dashboard"]');

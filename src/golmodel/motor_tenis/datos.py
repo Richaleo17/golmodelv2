@@ -19,6 +19,10 @@ import pandas as pd
 from golmodel.ingesta.proveedores.http import ClienteHTTP
 
 BASE_TD = "https://www.tennis-data.co.uk"
+# Históricos de Jeff Sackmann (GitHub, públicos): la fuente con la que se calibró el Elo. tennis-data.co.uk responde 403 a Render
+# (medido: 84 descargas fallidas y 0 partidos cargados en producción), así que el histórico sale de aquí.
+BASE_SACKMANN = "https://raw.githubusercontent.com"
+RUTA_SACKMANN = {"atp": "/JeffSackmann/tennis_atp/master/atp_matches_{a}.csv", "wta": "/JeffSackmann/tennis_wta/master/wta_matches_{a}.csv"}
 
 
 def _plano(s: str) -> str:
@@ -96,6 +100,30 @@ def parse_tennis_data(contenido: bytes, tour: str) -> list[dict]:
     return filas
 
 
+def parse_sackmann(contenido: bytes, tour: str) -> list[dict]:
+    """CSV de Jeff Sackmann → partidos (mismo formato que parse_tennis_data, sin momios). Nombres completos → la misma clave que se usa con
+    The Odds API (`claves_nombre_completo`, primera opción). Se descartan walkovers; los retiros cuentan como resultado."""
+    df = pd.read_csv(io.BytesIO(contenido), dtype=str, keep_default_na=False)
+    filas = []
+    for i, r in enumerate(df.to_dict("records")):
+        sc = str(r.get("score") or "")
+        if not r.get("winner_name") or not r.get("loser_name") or any(x in sc for x in ("W/O", "DEF", "w/o")):
+            continue
+        d = str(r.get("tourney_date") or "")
+        if len(d) != 8 or not d.isdigit():
+            continue
+        f = f"{d[:4]}-{d[4:6]}-{d[6:]}"
+        g, p = claves_nombre_completo(r["winner_name"])[0], claves_nombre_completo(r["loser_name"])[0]
+        torneo = str(r.get("tourney_name") or "")
+        filas.append({
+            "id": hashlib.md5(f"{tour}|{f}|{torneo}|{g}|{p}".encode()).hexdigest()[:20], "tour": tour, "fecha": f,
+            "torneo": torneo, "superficie": str(r.get("surface") or "Hard") or "Hard", "ronda": str(r.get("round") or ""),
+            "best_of": _i(r.get("best_of")) or 3, "ganador": g, "perdedor": p, "nombre_g": r["winner_name"], "nombre_p": r["loser_name"],
+            "rank_g": _i(r.get("winner_rank")), "rank_p": _i(r.get("loser_rank")), "comentario": "Retired" if "RET" in sc else "Completed",
+            "orden": _i(r.get("match_num")) or i, "cuota_g": None, "cuota_p": None})
+    return filas
+
+
 def parse_eventos(sport: dict, cuerpo, capturada: datetime, casas: list[str]) -> list[dict]:
     """Momios h2h de un torneo (The Odds API) → un renglón por partido con la casa preferida y la probabilidad sin margen."""
     tour = "wta" if "wta" in sport["key"] else "atp"
@@ -125,12 +153,17 @@ class FuenteTenis:
     def __init__(self, odds_key: str | None, cfg: dict, **kw):
         self.cfg = cfg
         self.td = ClienteHTTP("tennis_data", BASE_TD, timeout_s=90.0, **kw)
+        self.gh = ClienteHTTP("sackmann", BASE_SACKMANN, timeout_s=90.0, **kw)
         self.odds = ClienteHTTP("odds_api", "https://api.the-odds-api.com", **kw) if odds_key else None
         self.odds_key = odds_key
 
     def temporada(self, anio: int, tour: str) -> list[dict]:
-        ruta = f"/{anio}/{anio}.xlsx" if tour == "atp" else f"/{anio}w/{anio}.xlsx"
-        return parse_tennis_data(self.td.get(ruta, costo=0).content, tour)
+        """Histórico de una temporada. Por defecto Sackmann (GitHub); con `tenis.fuente_historico: tennis_data` se usa tennis-data.co.uk
+        (trae momios de cierre, pero bloquea a Render). Una sola fuente para todo el histórico: mezclar las dos duplicaría jugadores."""
+        if (self.cfg.get("tenis") or {}).get("fuente_historico", "sackmann") == "tennis_data":
+            ruta = f"/{anio}/{anio}.xlsx" if tour == "atp" else f"/{anio}w/{anio}.xlsx"
+            return parse_tennis_data(self.td.get(ruta, costo=0).content, tour)
+        return parse_sackmann(self.gh.get(RUTA_SACKMANN[tour].format(a=anio), costo=0).content, tour)
 
     def torneos_activos(self) -> list[dict]:
         if self.odds is None:

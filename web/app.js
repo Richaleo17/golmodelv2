@@ -8,11 +8,23 @@ const esc = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const pct = (x, d = 0) => (x == null ? "—" : (100 * Number(x)).toFixed(d) + "%");
 const num = (x, d = 2) => (x == null ? "—" : Number(x).toFixed(d));
 const hoyMX = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
+/* Escudos (ESPN). La URL se arma aquí con un patrón fijo y solo un número o una abreviatura validados: nunca HTML ni URLs del
+   servidor. Se pintan como fondo de un <span>, no como <img>. */
+const NFL_ESPN = { LA: "lar", WAS: "wsh", LV: "lv", JAC: "jax" };
+const urlEscudo = {
+  futbol: (id) => (/^\d{1,7}$/.test(String(id ?? "")) ? `https://a.espncdn.com/i/teamlogos/soccer/500/${id}.png` : null),
+  nba: (ab) => (/^[A-Za-z]{2,4}$/.test(String(ab ?? "")) ? `https://a.espncdn.com/i/teamlogos/nba/500/${String(ab).toLowerCase()}.png` : null),
+  nfl: (ab) => (/^[A-Za-z]{2,4}$/.test(String(ab ?? "")) ? `https://a.espncdn.com/i/teamlogos/nfl/500/${NFL_ESPN[ab] || String(ab).toLowerCase()}.png` : null),
+};
+/* Fútbol: las selecciones nacionales llevan su bandera (flagcdn, código ISO validado); los clubes, su escudo de ESPN. */
+urlEscudo.pais = (c) => (/^[a-z]{2}(-[a-z]{3})?$/.test(String(c ?? "")) ? `https://flagcdn.com/w80/${c}.png` : null);
+const escudoFut = (p, lado) => escudo(urlEscudo.pais(p["bandera_" + lado]) || urlEscudo.futbol(p["escudo_" + lado]));
+const escudo = (url) => (url ? `<span class="escudo" style="background-image:url('${url}')" aria-hidden="true"></span>` : "");
 const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var(--lo)");
 const TOKEN = "golmodel.token";
 const LIGAS = { LL: "LaLiga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", fLiga: "", fEstado: "todos", fPmin: 0, montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -199,7 +211,7 @@ function tarjetaDiario(p, nombres) {
   const punto = `<span class="mc-dot${enJuego ? " vivo" : ""}"></span>`;
   if (!p.prediccion) {
     return `<div class="mc">${cab}<div class="mc-top"><span>${punto}${esc(nombreLiga(p, nombres)).toUpperCase()}</span><span>${esc(p.hora)}${final}</span></div>` +
-      `<div class="mc-eq">${esc(p.local)} vs ${esc(p.visitante)}</div><div class="meta">⚠ ${esc(p.motivo)}</div></div>`;
+      `<div class="mc-eq">${escudoFut(p, "local")}${esc(p.local)} vs ${escudoFut(p, "visitante")}${esc(p.visitante)}</div><div class="meta">⚠ ${esc(p.motivo)}</div></div>`;
   }
   const g = p.gana, pg = p.primer_gol, ot = p.otro_anota, crs = p.crs || {};
   let badges = `<span class="chip ${p.solo_mercado ? "viejo" : ""}">${esc(p.fuente)}</span>`;
@@ -209,7 +221,7 @@ function tarjetaDiario(p, nombres) {
   }
   if (p.rompe) badges += '<span class="chip rojo">💥 rompe parlays</span>';
   let h = `<div class="mc">${cab}<div class="mc-top"><span>${punto}${esc(nombreLiga(p, nombres)).toUpperCase()}</span><span>${esc(p.hora)}${final} · CONF ${esc(p.confianza)}/10</span></div>` +
-    `<div class="mc-eq">${esc(p.local)} vs ${esc(p.visitante)}</div><div class="mc-badges">${badges}</div>`;
+    `<div class="mc-eq">${escudoFut(p, "local")}${esc(p.local)} vs ${escudoFut(p, "visitante")}${esc(p.visitante)}</div><div class="mc-badges">${badges}</div>`;
   if (p.mercados && p.mercados.length) {
     h += `<div class="tiles">${p.mercados.map(mosaico).join("")}</div>`;
     h += filaInd("PA(1) · PRIMER GOL", `${esc(pg.equipo)} <small>anota el primer gol del partido</small>`, pg.p);
@@ -339,6 +351,9 @@ function rankingFutbol(lista, nombres) {
       filas.push({ eq: `${p.local} – ${p.visitante}`, rival: "", lugar: "", p: pr, sub: cuando });
     }
   });
+  const filtradas = filas.filter((f) => f.p >= (S.fPmin || 0));
+  filas.length = 0;
+  filas.push(...filtradas);
   filas.sort((a, b) => b.p - a.p);
   const notas = { primer_gol: "PA(1) = ese equipo anota el PRIMER gol del partido (estimación aproximada).",
     otro: "El que NO es favorito anota al menos un gol.", corners: "Córners totales del partido (modelo por equipo y árbitro; ligas europeas).", tarjetas: "Tarjetas amarillas totales (modelo por equipo y árbitro; ligas europeas).", ganador: "Probabilidad de que el favorito gane en 90 minutos. El resto es empate o derrota." };
@@ -358,10 +373,21 @@ async function vDiario() {
     Object.assign(nombres, (r.pan.resumen && r.pan.resumen.nombres_liga) || {});
     (r.pan.partidos || []).forEach((p) => part.push({ ...p, _dia: dias[i] }));
   });
-  const ligas = [...new Set(part.map((p) => p.liga))].sort();
-  const sel = new Set(ligas.filter((l) => !S.ligasOff.has(l)));            // se guardan las ligas DESACTIVADAS: un día vacío no apaga las de otros días
+  const ligas = [...new Set(part.map((p) => p.liga))].sort((x, y) => String(LIGAS[x] || nombres[x] || x).localeCompare(String(LIGAS[y] || nombres[y] || y)));
+  if (S.fLiga && !ligas.includes(S.fLiga)) S.fLiga = "";                     // la liga elegida ya no tiene partidos en estos días
   const botonesRango = [[1, "Solo este día"], [3, "3 días"], [7, "7 días"]]
     .map(([n, t]) => `<button class="chip" type="button" data-rango="${n}" aria-pressed="${S.rango === n}">${t}</button>`).join("");
+  const chips = (id, pares, actual, attr) => `<div class="chips" id="${id}">${pares.map(([k, t]) =>
+    `<button class="chip" type="button" data-${attr}="${k}" aria-pressed="${String(actual) === String(k)}">${t}</button>`).join("")}</div>`;
+  const filtros = `<div class="card filtros" id="filtros">` +
+    `<div class="fila"><select id="f-liga" aria-label="Liga"><option value="">Todas las ligas (${part.length})</option>${ligas.map((l) =>
+      `<option value="${esc(l)}" ${S.fLiga === l ? "selected" : ""}>${esc(LIGAS[l] || nombres[l] || l)} (${part.filter((p) => p.liga === l).length})</option>`).join("")}</select>` +
+    `<input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo"></div>` +
+    chips("chips-estado", [["todos", "Todos"], ["pend", "Por jugar"]], S.fEstado, "estado") +
+    chips("chips-pmin", [[0, "Cualquier %"], [0.6, "≥ 60%"], [0.7, "≥ 70%"], [0.8, "≥ 80%"]], S.fPmin, "pmin") +
+    (S.dvista === "ranking" ? "" : `<div class="fila"><select id="orden" aria-label="Ordenar">${[["Hora", "Ordenar por hora"], ["Probabilidad", "Ordenar por probabilidad"], ["Confianza", "Ordenar por confianza"]]
+      .map(([o, txt]) => `<option value="${o}" ${o === S.orden ? "selected" : ""}>${txt}</option>`).join("")}</select></div>`) +
+    `<div class="fila"><span id="f-cuenta" class="meta"></span><button id="f-limpiar" class="btn mini" type="button">Limpiar filtros</button></div></div>`;
   const html = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">01</b> Diario</h2>` +
     `<p class="lead">Los partidos de hoy y de los próximos días, con la opinión del modelo en cada mercado: quién gana, primer gol, más de 1.5 / 2.5, ambos anotan, menos de 3.5. ` +
     `Cada tarjeta trae su porcentaje, el nivel (ALTA / MEDIA / BAJA) y la <b>cuota mínima</b> a la que ya conviene meterlo.</p>` +
@@ -371,13 +397,8 @@ async function vDiario() {
     (fallidos.length ? `<p class="error">No se pudieron cargar: ${fallidos.map(esc).join(", ")}.</p>` : "") +
     (part.length === 0 ? `<div class="card vacio">No hay partidos modelados entre ${esc(dias[0])} y ${esc(dias[dias.length - 1])}. ` +
       `Prueba «7 días», cambia la fecha o ve a <b>Datos → Actualizar datos</b> (puede haber descanso de selecciones o ligas sin jornada).</div>` :
-      (S.dvista === "ranking" ?
-        `<div class="chips" id="chips-rk">${RK_MERCADOS.map(([k, t]) => `<button class="chip" type="button" data-rk="${k}" aria-pressed="${S.rkMercado === k}">${t}</button>`).join("")}</div>` +
-        `<div class="fila"><select id="rk-liga" aria-label="Liga"><option value="">Todas las ligas</option>${ligas.map((l) => `<option value="${esc(l)}" ${S.rkLiga === l ? "selected" : ""}>${esc(LIGAS[l] || nombres[l] || l)}</option>`).join("")}</select>` +
-        `<input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo"></div>` :
-        `<div class="chips" id="chips-ligas">${ligas.map((l) => `<button class="chip" type="button" data-liga="${esc(l)}" aria-pressed="${sel.has(l)}">${esc(LIGAS[l] || nombres[l] || l)}</button>`).join("")}</div>` +
-        `<div class="fila"><input id="q" type="text" placeholder="🔎 Buscar equipo" value="${esc(S.q)}" aria-label="Buscar equipo">` +
-        `<select id="orden" aria-label="Ordenar">${["Hora", "Confianza", "Ventaja"].map((o) => `<option ${o === S.orden ? "selected" : ""}>${o}</option>`).join("")}</select></div>`) +
+      (S.dvista === "ranking" ? `<div class="chips" id="chips-rk">${RK_MERCADOS.map(([k, t]) => `<button class="chip" type="button" data-rk="${k}" aria-pressed="${S.rkMercado === k}">${t}</button>`).join("")}</div>` : "") +
+      filtros +
       `<p class="meta" style="margin:8px 0">Confianza = qué tan respaldados están los datos, no la probabilidad de acertar. «Primer gol» es una estimación aproximada. Córners y tarjetas: ligas europeas con estadísticas.</p>` +
       `<div id="lista-diario"></div>`);
   return {
@@ -385,32 +406,29 @@ async function vDiario() {
     alMontar: (v) => {
       $$("#chips-rango .chip", v).forEach((b) => b.addEventListener("click", () => { S.rango = Number(b.dataset.rango); render(); }));
       $$("#chips-dvista .chip", v).forEach((b) => b.addEventListener("click", () => { S.dvista = b.dataset.dvista; render(); }));
-      $$("#chips-rk .chip", v).forEach((b) => b.addEventListener("click", () => {
-        S.rkMercado = b.dataset.rk;
-        $$("#chips-rk .chip", v).forEach((x) => x.setAttribute("aria-pressed", x === b));
-        pintar();
-      }));
-      const rl = $("#rk-liga", v);
-      if (rl) rl.addEventListener("change", () => { S.rkLiga = rl.value; pintar(); });
       pintarAciertos($("#aciertos-box", v));
+      const pFav = (p) => (p.prediccion && p.gana ? p.gana.p : null);
       const pintar = () => {
         const q = sinAcentos(S.q);
-        const busca = (p) => !q || sinAcentos(p.local).includes(q) || sinAcentos(p.visitante).includes(q);
+        const pasa = (p) => (!S.fLiga || p.liga === S.fLiga) &&
+          (!q || sinAcentos(p.local).includes(q) || sinAcentos(p.visitante).includes(q)) &&
+          (S.fEstado !== "pend" || p.estado === "programado");
+        const base = part.filter(pasa);
+        const c = $("#lista-diario", v), cuenta = $("#f-cuenta", v);
         if (S.dvista === "ranking") {
-          const c = $("#lista-diario", v);
-          if (c) c.innerHTML = rankingFutbol(part.filter((p) => (!S.rkLiga || p.liga === S.rkLiga) && busca(p)), nombres);
+          if (cuenta) cuenta.textContent = `${base.length} partido(s) con estos filtros`;
+          if (c) c.innerHTML = rankingFutbol(base, nombres);
           return;
         }
-        let lista = part.filter((p) => sel.has(p.liga) && busca(p));
+        const lista = base.filter((p) => !S.fPmin || (pFav(p) != null && pFav(p) >= S.fPmin));
+        if (cuenta) cuenta.textContent = `${lista.length} de ${part.length} partido(s)`;
         const porHora = (a, b) => String(a._dia).localeCompare(String(b._dia)) || String(a.hora).localeCompare(String(b.hora));
-        if (S.orden === "Confianza") lista.sort((a, b) => (b.confianza ?? -1) - (a.confianza ?? -1));
-        else if (S.orden === "Ventaja") lista.sort((a, b) => (b.prediccion ? b.gana.margen : -1) - (a.prediccion ? a.gana.margen : -1));
+        if (S.orden === "Confianza") lista.sort((a, b) => (b.confianza ?? -1) - (a.confianza ?? -1) || porHora(a, b));
+        else if (S.orden === "Probabilidad") lista.sort((a, b) => (pFav(b) ?? -1) - (pFav(a) ?? -1) || porHora(a, b));
         else lista.sort(porHora);
-        const c = $("#lista-diario", v);
         if (!c) return;
-        if (!lista.length) { c.innerHTML = `<div class="card vacio">Ningún partido coincide con el filtro.</div>`; return; }
-        // En orden por hora se agrupa por día con un encabezado; en los otros órdenes va una sola lista con la fecha en cada tarjeta.
-        if (S.orden === "Hora" && S.rango > 1) {
+        if (!lista.length) { c.innerHTML = `<div class="card vacio">Ningún partido coincide con los filtros. <button class="btn mini" type="button" data-limpiar>Limpiar filtros</button></div>`; return; }
+        if (S.orden === "Hora" && S.rango > 1) {                           // por hora: agrupado por día con encabezado
           let h = "", dia = null;
           lista.forEach((p) => {
             if (p._dia !== dia) { dia = p._dia; h += `<h3 class="dia-h">${esc(nombreDia(dia))}</h3>`; }
@@ -421,15 +439,18 @@ async function vDiario() {
           c.innerHTML = lista.map((p) => tarjetaDiario({ ...p, hora: S.rango > 1 ? `${p._dia.slice(5)} ${p.hora}` : p.hora }, nombres)).join("");
         }
       };
-      $$("#chips-ligas .chip", v).forEach((b) => b.addEventListener("click", () => {
-        const l = b.dataset.liga;
-        if (sel.has(l)) { sel.delete(l); S.ligasOff.add(l); } else { sel.add(l); S.ligasOff.delete(l); }
-        b.setAttribute("aria-pressed", sel.has(l));
-        pintar();
-      }));
-      const q = $("#q", v), o = $("#orden", v);
+      const marcar = (sel, attr, valor) => $$(`${sel} .chip`, v).forEach((x) => x.setAttribute("aria-pressed", String(x.dataset[attr] === String(valor))));
+      $$("#chips-rk .chip", v).forEach((b) => b.addEventListener("click", () => { S.rkMercado = b.dataset.rk; marcar("#chips-rk", "rk", S.rkMercado); pintar(); }));
+      $$("#chips-estado .chip", v).forEach((b) => b.addEventListener("click", () => { S.fEstado = b.dataset.estado; marcar("#chips-estado", "estado", S.fEstado); pintar(); }));
+      $$("#chips-pmin .chip", v).forEach((b) => b.addEventListener("click", () => { S.fPmin = Number(b.dataset.pmin); marcar("#chips-pmin", "pmin", b.dataset.pmin); pintar(); }));
+      const fl = $("#f-liga", v), q = $("#q", v), o = $("#orden", v);
+      if (fl) fl.addEventListener("change", () => { S.fLiga = fl.value; pintar(); });
       if (q) q.addEventListener("input", () => { S.q = q.value; pintar(); });
       if (o) o.addEventListener("change", () => { S.orden = o.value; pintar(); });
+      const limpiar = () => { S.fLiga = ""; S.q = ""; S.fEstado = "todos"; S.fPmin = 0; S.orden = "Hora"; render(); };
+      const bl = $("#f-limpiar", v);
+      if (bl) bl.addEventListener("click", limpiar);
+      v.addEventListener("click", (e) => { if (e.target && e.target.matches && e.target.matches("[data-limpiar]")) limpiar(); });
       pintar();
     },
   };
@@ -543,6 +564,18 @@ function tablaRangos(rs) {
     `<p class="meta">Raya blanca = lo esperado (el promedio que dijo la app en ese rango). ✅ cumple · ⚠️ acierta menos de lo esperado · «·» menos de 5 partidos.</p></details>`;
 }
 
+function versionesModelo(vs) {
+  if (!vs || !vs.length) return "";
+  const icono = { "mejoró": "✅", "empeoró": "🔻", igual: "➖", "muestra chica": "·", "primera versión medida": "•" };
+  const f3 = (x) => (x == null ? "—" : Number(x).toFixed(3));
+  return `<h3>🧠 ¿El modelo mejora con cada recalibración?</h3><div class="card"><table class="nfl"><thead><tr><th>Versión</th><th>Partidos</th><th>App</th><th>Mercado</th><th>Brecha</th><th></th></tr></thead><tbody>` +
+    vs.map((x) => `<tr><td>#${esc(x.version_id)} · ${esc(new Date(x.creado_en).toLocaleDateString("es-MX", { day: "2-digit", month: "short" }))} <small>${esc(x.tipo)}</small></td>` +
+      `<td>${esc(x.partidos)}</td><td>${f3(x.log_loss_app)}</td><td>${f3(x.log_loss_mercado)}</td><td>${x.brecha == null ? "—" : (x.brecha >= 0 ? "+" : "") + f3(x.brecha)}</td>` +
+      `<td>${icono[x.veredicto] || ""} ${esc(x.veredicto)}</td></tr>`).join("") +
+    `</tbody></table><p class="meta">Log loss del 1X2 en los partidos que pronosticó cada versión (menos es mejor). Brecha = app − mercado en esos mismos partidos: ` +
+    `si baja de una versión a la siguiente, la recalibración mejoró al modelo. Con menos de 30 partidos no se juzga.</p></div>`;
+}
+
 async function vDashboard() {
   if (S.deporte === "nfl") return { html: cabDashboard() + dashboardNfl(await api("GET", "/nfl/dashboard")) };
   if (S.deporte === "tenis") return { html: cabDashboard() + dashboardTenis(await api("GET", "/tenis/dashboard")) };
@@ -569,7 +602,7 @@ async function vDashboard() {
   const pie = `<div class="card"><div class="ind"><span class="lab">ERROR DE PROBABILIDAD (LOG-LOSS 1X2 · MENOS ES MEJOR)</span>` +
     `<span class="txt">App <b>${ll(d.log_loss_app)}</b> · Mercado <b>${ll(d.log_loss_mercado)}</b></span><span class="pct">${d.log_loss_app != null && d.log_loss_mercado != null ? (d.log_loss_app <= d.log_loss_mercado ? "✅" : "⚠️") : ""}</span></div>` +
     `<p class="meta">Línea sólida = app (acumulado) · punteada = mercado · horizontal = línea base histórica. «PA(1)» solo cuenta los partidos donde se sabe quién anotó primero sin el minuto del gol.</p></div>`;
-  return { html: cab + hero + vacio + `<div class="kpis">${ks.map(tarjetaKpi).join("")}</div>` + pie };
+  return { html: cab + hero + vacio + `<div class="kpis">${ks.map(tarjetaKpi).join("")}</div>` + pie + versionesModelo(d.versiones) };
 }
 
 function cabDashboard() {
@@ -708,7 +741,7 @@ function tarjetaNba(x) {
   const lin = x.linea || {}, pr = x.prob;
   const fav = x.favorito;
   let h = `<div class="mc"><div class="mc-top"><span>🏀 NBA${x.estado === "en_juego" ? " · en juego" : ""}</span><span>${esc(x.dia_texto)} ${esc(x.hora)}${x.marcador ? " · " + esc(x.marcador) : ""}</span></div>` +
-    `<div class="mc-eq">${esc(x.local.nombre)} vs ${esc(x.visitante.nombre)}</div>`;
+    `<div class="mc-eq">${escudo(urlEscudo.nba(x.local.abrev))}${esc(x.local.nombre)} vs ${escudo(urlEscudo.nba(x.visitante.abrev))}${esc(x.visitante.nombre)}</div>`;
   const chips = [];
   if (x.descanso && x.descanso.local) chips.push(`<span class="chip viejo">${esc(x.local.abrev)} back-to-back</span>`);
   if (x.descanso && x.descanso.visitante) chips.push(`<span class="chip viejo">${esc(x.visitante.abrev)} back-to-back</span>`);
@@ -870,7 +903,7 @@ async function vNfl() {
     const fecha = j.inicio ? new Date(j.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "—";
     const m = j.modelo;
     return `<div class="mc"><div class="mc-top"><span>SEMANA ${esc(j.semana)}</span><span>${esc(fecha)}</span></div>` +
-      `<div class="mc-eq">${esc(j.visitante_nombre)} @ ${esc(j.local_nombre)}</div>` +
+      `<div class="mc-eq">${escudo(urlEscudo.nfl(j.visitante))}${esc(j.visitante_nombre)} @ ${escudo(urlEscudo.nfl(j.local))}${esc(j.local_nombre)}</div>` +
       `<div class="meta">Margen esperado ${j.local} ${m.mu_margen >= 0 ? "+" : ""}${num(m.mu_margen, 1)} (Elo ${num(m.margen_elo, 1)}${m.margen_epa != null ? ", EPA " + num(m.margen_epa, 1) : ", sin EPA"}) · total ${num(m.mu_total, 1)}</div>` +
       `<table class="nfl"><thead><tr><th>Mercado</th><th>Modelo</th><th>Mercado</th><th>Final</th><th>Cuota</th><th>EV</th></tr></thead><tbody>` +
       j.mercados.map((x) => `<tr class="${x.valor ? "valor" : ""}"><td>${esc(x.mercado)} ${esc(x.seleccion === "local" ? j.local : x.seleccion === "visitante" ? j.visitante : x.seleccion === "over" ? "Más" : "Menos")} ${x.linea != null ? esc((x.linea > 0 && x.mercado === "Spread" ? "+" : "") + x.linea) : ""}</td>` +
