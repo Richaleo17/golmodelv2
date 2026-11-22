@@ -297,3 +297,25 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   comparación «vs mercado» del tenis se llena con los eventos que sí trae The Odds API. Migración 018: proveedor `sackmann`.
 * **Champions.** Verificada en producción: 9 partidos próximos cargados; los del día siguiente entran con la ventana de 2 días de cuotas.
 * **Casa de apuestas.** `casa_manual_nombre: Caliente` (antes Draftea). El lector de boletos acepta el formato de ambas.
+
+## 2026-11-22 (d) — Serie A de regreso y más tenis (ESPN)
+
+* **Serie A** sale de `ligas_excluidas` (pedido del responsable) y vuelve a `ligas_activas`, córners, tarjetas y props. Su historial no
+  se había borrado (2,010 partidos en producción). Alineaciones/bajas: ESPN `ita.1`, FotMob 55.
+* **Tenis: por qué había tan pocos partidos.**
+  1. El repositorio original de Jeff Sackmann ya no responde (404). El histórico sale del espejo público con el que se calibró el Elo
+     (`Aneeshers/tennis-sackmann-archive`), que está **congelado al 25-may-2026**: sin nada más, el Elo ignoraría medio año.
+  2. The Odds API solo publica torneos grandes con momio (hoy, únicamente las ATP Finals). A finales de noviembre la temporada
+     termina: es normal que haya pocos partidos hasta enero.
+* **ESPN como complemento** (`parse_espn_tenis`, `servicio._espn`), con dos funciones:
+  * Resultados desde el corte del histórico hasta hoy (id `e:<partido>`). Se guarda un torneo solo si empezó DESPUÉS del corte, porque
+    los anteriores ya están en Sackmann. Se excluyen la qualy (Sackmann tampoco la trae), los walkovers y los dobles.
+  * Partidos de los próximos días aunque no tengan momio. Salen como «solo modelo» y no entran a parlays, que piden momio. Si un
+    partido ya viene de The Odds API (mismos jugadores, ±36 h), no se duplica.
+* **Cómo se piden los datos.** Hacia atrás se pide un miércoles por semana: el scoreboard de ESPN trae el cuadro completo de cada
+  torneo en juego. La superficie sale de las reglas de config (se agregaron los torneos de pasto) o del torneo más parecido del
+  histórico, con la ciudad como pista.
+* **Prueba real** (espejo + ESPN en vivo):
+  * Se agregan 3,832 partidos (jun-nov 2026) y 6 próximos sin momio.
+  * Acierto del Elo en esos partidos de ESPN: 61.3%, contra 63.4% en el mismo periodo de 2025 con Sackmann. Los nombres empatan con
+    el histórico: 14% de las apariciones son de jugadores con menos de 15 partidos, sobre todo en WTA 125.

@@ -17,7 +17,7 @@ BASE = "https://site.api.espn.com"
 RUTA = "/apis/site/v2/sports"
 
 # Nuestras ligas con modelo → liga de ESPN.
-LIGAS_ESPN = {"LL": "esp.1", "L1": "fra.1", "POR": "por.1", "MX1": "mex.1", "MLS": "usa.1", "BR1": "bra.1"}
+LIGAS_ESPN = {"LL": "esp.1", "SA": "ita.1", "L1": "fra.1", "POR": "por.1", "MX1": "mex.1", "MLS": "usa.1", "BR1": "bra.1"}
 # Competiciones solo-mercado (clave de The Odds API) → liga de ESPN.
 CLAVES_MERCADO_ESPN = {"soccer_uefa_champs_league": "uefa.champions", "soccer_uefa_europa_league": "uefa.europa",
                        "soccer_uefa_europa_conference_league": "uefa.europa.conf", "soccer_spain_copa_del_rey": "esp.copa_del_rey"}

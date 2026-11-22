@@ -240,5 +240,64 @@ def test_fuente_tenis_usa_sackmann_por_defecto():
     f = td.FuenteTenis(None, {"tenis": {}})
     f.gh, f.td = Cliente(), None
     assert len(f.temporada(2025, "wta")) == 3
-    assert pedidas == ["/JeffSackmann/tennis_wta/master/wta_matches_2025.csv"]
+    assert pedidas == ["/Aneeshers/tennis-sackmann-archive/main/wta/wta_matches_2025.csv"]     # espejo: el repo original ya no responde
     assert CFG["tenis"]["fuente_historico"] == "sackmann"
+
+
+def _comp(cid, fecha, j1, j2, estado="post", status="STATUS_FINAL", gana=0, ronda="Round 1"):
+    cs = [{"type": "athlete", "order": i + 1, "winner": (None if estado == "pre" else gana == i), "athlete": {"displayName": n}}
+          for i, n in enumerate((j1, j2))]
+    return {"id": cid, "date": fecha, "status": {"type": {"state": estado, "name": status}}, "round": {"displayName": ronda}, "competitors": cs}
+
+
+def _scoreboard(ahora):
+    manana = (ahora + timedelta(days=1)).strftime("%Y-%m-%dT%H:%MZ")
+    nuevo = {"name": "Torneo Nuevo", "date": "2026-11-10T00:00Z", "major": False, "venue": {"displayName": "Wimbledon, Great Britain"}, "groupings": [
+        {"grouping": {"slug": "mens-singles"}, "competitions": [
+            _comp("1", "2026-11-12T10:00Z", "A Jugador05", "A Jugador06"),
+            _comp("2", "2026-11-12T12:00Z", "A Jugador07", "A Jugador08", status="STATUS_RETIRED", gana=1),
+            _comp("3", "2026-11-12T13:00Z", "A Jugador09", "A Jugador10", status="STATUS_WALKOVER"),
+            _comp("4", "2026-11-11T13:00Z", "A Jugador11", "A Jugador12", ronda="Qualifying 1st Round"),
+            _comp("5", manana, "A Jugador02", "A Jugador03", estado="pre"),
+            _comp("6", manana, "A Jugador01", "A Jugador00", estado="pre"),        # ya viene de The Odds API (con momio)
+            _comp("7", manana, "TBD", "TBD", estado="pre")]},
+        {"grouping": {"slug": "mens-doubles"}, "competitions": [
+            {"id": "8", "date": manana, "status": {"type": {"state": "pre"}}, "competitors": [{"type": "team"}, {"type": "team"}]}]}]}
+    viejo = {"name": "Torneo Viejo", "date": "2026-08-01T00:00Z", "major": True, "groupings": [
+        {"grouping": {"slug": "mens-singles"}, "competitions": [_comp("9", "2026-08-03T10:00Z", "A Jugador13", "A Jugador14")]}]}
+    return {"events": [nuevo, viejo]}
+
+
+def test_parse_espn_tenis_singles_y_estados():
+    ahora = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
+    f = td.parse_espn_tenis(_scoreboard(ahora))
+    assert {x["id"] for x in f} == {"1", "2", "3", "4", "5", "6", "9"}               # sin dobles ni cuadro por definir
+    assert f[0]["torneo"] == "Torneo Nuevo (Wimbledon)" and f[0]["tour"] == "atp" and f[-1]["best_of"] == 5
+    r = {x["id"]: x for x in td.resultados_espn(f, lambda t: "Grass")}
+    assert set(r) == {"e:1", "e:2", "e:9"}                                         # sin walkover, sin qualy, sin pendientes
+    assert r["e:2"]["ganador"] == "jugador08 a" and r["e:2"]["comentario"] == "Retired" and r["e:1"]["superficie"] == "Grass"
+
+
+def test_servicio_completa_con_espn(bd):
+    from golmodel.motor_tenis import servicio as tenis
+    ahora = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
+    pedidas = []
+
+    class ConESPN(FuenteFalsa):
+        def espn(self, tour, fecha):
+            pedidas.append((tour, fecha))
+            return td.parse_espn_tenis(_scoreboard(self.ahora))
+
+    r = tenis.actualizar(bd, ConESPN(ahora), CFG, ahora)
+    corte = bd.execute("SELECT max(fecha) AS f FROM tenis_partidos WHERE id NOT LIKE 'e:%%'").fetchone()["f"]
+    assert corte < date(2026, 11, 10)
+    assert r["espn_resultados"] == 2                                               # «Torneo Viejo» empezó antes del corte: ya está en el histórico
+    assert {x["id"] for x in bd.execute("SELECT id FROM tenis_partidos WHERE id LIKE 'e:%%'")} == {"e:1", "e:2"}
+    assert all(f.weekday() == 2 for t, f in pedidas if f < ahora.date())          # hacia atrás: un miércoles por semana
+    ev = {x["odds_api_id"]: x for x in bd.execute("SELECT * FROM tenis_eventos")}
+    assert "espn:5" in ev and ev["espn:5"]["cuota1"] is None and "espn:6" not in ev  # el que ya trae momio no se duplica
+    ps = {p["id"]: p for p in tenis.pronosticos(bd, CFG, ahora)}
+    assert ps["espn:5"]["fuente"] == "solo modelo" and ps["espn:5"]["p_final"] is not None and ps["ev1"]["p_mercado"] is not None
+    assert all(not l["partido_id"].startswith("tenis:espn") for l in tenis.piernas_parlay(bd, CFG, ahora, ahora + timedelta(days=3), 0.0))
+    tenis.actualizar(bd, ConESPN(ahora), CFG, ahora)                               # idempotente
+    assert bd.execute("SELECT count(*) AS n FROM tenis_partidos WHERE id LIKE 'e:%%'").fetchone()["n"] == 2

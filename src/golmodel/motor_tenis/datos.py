@@ -19,10 +19,13 @@ import pandas as pd
 from golmodel.ingesta.proveedores.http import ClienteHTTP
 
 BASE_TD = "https://www.tennis-data.co.uk"
-# Históricos de Jeff Sackmann (GitHub, públicos): la fuente con la que se calibró el Elo. tennis-data.co.uk responde 403 a Render
-# (medido: 84 descargas fallidas y 0 partidos cargados en producción), así que el histórico sale de aquí.
+# Históricos de Jeff Sackmann: el repositorio original ya no responde (404); se usa el espejo público con el que se calibró el Elo
+# (Aneeshers/tennis-sackmann-archive, congelado: llega al 25-may-2026). tennis-data.co.uk responde 403 a Render. Lo que falta desde
+# esa fecha, y los partidos próximos, salen de ESPN (`parse_espn_tenis`).
 BASE_SACKMANN = "https://raw.githubusercontent.com"
-RUTA_SACKMANN = {"atp": "/JeffSackmann/tennis_atp/master/atp_matches_{a}.csv", "wta": "/JeffSackmann/tennis_wta/master/wta_matches_{a}.csv"}
+RUTA_SACKMANN = {"atp": "/Aneeshers/tennis-sackmann-archive/main/atp/atp_matches_{a}.csv",
+                 "wta": "/Aneeshers/tennis-sackmann-archive/main/wta/wta_matches_{a}.csv"}
+BASE_ESPN = "https://site.api.espn.com"
 
 
 def _plano(s: str) -> str:
@@ -124,6 +127,55 @@ def parse_sackmann(contenido: bytes, tour: str) -> list[dict]:
     return filas
 
 
+def parse_espn_tenis(cuerpo: dict) -> list[dict]:
+    """Scoreboard de tenis de ESPN → un renglón por partido de SINGLES (los dobles se ignoran). El circuito sale del cuadro
+    («mens-singles» → atp, «womens-singles» → wta): el scoreboard de un circuito trae también el cuadro del otro en torneos mixtos.
+    Estado: «pre» (por jugar), «post» con ganador (resultado; los walkovers se marcan) o «in»."""
+    salida = []
+    for e in (cuerpo or {}).get("events") or []:
+        lugar = ((e.get("venue") or {}).get("displayName") or "").split(",")[0].strip()
+        torneo = f"{e.get('name') or ''} ({lugar})" if lugar else str(e.get("name") or "")
+        for g in e.get("groupings") or []:
+            slug = ((g.get("grouping") or {}).get("slug") or "")
+            if slug not in ("mens-singles", "womens-singles"):
+                continue
+            tour = "atp" if slug == "mens-singles" else "wta"
+            for c in g.get("competitions") or []:
+                cs = sorted(c.get("competitors") or [], key=lambda x: x.get("order", 0))
+                if len(cs) != 2 or any(x.get("type") != "athlete" or not (x.get("athlete") or {}).get("displayName")
+                                       or str(x["athlete"]["displayName"]).strip().upper() in ("TBD", "TBA", "BYE") for x in cs):
+                    continue                                        # dobles, cuadro sin definir
+                tipo = ((c.get("status") or {}).get("type") or {})
+                ganador = next((i for i, x in enumerate(cs) if x.get("winner") is True), None)
+                salida.append({
+                    "id": str(c["id"]), "tour": tour, "torneo": torneo, "evento_inicio": str(e.get("date") or "")[:10],
+                    "inicio": datetime.fromisoformat(str(c.get("date") or e.get("date")).replace("Z", "+00:00")),
+                    "estado": tipo.get("state"), "status": str(tipo.get("name") or ""),
+                    "jugador1": cs[0]["athlete"]["displayName"], "jugador2": cs[1]["athlete"]["displayName"], "ganador": ganador,
+                    "rank1": _i(((cs[0].get("curatedRank") or {}).get("current"))), "rank2": _i(((cs[1].get("curatedRank") or {}).get("current"))),
+                    "ronda": str((c.get("round") or {}).get("displayName") or ""),
+                    "best_of": 5 if tour == "atp" and e.get("major") else 3})
+    return salida
+
+
+def resultados_espn(filas: list[dict], superficie) -> list[dict]:
+    """Partidos terminados de ESPN → formato de tenis_partidos (id «e:<partido>»). Sin walkovers ni partidos sin ganador."""
+    out = []
+    for f in filas:
+        if f["estado"] != "post" or f["ganador"] is None or "WALKOVER" in f["status"] or "CANCEL" in f["status"]:
+            continue
+        if "qualif" in f["ronda"].lower():                         # el histórico de Sackmann no trae la qualy: mismo criterio
+            continue
+        g, p = (f["jugador1"], f["jugador2"]) if f["ganador"] == 0 else (f["jugador2"], f["jugador1"])
+        rg, rp = (f["rank1"], f["rank2"]) if f["ganador"] == 0 else (f["rank2"], f["rank1"])
+        out.append({"id": f"e:{f['id']}", "tour": f["tour"], "fecha": f["inicio"].date().isoformat(), "torneo": f["torneo"],
+                    "superficie": superficie(f["torneo"]), "ronda": f["ronda"], "best_of": f["best_of"],
+                    "ganador": claves_nombre_completo(g)[0], "perdedor": claves_nombre_completo(p)[0], "nombre_g": g, "nombre_p": p,
+                    "rank_g": rg, "rank_p": rp, "comentario": "Retired" if "RETIRED" in f["status"] else "Completed",
+                    "orden": int(f["inicio"].timestamp()) % 100000, "cuota_g": None, "cuota_p": None})
+    return out
+
+
 def parse_eventos(sport: dict, cuerpo, capturada: datetime, casas: list[str]) -> list[dict]:
     """Momios h2h de un torneo (The Odds API) → un renglón por partido con la casa preferida y la probabilidad sin margen."""
     tour = "wta" if "wta" in sport["key"] else "atp"
@@ -154,6 +206,7 @@ class FuenteTenis:
         self.cfg = cfg
         self.td = ClienteHTTP("tennis_data", BASE_TD, timeout_s=90.0, **kw)
         self.gh = ClienteHTTP("sackmann", BASE_SACKMANN, timeout_s=90.0, **kw)
+        self.espn_http = ClienteHTTP("espn", BASE_ESPN, timeout_s=45.0, **kw)
         self.odds = ClienteHTTP("odds_api", "https://api.the-odds-api.com", **kw) if odds_key else None
         self.odds_key = odds_key
 
@@ -164,6 +217,11 @@ class FuenteTenis:
             ruta = f"/{anio}/{anio}.xlsx" if tour == "atp" else f"/{anio}w/{anio}.xlsx"
             return parse_tennis_data(self.td.get(ruta, costo=0).content, tour)
         return parse_sackmann(self.gh.get(RUTA_SACKMANN[tour].format(a=anio), costo=0).content, tour)
+
+    def espn(self, tour: str, fecha) -> list[dict]:
+        """Torneos de ESPN activos ese día (cuadro completo: resultados y partidos por jugar)."""
+        return parse_espn_tenis(self.espn_http.get_json(f"/apis/site/v2/sports/tennis/{tour}/scoreboard",
+                                                        {"dates": fecha.strftime("%Y%m%d")}, costo=0))
 
     def torneos_activos(self) -> list[dict]:
         if self.odds is None:

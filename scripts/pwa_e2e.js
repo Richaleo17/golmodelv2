@@ -100,7 +100,10 @@ const TENIS = { version: "tenis-elo-sup-v1", aviso: "Tenis v1", n_historico: 300
       modelo_confiable: true, fuente: "modelo + mercado" },
     { id: "e2", tour: "atp", torneo: "ATP Finals", superficie: "Hard", best_of: 3, inicio: "2026-11-19T07:00:00-06:00", jugador1: "Alex de Minaur", jugador2: "Carlos Alcaraz",
       elo1: 1990, elo2: 2190, partidos1: 350, partidos2: 300, p_modelo: 0.25, p_mercado: 0.22, p_final: 0.229, cuota1: 4.4, cuota2: 1.24, casa: "pinnacle",
-      modelo_confiable: true, fuente: "modelo + mercado" }],
+      modelo_confiable: true, fuente: "modelo + mercado" },
+    { id: "espn:5", tour: "atp", torneo: "Challenger (Lima)", superficie: "Clay", best_of: 3, inicio: "2026-11-19T15:00:00-06:00", jugador1: "Juan Uno", jugador2: "Pedro Dos",
+      elo1: 1700, elo2: 1600, partidos1: 60, partidos2: 40, p_modelo: 0.64, p_mercado: null, p_final: 0.64, cuota1: null, cuota2: null, casa: null,
+      modelo_confiable: true, fuente: "solo modelo" }],
   ranking: { atp: { general: [{ lugar: 1, jugador: "sinner j", elo: 2210, partidos: 400 }], hard: [], clay: [], grass: [] }, wta: { general: [] } },
   desempeno: { atp: { partidos: 2400, pct_aciertos: 0.652, aciertos_esperados: 1580, brier: 0.214, calibracion: [{ rango: "80–90%", partidos: 300, prob_media: 0.84, pct_real: 0.82 }],
     mercado: { partidos: 2300, pct_aciertos: 0.69, brier: 0.205, coincide: 0.85 } }, wta: { partidos: 0 } } };
@@ -304,7 +307,8 @@ async function simular(page) {
     await page.waitForSelector("#vista .rk-fila");
     const ps = await page.$$eval("#vista .rk-p", (es) => es.map((e) => parseFloat(e.textContent)));
     const ten = await page.textContent("#vista");
-    ok(ps.length === 2 && ps[0] >= ps[1] && /Carlos Alcaraz/.test(ten) && /Jannik Sinner/.test(ten) && /Pinnacle/.test(ten) && /65\.2%/.test(ten),
+    ok(ps.length === 3 && /solo del Elo/.test(ten) && /Juan Uno/.test(ten), "Hoy Tenis: partido de ESPN sin momio con pronóstico solo del Elo");
+    ok(ps[0] >= ps[1] && /Carlos Alcaraz/.test(ten) && /Jannik Sinner/.test(ten) && /Pinnacle/.test(ten) && /65\.2%/.test(ten),
        "Hoy Tenis: pronósticos en barras, tarjetas, efectividad vs Pinnacle");
   }
   await page.screenshot({ path: `${OUT}/09-tenis.png`, fullPage: true });

@@ -5,11 +5,11 @@ zona_horaria: America/Mexico_City
 
 # Cada liga activa gasta ~2 créditos de The Odds API por actualización, pero SOLO si ese día tiene partidos.
 # Si te quedas corto de créditos (plan gratis: 500 al mes), quita ligas de esta lista.
-ligas_activas: [LL, L1, MX1, MXF, MLS, BR1, POR]
+ligas_activas: [LL, SA, L1, MX1, MXF, MLS, BR1, POR]
 # Ligas FUERA del sistema (2026-11-20, decisión del responsable: precisión sobre cobertura). Se aplican a `ligas.activa` al arrancar la API
 # (repositorio.sincronizar_ligas): no salen en panel, sugerencias, parlays, Dashboard ni calibración y no gastan créditos. Las filas
 # históricas NO se borran (cuotas, predicciones y picks son inmutables = auditoría). Quitar un código de aquí la reactiva.
-ligas_excluidas: [EPL, SA, BUN, ERE, BEL, "MK:soccer_japan_j_league"]
+ligas_excluidas: [EPL, BUN, ERE, BEL, "MK:soccer_japan_j_league"]
 # Competiciones solo-mercado MENORES fuera (2026-11-20): se desactivan las que ya existen cuyo `odds_api_sport_key` contenga cualquiera de
 # estos textos. Quedan: Champions, Europa, Conference, selecciones, copas (Copa del Rey…), Libertadores, Sudamericana y Concacaf.
 ligas_excluidas_patrones: [efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan]
@@ -208,7 +208,7 @@ competiciones_mercado:
 # Mercados NUEVOS (2026-11-11). Modelos PARALELOS: no cambian Dixon-Coles, la matriz de goles ni los tickets V3.
 # Valores de diseño, PROVISIONALES hasta medirlos en walk-forward con datos reales.
 corners:
-  ligas: [LL, L1, POR]   # las que traen córners en los CSV de football-data (HC/AC). Árbitro: solo EPL.
+  ligas: [LL, SA, L1, POR]   # las que traen córners en los CSV de football-data (HC/AC). Árbitro: solo EPL.
   decaimiento_xi: 0.002            # mismo orden que el modelo de goles (vida media ≈ 1 año)
   l2: 2.0                          # encogimiento de ataque/concede hacia el promedio
   l2_arbitro: 20.0                 # el efecto árbitro se encoge mucho (es pequeño y ruidoso)
@@ -219,7 +219,7 @@ corners:
 
 tarjetas:                          # amarillas por equipo (mismo modelo NB que córners; HY/AY de football-data)
   activo: true
-  ligas: [LL, L1, POR]
+  ligas: [LL, SA, L1, POR]
   decaimiento_xi: 0.002
   l2: 3.0
   l2_arbitro: 5.0                  # en tarjetas el árbitro pesa mucho más que en córners: se encoge menos
@@ -228,7 +228,7 @@ tarjetas:                          # amarillas por equipo (mismo modelo NB que c
   lineas_total: [2.5, 3.5, 4.5, 5.5]
 
 props:
-  ligas: [LL, L1]    # las que tienen xG por jugador (Understat)
+  ligas: [SA, LL, L1]    # las que tienen xG por jugador (Understat)
   minutos_min_temporada: 450       # menos minutos = sin prop (muestra chica)
   minutos_titular: 85
   minutos_suplente: 15
@@ -291,11 +291,13 @@ tenis:
   activo: true
   circuitos: [atp, wta]
   temporadas_historico: 6          # + la actual
-  fuente_historico: sackmann       # GitHub de Jeff Sackmann (tennis-data.co.uk responde 403 a Render: 0 partidos cargados en producción)
+  fuente_historico: sackmann       # espejo de Jeff Sackmann en GitHub (congelado al 25-may-2026; tennis-data.co.uk responde 403 a Render)
+  espn: true                       # ESPN: resultados desde el corte del histórico + partidos próximos sin momio (salen «solo modelo»)
+  espn_reprocesar_dias: 10         # cada carga vuelve a pedir los últimos días (torneos en curso)
   dias: 3                          # próximos partidos a mostrar
   peso_modelo: 0.3                 # p_final = 0.3·Elo + 0.7·mercado (PROVISIONAL: se mide en el Dashboard contra el cierre de Pinnacle)
   min_partidos_modelo: 15          # con menos partidos en el histórico, el jugador va «solo mercado»
-  aviso: "Tenis v1: Elo por superficie calibrado con 2005-2026 (acierto de prueba ATP 64%, WTA 65%). Los momios de Pinnacle suelen ser más precisos: la probabilidad final mezcla 30% modelo y 70% mercado."
+  aviso: "Tenis v1: Elo por superficie calibrado con 2005-2026 (acierto de prueba ATP 64%, WTA 65%). Los momios de Pinnacle suelen ser más precisos: la probabilidad final mezcla 30% modelo y 70% mercado. Los partidos sin momio (WTA 125, torneos chicos) salen del calendario de ESPN con solo el Elo."
   cuotas:
     regiones: [eu]                 # 1 crédito por torneo activo y región
     casas_preferidas: [pinnacle, betfair_ex_eu, marathonbet, williamhill]
@@ -310,6 +312,13 @@ tenis:
     rome: Clay
     queen: Grass
     halle: Grass
+    birmingham: Grass
+    eastbourne: Grass
+    mallorca: Grass
+    hertogenbosch: Grass
+    bad homburg: Grass
+    nottingham: Grass
+    newport: Grass
     australian open: Hard
     us open: Hard
     finals: Hard

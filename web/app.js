@@ -654,7 +654,7 @@ const SUP_ES = { Hard: "dura", Clay: "arcilla", Grass: "pasto" };
 async function vTenis() {
   const r = await api("GET", "/tenis/semana");
   let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">🎾</b> Tenis</h2><p class="lead">ATP y WTA: quién gana cada partido. ` +
-    `Modelo propio (Elo por superficie, calibrado con 2005-2026) mezclado con el momio de Pinnacle.</p>`;
+    `Modelo propio (Elo por superficie, calibrado con 2005-2026) mezclado con el momio de Pinnacle. Calendario y resultados recientes: ESPN.</p>`;
   if (S.rol === "admin") h += `<div class="card"><button id="tenis-act" class="btn" type="button" style="width:100%">Actualizar tenis (resultados y momios ≈ 1 crédito por torneo)</button><div id="tenis-prog" class="meta"></div></div>`;
   if (!r.ok) return { html: h + `<div class="card"><p class="error">${esc(r.error)}</p></div>`, alMontar: montarTenis };
   const d = r.data, a = d.actualizacion || {};
@@ -663,7 +663,7 @@ async function vTenis() {
   h += `<div class="chips" id="chips-tour">${[["atp", "ATP"], ["wta", "WTA"]].map(([k, t]) => `<button class="chip" type="button" data-tour="${k}" aria-pressed="${S.tenisTour === k}">${t}</button>`).join("")}</div>`;
   const ps = (d.partidos || []).filter((x) => x.tour === S.tenisTour);
   if (!d.n_historico) h += `<div class="card meta">Todavía no se cargan datos de tenis: usa «Actualizar tenis».</div>`;
-  else if (!ps.length) h += `<div class="card meta">No hay partidos ${S.tenisTour.toUpperCase()} con momio en los próximos días (fuera de temporada o sin torneo activo).</div>`;
+  else if (!ps.length) h += `<div class="card meta">No hay partidos ${S.tenisTour.toUpperCase()} en los próximos días (fuera de temporada o sin torneo activo).</div>`;
   const filas = ps.filter((x) => x.p_final != null).map((x) => {
     const uno = x.p_final >= 0.5;
     const fecha = new Date(x.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" });
@@ -683,7 +683,8 @@ async function vTenis() {
       `<table class="nfl"><thead><tr><th>Jugador</th><th>Modelo</th><th>Mercado</th><th>Final</th><th>Cuota</th></tr></thead><tbody>` +
       fila(x.jugador1, x.p_modelo, x.p_mercado, x.p_final, x.cuota1, x.elo1, x.partidos1) +
       fila(x.jugador2, 1 - x.p_modelo, x.p_mercado != null ? 1 - x.p_mercado : null, x.p_final != null ? 1 - x.p_final : null, x.cuota2, x.elo2, x.partidos2) +
-      `</tbody></table>${x.modelo_confiable ? "" : `<p class="meta">⚠ Uno de los jugadores tiene poco historial: se usa solo el mercado.</p>`}` +
+      `</tbody></table>${x.modelo_confiable ? "" : `<p class="meta">⚠ ${x.p_mercado != null ? "Uno de los jugadores tiene poco historial: se usa solo el mercado." : "Uno de los jugadores tiene poco historial y no hay momio: sin pronóstico."}</p>`}` +
+      (x.modelo_confiable && x.p_mercado == null ? `<p class="meta">Sin momio en The Odds API (calendario de ESPN): pronóstico solo del Elo.</p>` : "") +
       (x.sets ? `<p class="meta">🎾 Sets · 1.er set: ${esc(x.jugador1)} <b>${pct(x.sets.jugador1.set1)}</b> / ${esc(x.jugador2)} <b>${pct(x.sets.jugador2.set1)}</b> · ` +
         `2-0: ${pct(x.sets.jugador1.dos_cero)} / ${pct(x.sets.jugador2.dos_cero)} · +1.5 sets: ${pct(x.sets.jugador1.mas_1_5)} / ${pct(x.sets.jugador2.mas_1_5)} · ` +
         `a 3 sets ${pct(x.sets.tres_sets)}</p>` : "") + `</div>`;
