@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from golmodel.ingesta.proveedores.http import ClienteHTTP
 
 BASE = "https://www.fotmob.com"
-LIGAS_FOTMOB = {"LL": 87, "L1": 53, "POR": 61, "MX1": 230, "MLS": 130, "BR1": 268}
+LIGAS_FOTMOB = {"LL": 87, "SA": 55, "L1": 53, "POR": 61, "MX1": 230, "MLS": 130, "BR1": 268}
 CLAVES_MERCADO_FOTMOB = {"soccer_uefa_champs_league": 42, "soccer_uefa_europa_league": 73,
                          "soccer_uefa_europa_conference_league": 10216, "soccer_spain_copa_del_rey": 138}
 TIPOS = {"injury": "lesión", "suspension": "sanción", "internationalDuty": "con su selección", "illness": "enfermedad"}

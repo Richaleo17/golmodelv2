@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from golmodel.motor_tenis import modelo as md
-from golmodel.motor_tenis.datos import FuenteTenis, _plano, resolver
+from golmodel.motor_tenis.datos import FuenteTenis, _plano, claves_nombre_completo, resolver, resultados_espn
 
 log = logging.getLogger(__name__)
 _CACHE: dict = {}
@@ -61,9 +61,89 @@ def actualizar(conn, fuente: FuenteTenis, cfg: dict, ahora: datetime) -> dict:
                             ON CONFLICT (odds_api_id) DO UPDATE SET inicio = EXCLUDED.inicio, cuota1 = EXCLUDED.cuota1,
                                 cuota2 = EXCLUDED.cuota2, casa = EXCLUDED.casa, capturada_en = EXCLUDED.capturada_en""", ev)
             res["eventos"] += 1
+    if t.get("espn", True):
+        try:
+            _espn(conn, fuente, cfg, ahora, res)
+        except Exception as e:                                     # noqa: BLE001 — ESPN es complemento: nunca tumba la carga
+            conn.rollback()
+            res["avisos"].append(f"ESPN tenis: no disponible ({type(e).__name__}).")
     conn.execute("DELETE FROM tenis_eventos WHERE inicio < %s", (ahora - timedelta(days=3),))
     conn.commit()
     return res
+
+
+def _superficies_hist(conn) -> dict:
+    out = {}
+    for r in conn.execute("SELECT DISTINCT ON (torneo) torneo, superficie FROM tenis_partidos WHERE id NOT LIKE 'e:%%' ORDER BY torneo, fecha DESC"):
+        out[_plano(r["torneo"])] = md.superficie_norm(r["superficie"])
+    return out
+
+
+def _espn(conn, fuente, cfg: dict, ahora: datetime, res: dict) -> None:
+    """ESPN completa lo que el histórico (Sackmann, congelado) no trae: resultados desde su última fecha hasta hoy, y los partidos de
+    los próximos días aunque no tengan momio (salen «solo modelo»). Un torneo que empezó antes del corte ya está en el histórico."""
+    t = cfg["tenis"]
+    hist = _superficies_hist(conn)
+    sup = lambda torneo: superficie_de(torneo, hist, cfg)            # noqa: E731
+    hoy = ahora.date()
+    fechas: set = set()
+    cortes = {}
+    for tour in t["circuitos"]:
+        r = conn.execute("""SELECT (SELECT max(fecha) FROM tenis_partidos WHERE tour = %s AND id NOT LIKE 'e:%%') AS corte,
+                                   (SELECT max(fecha) FROM tenis_partidos WHERE tour = %s AND id LIKE 'e:%%') AS ult""", (tour, tour)).fetchone()
+        if r["corte"] is None:
+            continue
+        cortes[tour] = r["corte"]
+        d = max(r["corte"], (r["ult"] or r["corte"]) - timedelta(days=int(t.get("espn_reprocesar_dias", 10))))
+        d += timedelta(days=(2 - d.weekday()) % 7)                 # miércoles: todo torneo de una semana está en juego ese día
+        while d < hoy:                                             # un día por semana basta: el scoreboard trae el cuadro completo
+            fechas.add((tour, d))
+            d += timedelta(days=7)
+    for tour in t["circuitos"]:
+        for k in range(0, int(t["dias"]) + 1, 2):
+            fechas.add((tour, hoy + timedelta(days=k)))
+    vistos: dict = {}
+    for tour, d in sorted(fechas, key=lambda x: (x[1], x[0])):
+        try:
+            for f in fuente.espn(tour, d):
+                vistos[f["id"]] = f
+        except Exception as e:                                     # noqa: BLE001
+            res["avisos"].append(f"ESPN {tour.upper()} {d}: {type(e).__name__}")
+    filas = list(vistos.values())
+    nuevos = [f for f in resultados_espn(filas, sup)
+              if f["tour"] in cortes and (vistos[f["id"][2:]]["evento_inicio"] or "0000") > cortes[f["tour"]].isoformat()]
+    for f in nuevos:
+        conn.execute("""INSERT INTO tenis_partidos (id, tour, fecha, torneo, superficie, ronda, best_of, ganador, perdedor,
+                            nombre_g, nombre_p, rank_g, rank_p, comentario, orden, cuota_g, cuota_p)
+                        VALUES (%(id)s, %(tour)s, %(fecha)s, %(torneo)s, %(superficie)s, %(ronda)s, %(best_of)s, %(ganador)s,
+                            %(perdedor)s, %(nombre_g)s, %(nombre_p)s, %(rank_g)s, %(rank_p)s, %(comentario)s, %(orden)s, NULL, NULL)
+                        ON CONFLICT (id) DO NOTHING""", f)
+    res["espn_resultados"] = len(nuevos)
+    # partidos por jugar: los que ya trajo The Odds API (mismos jugadores, ±36 h) no se duplican
+    con_momio = {}
+    for r in conn.execute("SELECT jugador1, jugador2, inicio FROM tenis_eventos WHERE odds_api_id NOT LIKE 'espn:%%' AND inicio > %s",
+                          (ahora - timedelta(days=1),)):
+        par = frozenset((claves_nombre_completo(r["jugador1"])[0], claves_nombre_completo(r["jugador2"])[0]))
+        con_momio.setdefault(par, []).append(r["inicio"])
+    n = 0
+    for f in filas:
+        if f["estado"] != "pre" or not (ahora - timedelta(hours=3) < f["inicio"] < ahora + timedelta(days=int(t["dias"]) + 1)):
+            continue
+        par = frozenset((claves_nombre_completo(f["jugador1"])[0], claves_nombre_completo(f["jugador2"])[0]))
+        if any(abs((i - f["inicio"]).total_seconds()) < 36 * 3600 for i in con_momio.get(par, [])):
+            continue
+        conn.execute("""INSERT INTO tenis_eventos (odds_api_id, tour, sport_key, torneo, inicio, jugador1, jugador2, cuota1, cuota2, casa,
+                            best_of, capturada_en)
+                        VALUES (%s, %s, 'espn', %s, %s, %s, %s, NULL, NULL, NULL, %s, %s)
+                        ON CONFLICT (odds_api_id) DO UPDATE SET inicio = EXCLUDED.inicio, capturada_en = EXCLUDED.capturada_en""",
+                     (f"espn:{f['id']}", f["tour"], f["torneo"], f["inicio"], f["jugador1"], f["jugador2"], f["best_of"], ahora))
+        n += 1
+    # lo que ESPN ya dio por jugado (o cambió de fecha fuera de la ventana) no se queda como «por jugar»
+    terminados = [f"espn:{f['id']}" for f in filas if f["estado"] != "pre"]
+    if terminados:
+        conn.execute("DELETE FROM tenis_eventos WHERE odds_api_id = ANY(%s)", (terminados,))
+    res["espn_proximos"] = n
+    conn.commit()
 
 
 def _estado(conn, cfg: dict):
