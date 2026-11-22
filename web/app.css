@@ -220,3 +220,10 @@ nav button{font-size:8.5px;letter-spacing:0;overflow:hidden;text-overflow:ellips
 .deportes button[aria-pressed=true]{border-color:var(--accent);color:var(--text);background:rgba(157,123,255,.18);box-shadow:inset 0 -2px 0 var(--accent)}
 .ptabs .chip{font-size:12px;padding:6px 12px}
 nav button{font-size:10px}
+
+/* Escudos de equipos (fondo de un span: nunca <img> con datos del servidor) */
+.escudo { display: inline-block; width: 22px; height: 22px; margin: 0 6px 0 2px; vertical-align: -5px;
+  background-size: contain; background-repeat: no-repeat; background-position: center; }
+.filtros .fila { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
+.filtros select, .filtros input { flex: 1 1 160px; min-width: 0; }
+.filtros .chips { margin: 6px 0; }

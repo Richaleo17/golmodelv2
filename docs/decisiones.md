@@ -273,3 +273,15 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   (σ 9.89), empate 6.0% (favorito 60-70%: 65.4% prometido, 66.2% real); total impar 53.0% (49.5-55.4% por temporada).
   Sugerencias nuevas: puntos del favorito ≈ 85% y spread de 1.ª mitad ≈ 85% (mismo partido_id que el moneyline).
   Total de touchdowns: no se agrega (la fuente no trae TDs por partido para medirlo).
+
+### 2026-11-22 (b) · Filtros nuevos, escudos y «¿el modelo mejora?» por versión
+* **Filtros del Diario rehechos**: antes las ligas se apagaban una por una con botones (para ver una liga había que apagar todas) y la
+  vista de ranking usaba otro selector, así que lo elegido no pasaba de una vista a otra. Ahora es UNA barra para tarjetas y ranking:
+  liga (lista con el número de partidos), buscar equipo, «Todos / Por jugar», probabilidad mínima del favorito (≥60/70/80%), orden
+  (hora, probabilidad, confianza), contador y «Limpiar filtros».
+* **Escudos** (ESPN): fútbol con el id de ESPN de cada equipo (`equipos_espn`, se llena al emparejar partidos); NBA y NFL con la abreviatura.
+  La URL la arma la app con un patrón fijo y solo un número/abreviatura validados; se pinta como fondo de un `<span>` (ningún `<img>`
+  con datos del servidor). Las selecciones nacionales aún no tienen bandera (no hay mapeo a ESPN para ellas).
+* **¿Mejora el modelo al recalibrar?** `aciertos.por_version`: por cada versión del modelo, los partidos que pronosticó (lo guardado al
+  cierre diario en `dashboard_registro`), su log loss 1X2 y el del mercado en ESOS mismos partidos. Se juzga la brecha app − mercado
+  (los días no son igual de difíciles): baja ≥ 0.005 = mejoró, sube ≥ 0.005 = empeoró; con < 30 partidos no se juzga. Tabla en el Dashboard.

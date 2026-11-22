@@ -208,6 +208,48 @@ def construir_dashboard(detalle: list[dict], hoy: date) -> dict:
             "log_loss_mercado": sum(ll_mk) / len(ll_mk) if ll_mk else None, "mensajes": mensajes}
 
 
+UMBRAL_VERSION = 0.005        # cambio mínimo de log loss (contra el mercado) para decir que una versión mejoró o empeoró
+MIN_VERSION = 30              # partidos mínimos para juzgar una versión
+
+
+def por_version(conn, desde: date) -> list[dict]:
+    """¿Mejora el modelo cuando se recalibra? Por cada versión del modelo: los partidos que pronosticó (lo guardado al cierre de cada día),
+    su log loss del 1X2 y el del mercado en ESOS mismos partidos. Se juzga la brecha contra el mercado (no el log loss solo), porque
+    unos días son más difíciles que otros y el mercado sirve de vara: si la brecha baja, la versión nueva es mejor."""
+    filas = conn.execute("""
+        SELECT pr.version_id, vm.creado_en, vm.tipo_ajuste, vm.n_partidos,
+               count(*) FILTER (WHERE r.fuente = 'decision' AND r.log_loss_1x2 IS NOT NULL) AS n,
+               avg(r.log_loss_1x2) FILTER (WHERE r.fuente = 'decision') AS ll_app,
+               avg(r.log_loss_1x2) FILTER (WHERE r.fuente = 'mercado') AS ll_mercado,
+               avg(r.acierto::int) FILTER (WHERE r.fuente = 'decision' AND r.acierto IS NOT NULL) AS acierto_ganador
+        FROM dashboard_registro r
+        JOIN predicciones pr ON pr.id = r.prediccion_id
+        JOIN versiones_modelo vm ON vm.id = pr.version_id
+        JOIN partidos pp ON pp.id = r.partido_id JOIN ligas ll ON ll.id = pp.liga_id
+        WHERE ll.activa AND r.kpi = 'Ganador' AND r.dia >= %s
+        GROUP BY pr.version_id, vm.creado_en, vm.tipo_ajuste, vm.n_partidos ORDER BY vm.creado_en""", (desde,)).fetchall()
+    out, previa = [], None
+    for f in filas:
+        f = {**f, **{k: (None if f[k] is None else float(f[k])) for k in ("ll_app", "ll_mercado", "acierto_ganador")}}
+        brecha = (f["ll_app"] - f["ll_mercado"]) if f["ll_app"] is not None and f["ll_mercado"] is not None else None
+        x = {"version_id": f["version_id"], "creado_en": f["creado_en"].isoformat(), "tipo": f["tipo_ajuste"], "entrenado_con": f["n_partidos"],
+             "partidos": f["n"], "log_loss_app": f["ll_app"], "log_loss_mercado": f["ll_mercado"], "brecha": brecha,
+             "acierto_ganador": f["acierto_ganador"], "veredicto": "primera versión medida"}
+        if previa is not None:
+            if brecha is None or previa["brecha"] is None or f["n"] < MIN_VERSION or previa["partidos"] < MIN_VERSION:
+                x["veredicto"] = "muestra chica"
+            elif brecha < previa["brecha"] - UMBRAL_VERSION:
+                x["veredicto"] = "mejoró"
+            elif brecha > previa["brecha"] + UMBRAL_VERSION:
+                x["veredicto"] = "empeoró"
+            else:
+                x["veredicto"] = "igual"
+            x["cambio_brecha"] = None if brecha is None or previa["brecha"] is None else brecha - previa["brecha"]
+        out.append(x)
+        previa = x
+    return out
+
+
 def dashboard(conn, hoy: date, dias: int = 60, desde: date | None = None) -> dict:
     """Lee lo GUARDADO al cierre de cada día (dashboard_registro). Si la tabla aún está vacía (antes del primer cierre),
     calcula al vuelo para no mostrar la pantalla en blanco."""
@@ -221,6 +263,11 @@ def dashboard(conn, hoy: date, dias: int = 60, desde: date | None = None) -> dic
     if not det:
         det, fuente = marcador(conn, ini, hoy)["detalle"], "calculado al vuelo (aún sin cierre guardado)"
     out = construir_dashboard(det, hoy)
+    try:
+        with conn.transaction():
+            out["versiones"] = por_version(conn, ini)
+    except Exception:                                             # noqa: BLE001 — tabla aún no migrada
+        out["versiones"] = []
     out["fuente_datos"], out["desde"] = fuente, str(ini)
     return out
 

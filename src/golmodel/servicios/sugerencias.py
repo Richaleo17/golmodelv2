@@ -446,6 +446,25 @@ def _calibrar_tarjetas(info: dict, cal_kpi: dict[str, dict], cfg: dict) -> None:
                  nivel="ALTA" if p >= 0.80 else "MEDIA" if p >= 0.55 else "BAJA")
 
 
+def _escudos(conn, partidos: list[dict], filas: list[dict]) -> None:
+    """Id de ESPN de cada equipo (para su escudo). Solo el número: la URL la arma la app con un patrón fijo."""
+    if not repo.tiene_tabla(conn, "equipos_espn"):
+        return
+    eq_de = {f["partido_id"]: (f["local_id"], f["visitante_id"]) for f in filas}
+    ids = list({i for par in eq_de.values() for i in par})
+    if not ids:
+        return
+    try:
+        with conn.transaction():
+            espn = {r["equipo_id"]: r["espn_id"] for r in conn.execute("SELECT equipo_id, espn_id FROM equipos_espn WHERE equipo_id = ANY(%s)", (ids,))}
+    except Exception:                                            # noqa: BLE001 — el escudo es adorno: nunca tumba el panel
+        return
+    for p in partidos:
+        loc, vis = eq_de.get(p["partido_id"], (None, None))
+        p["escudo_local"] = espn.get(loc) if str(espn.get(loc, "")).isdigit() else None
+        p["escudo_visitante"] = espn.get(vis) if str(espn.get(vis, "")).isdigit() else None
+
+
 def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
     zona = ZoneInfo(cfg["zona_horaria"])
     cs = cfg["sugerencias"]
@@ -537,6 +556,7 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
     v3 = panel_v3(conn, d, zona)
     for p in partidos:
         p.pop("_piernas", None)
+    _escudos(conn, partidos, filas)
     return {"fecha": d.isoformat(), "partidos": partidos, "mejores": [asdict(x) for x in mejores],
             "valor": [asdict(x) for x in valor], "rompe": rompe, "v3": v3,
             "resumen": {"partidos": len(partidos), "con_prediccion": sum(1 for p in partidos if p["prediccion"]),
