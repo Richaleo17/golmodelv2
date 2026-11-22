@@ -141,15 +141,28 @@ def _mercado(cuotas: list[dict], mercado: str, casas: list[str]) -> dict | None:
     return None
 
 
-def semana(conn, cfg: dict, ahora: datetime) -> dict:
+def semanas_pendientes(conn, temporada: int, ahora: datetime) -> list[dict]:
+    """Semanas de la temporada con juegos por jugar (para el filtro), en orden de calendario."""
+    return [{"semana": int(r["semana"]), "tipo": r["tipo"], "inicio": r["inicio"].isoformat(), "juegos": int(r["n"])}
+            for r in conn.execute("""SELECT semana, min(tipo) AS tipo, min(inicio) AS inicio, count(*) AS n FROM nfl_juegos
+                                     WHERE temporada = %s AND puntos_local IS NULL AND inicio >= %s
+                                     GROUP BY semana ORDER BY min(inicio)""", (temporada, ahora - timedelta(hours=4)))]
+
+
+def semana(conn, cfg: dict, ahora: datetime, semana_sel: int | None = None) -> dict:
+    """Juegos por jugar de UNA semana (la más próxima si no se pide otra) con sus mercados. `semanas` lista las que quedan
+    (filtro de la app): antes se mostraban los próximos N días y se mezclaban dos semanas (el jueves de la siguiente)."""
     n = cfg["nfl"]
     actual = temporada_actual(ahora)
+    semanas = semanas_pendientes(conn, actual, ahora)
+    if semana_sel is None or all(s["semana"] != semana_sel for s in semanas):
+        semana_sel = semanas[0]["semana"] if semanas else None
     est, registros = _estado(conn, cfg, desde_temporada=actual)
     sig_m, sig_t = float(n["modelo"]["sigma_margen"]), float(n["modelo"]["sigma_total"])
     if est.n_juegos >= int(n["modelo"]["min_juegos_sigma"]):
         sig_m, sig_t = md.ajustar_sigmas(est)
-    proximos = conn.execute("""SELECT * FROM nfl_juegos WHERE puntos_local IS NULL AND inicio >= %s AND inicio < %s
-                               ORDER BY inicio""", (ahora - timedelta(hours=4), ahora + timedelta(days=int(n["dias"])))).fetchall()
+    proximos = conn.execute("""SELECT * FROM nfl_juegos WHERE temporada = %s AND semana = %s AND puntos_local IS NULL AND inicio >= %s
+                               ORDER BY inicio""", (actual, semana_sel, ahora - timedelta(hours=4))).fetchall() if semana_sel is not None else []
     casas = list(n["casas_preferidas"])
     umbral = float(n["umbral_edge"])
     alfa = float(n.get("peso_modelo", 1.0))
@@ -208,7 +221,8 @@ def semana(conn, cfg: dict, ahora: datetime) -> dict:
             salida["recomendadas"] = dv.recomendadas(salida["derivados"], NOMBRES.get(j["local"], j["local"]),
                                                      NOMBRES.get(j["visitante"], j["visitante"]), -float(linea_sp))
         juegos.append(salida)
-    return {"juegos": juegos, "n_juegos_historico": est.n_juegos, "sigma_margen": sig_m, "sigma_total": sig_t,
+    return {"juegos": juegos, "semanas": semanas, "semana_sel": semana_sel,
+            "n_juegos_historico": est.n_juegos, "sigma_margen": sig_m, "sigma_total": sig_t,
             "version": md.VERSION, "aviso": n["aviso"], "peso_modelo": alfa, "nombres": NOMBRES,
             "hfa_puntos": md.hfa_elo(est, cfg) / float(n["modelo"]["elo_por_punto"]),
             **resumen_temporada(conn, cfg, est, registros, actual, juegos, sig_m)}

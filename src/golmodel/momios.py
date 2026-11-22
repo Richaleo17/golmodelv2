@@ -12,6 +12,16 @@ def americano_a_decimal(a: float) -> float | None:
     return None
 
 
+def cuota_valida(x) -> bool:
+    """Cuota decimal utilizable: > 1 y < 1000. Algunas casas publican 1.00 con el mercado suspendido (Fanatics en la NFL tumbó
+    la actualización entera por el CHECK cuota > 1)."""
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return False
+    return 1.0 < v < 1000.0
+
+
 def decimal_a_americano(d: float) -> int | None:
     """4.50 → +350 · 1.1667 → −600 (redondeado)."""
     d = float(d)

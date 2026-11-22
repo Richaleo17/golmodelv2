@@ -7,6 +7,8 @@ Todos los nombres de columna vienen de la documentación pública de nflverse (V
 """
 from __future__ import annotations
 
+from golmodel.momios import cuota_valida
+
 import gzip
 import io
 from datetime import datetime, timezone
@@ -105,7 +107,7 @@ def parse_cuotas(cuerpo, capturada: datetime) -> list[dict]:
                         sel = {"Over": "over", "Under": "under"}.get(o["name"])
                     else:
                         sel = None
-                    if sel:
+                    if sel and cuota_valida(o.get("price")):          # 1.00 = mercado suspendido: se descarta
                         salida.append({"odds_api_id": ev["id"], "local": ABREV.get(loc, loc), "visitante": ABREV.get(vis, vis),
                                        "inicio": inicio, "casa": casa["key"], "mercado": m["key"], "seleccion": sel,
                                        "linea": o.get("point"), "cuota": float(o["price"]), "capturada_en": capturada})

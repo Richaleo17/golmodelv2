@@ -316,3 +316,30 @@ def test_mercados_extra_nfl_medidos():
     assert rec["mitad_spread"]["jugada"].startswith("1.ª mitad: Steelers +")
     vis = {r["tipo"]: r for r in dv.recomendadas(dv.derivados(-6.0, 47.0), "Steelers", "Eagles", -6.0)}
     assert vis["equipo_total"]["jugada"].startswith("Eagles: más de")                   # el visitante es el favorito
+
+
+def test_cuota_suspendida_se_descarta():
+    import copy
+    ev = copy.deepcopy(EVENTOS)
+    ev[0]["bookmakers"].append({"key": "fanatics", "markets": [
+        {"key": "h2h", "outcomes": [{"name": "Kansas City Chiefs", "price": 1.0}, {"name": "Buffalo Bills", "price": 15.0}]}]})
+    q = nd.parse_cuotas(ev, datetime(2026, 11, 11, tzinfo=timezone.utc))
+    fan = [x for x in q if x["casa"] == "fanatics"]
+    assert [x["seleccion"] for x in fan] == ["visitante"] and all(x["cuota"] > 1 for x in q)   # el 1.00 tumbaba la actualización
+
+
+def test_filtro_de_semanas(bd):
+    from golmodel.motor_nfl import servicio as nfl
+    juegos, _, _ = _temporadas(n_temp=2, semilla=2, con_epa=False)
+    hist = [{"juego_id": j.juego_id.replace("2022", "2024").replace("2023", "2025"), "temporada": j.temporada + 2, "tipo": "REG",
+             "semana": j.semana, "inicio": datetime(j.temporada + 2, 9, 1, tzinfo=timezone.utc) + timedelta(days=7 * j.semana),
+             "local": j.local, "visitante": j.visitante, "puntos_local": j.puntos_local, "puntos_visitante": j.puntos_visitante,
+             "neutral": False, "spread_cierre": None, "total_cierre": None} for j in juegos]
+    ahora = datetime(2026, 11, 11, 12, tzinfo=timezone.utc)
+    nfl.actualizar(bd, FuenteFalsa(hist), CFG, ahora)
+    sem = nfl.semana(bd, CFG, ahora)
+    assert [s["semana"] for s in sem["semanas"]] == [11, 12] and sem["semana_sel"] == 11
+    assert {x["juego_id"] for x in sem["juegos"]} == {"2026_11_BUF_KC"}                 # una sola semana, no se mezclan
+    s12 = nfl.semana(bd, CFG, ahora, 12)
+    assert s12["semana_sel"] == 12 and {x["juego_id"] for x in s12["juegos"]} == {"2026_12_LA_SF"}
+    assert nfl.semana(bd, CFG, ahora, 99)["semana_sel"] == 11                           # una semana que no existe → la más próxima
