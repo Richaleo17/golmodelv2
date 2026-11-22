@@ -7,6 +7,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 
 from golmodel.modelos.devig import quitar_margen
+from golmodel.motor_nfl import derivados as dv
 from golmodel.motor_nfl import evaluacion as ev
 from golmodel.motor_nfl import mercados as mk
 from golmodel.motor_nfl import modelo as md
@@ -202,6 +203,10 @@ def semana(conn, cfg: dict, ahora: datetime) -> dict:
             else:
                 f["p_final"] = f["p_modelo"]
             f["valor"] = bool(f.get("p_mercado") is not None and f["p_final"] - f["p_mercado"] >= umbral and f.get("ev", -1) > 0)
+        if linea_sp is not None and linea_t is not None:                 # mercados extra desde la LÍNEA (medidos contra el cierre)
+            salida["derivados"] = dv.derivados(-float(linea_sp), float(linea_t))
+            salida["recomendadas"] = dv.recomendadas(salida["derivados"], NOMBRES.get(j["local"], j["local"]),
+                                                     NOMBRES.get(j["visitante"], j["visitante"]), -float(linea_sp))
         juegos.append(salida)
     return {"juegos": juegos, "n_juegos_historico": est.n_juegos, "sigma_margen": sig_m, "sigma_total": sig_t,
             "version": md.VERSION, "aviso": n["aviso"], "peso_modelo": alfa, "nombres": NOMBRES,
@@ -334,4 +339,16 @@ def piernas_parlay(conn, cfg: dict, ahora: datetime, hasta: datetime, p_min: flo
                        "p": p, "cuota_justa": 1 / p, "cuota_min": (1 + u) / p, "confianza": None,
                        "fuente": "modelo NFL + Las Vegas" if h2h else "modelo NFL (sin cuota)",
                        "cuota": h2h[lado]["cuota"] if h2h else None})
+        cuotas = _ultimas_cuotas(conn, j["juego_id"])
+        sp, tt = _mercado(cuotas, "spreads", casas), _mercado(cuotas, "totals", casas)
+        linea_sp = sp["local"]["linea"] if sp else (-float(j["spread_cierre"]) if j["spread_cierre"] is not None else None)
+        linea_t = tt["over"]["linea"] if tt else (float(j["total_cierre"]) if j["total_cierre"] is not None else None)
+        if linea_sp is None or linea_t is None:
+            continue
+        base = salida[-1]
+        for r in dv.recomendadas(dv.derivados(-float(linea_sp), float(linea_t)), NOMBRES.get(j["local"], j["local"]),
+                                 NOMBRES.get(j["visitante"], j["visitante"]), -float(linea_sp)):
+            if r["p"] >= p_min:
+                salida.append({**base, "tipo": f"nfl_{r['tipo']}", "jugada": r["jugada"], "detalle": r["detalle"], "p": r["p"],
+                               "cuota_justa": 1 / r["p"], "cuota_min": (1 + u) / r["p"], "cuota": None, "fuente": "línea de Las Vegas"})
     return salida

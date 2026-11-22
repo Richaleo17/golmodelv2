@@ -876,10 +876,27 @@ async function vNfl() {
       j.mercados.map((x) => `<tr class="${x.valor ? "valor" : ""}"><td>${esc(x.mercado)} ${esc(x.seleccion === "local" ? j.local : x.seleccion === "visitante" ? j.visitante : x.seleccion === "over" ? "Más" : "Menos")} ${x.linea != null ? esc((x.linea > 0 && x.mercado === "Spread" ? "+" : "") + x.linea) : ""}</td>` +
         `<td><b style="color:${colorP(x.p_modelo)}">${pct(x.p_modelo)}</b>${x.p_push ? `<small> push ${pct(x.p_push, 1)}</small>` : ""}</td><td>${x.p_mercado != null ? pct(x.p_mercado) : "—"}</td><td>${x.p_final != null ? pct(x.p_final) : "—"}</td>` +
         `<td>${x.cuota ? num(x.cuota) : `<small>justa ${num(x.cuota_justa)}</small>`}</td><td>${x.ev != null ? (100 * x.ev).toFixed(1) + "%" : "—"}${x.valor ? " ✅" : ""}</td></tr>`).join("") +
-      `</tbody></table></div>`;
+      `</tbody></table>` + nflDerivados(j) + `</div>`;
   }).join("");
   h += nflRanking(d.ranking_elo) + nflProyeccion(d.proyeccion);
   return { html: h, alMontar: montarNfl };
+}
+
+function nflDerivados(j) {
+  const dv = j.derivados;
+  if (!dv) return "";
+  let h = (j.recomendadas || []).map((r) => `<div class="jug">🎯 ${esc(r.jugada)} · ${pct(r.p)} · cuota justa ${num(1 / r.p)}</div>`).join("");
+  const obj = [0.85, 0.7, 0.5];
+  const eq = (lado, nom) => `<tr><td>${esc(nom)} (esperado ${num(dv.equipos[lado].esperado, 1)})</td><td>` +
+    cercanas(dv.equipos[lado].lineas, "p_over", obj).map((l) => `+${num(l.linea, 1)} <b>${pct(l.p_over)}</b>`).join(" · ") + `</td></tr>`;
+  const m = dv["1T"];
+  h += `<details><summary>➕ Más mercados: puntos por equipo, 1.ª mitad y par/impar</summary>` +
+    `<table class="nfl"><thead><tr><th>Puntos del equipo</th><th>Más de</th></tr></thead><tbody>${eq("local", j.local_nombre)}${eq("visitante", j.visitante_nombre)}</tbody></table>` +
+    `<p class="meta"><b>1.ª mitad</b> · gana ${esc(j.local)} ${pct(m.gana_local)} / ${esc(j.visitante)} ${pct(m.gana_visitante)} · 1x2: ${pct(m.x12.local)} · empate ${pct(m.x12.empate)} · ${pct(m.x12.visitante)}<br>` +
+    `Spread ${esc(j.local)}: ${cercanas(m.spreads_local, "p", obj).map((l) => `${signo(l.linea)} <b>${pct(l.p)}</b>`).join(" · ")}<br>` +
+    `Total (esperado ${num(m.total_esperado, 1)}): ${cercanas(m.totales, "p_over", obj).map((l) => `más de ${num(l.linea, 1)} <b>${pct(l.p_over)}</b>`).join(" · ")}</p>` +
+    `<p class="meta">Total del juego impar ${pct(dv.par_impar.impar)} · par ${pct(dv.par_impar.par)} (medido 2015-2025). Desde la línea de Las Vegas.</p></details>`;
+  return h;
 }
 
 const NFL_NOMBRES = {};

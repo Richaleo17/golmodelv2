@@ -299,3 +299,20 @@ def test_simulacion_temporada_suma_y_respeta_fuerzas():
     peor = min(fuerza, key=fuerza.get)
     by = {f["equipo"]: f for f in p}
     assert by[mejor]["pct_playoffs"] > by[peor]["pct_playoffs"]
+
+
+def test_mercados_extra_nfl_medidos():
+    from golmodel.motor_nfl import derivados as dv
+    d = dv.derivados(3.5, 44.5)                                      # local favorito por 3.5, total 44.5
+    assert d["equipos"]["local"]["esperado"] == 24.0 and d["equipos"]["visitante"]["esperado"] == 20.5
+    cerca = min(d["equipos"]["local"]["lineas"], key=lambda x: abs(x["linea"] - 24.0))
+    assert abs(cerca["p_over"] - 0.5) < 0.05
+    m = d["1T"]
+    assert m["margen_esperado"] == pytest.approx(0.6634 * 3.5, abs=0.05) and m["total_esperado"] == pytest.approx(0.5156 * 44.5, abs=0.05)
+    assert sum(m["x12"].values()) == pytest.approx(1, abs=1e-3) and m["x12"]["empate"] < 0.06
+    assert d["par_impar"] == {"impar": 0.53, "par": 0.47}
+    rec = {r["tipo"]: r for r in dv.recomendadas(d, "Steelers", "Eagles", 3.5)}
+    assert rec["equipo_total"]["jugada"].startswith("Steelers: más de") and 0.75 <= rec["equipo_total"]["p"] < 0.95
+    assert rec["mitad_spread"]["jugada"].startswith("1.ª mitad: Steelers +")
+    vis = {r["tipo"]: r for r in dv.recomendadas(dv.derivados(-6.0, 47.0), "Steelers", "Eagles", -6.0)}
+    assert vis["equipo_total"]["jugada"].startswith("Eagles: más de")                   # el visitante es el favorito

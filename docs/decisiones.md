@@ -265,3 +265,11 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   subestima el 2-0 ~9 pts (favoritos 70-80%: 44.9% calculado vs 53.6% real). Se usan curvas logísticas sobre logit(p del favorito) ajustadas
   con 2024 y probadas en 2025 (12,337 partidos a 3 sets): error ≤ 4 pts por tramo. Solo partidos a 3 sets (a 5 sets no hay datos para medir).
 * NFL «puntos por equipo / total de TDs / par-impar»: no se agregaron; no hay histórico local con líneas y marcador para medirlos.
+
+### 2026-11-22 · NFL: puntos por equipo, 1.ª mitad y par/impar (medidos)
+* Histórico de nflverse (`nfldata/games.csv`, 2015-2025, 3,179 partidos con marcador, spread y total de cierre) y marcador por cuarto de
+  ESPN (2023-2025, 816 partidos). `motor_nfl/derivados.py`, desde la LÍNEA del mercado (el modelo propio pesa 15% en el moneyline):
+  puntos por equipo = (T ± μ)/2 con σ 9.16 (error ≤ 1 pt de −10 a +10 del esperado); 1.ª mitad: total 0.5156·T (σ 8.62), margen 0.6634·μ
+  (σ 9.89), empate 6.0% (favorito 60-70%: 65.4% prometido, 66.2% real); total impar 53.0% (49.5-55.4% por temporada).
+  Sugerencias nuevas: puntos del favorito ≈ 85% y spread de 1.ª mitad ≈ 85% (mismo partido_id que el moneyline).
+  Total de touchdowns: no se agrega (la fuente no trae TDs por partido para medirlo).
