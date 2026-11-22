@@ -109,6 +109,25 @@ def _otros_deportes(s, cfg: dict, ahora: datetime) -> None:
             c.close()
 
 
+def _tenis_calendario(s, cfg: dict) -> None:
+    """Tenis sin The Odds API (ESPN + LiveScore, gratis): resultados y partidos nuevos con cada actualización de cuotas. Los momios de
+    tenis (con créditos) siguen solo en la diaria."""
+    if not (cfg.get("tenis") or {}).get("activo"):
+        return
+    from golmodel import db
+    from golmodel.motor_tenis import servicio as tenis
+    from golmodel.motor_tenis.datos import FuenteTenis
+    kw = {"registrar": s.registrador} if s.registrador else {}
+    c = db.conectar(s.dsn)
+    try:
+        tenis.actualizar(c, FuenteTenis(None, cfg, **kw), cfg, s.reloj(), momios=False)
+    except Exception:                                       # noqa: BLE001
+        c.rollback()
+        log.exception("auto: calendario de tenis falló")
+    finally:
+        c.close()
+
+
 def _nba(s, cfg: dict) -> None:
     """NBA (ESPN, gratis): calendario, líneas, resultados y lesiones. Se corre con cada actualización porque las líneas y las bajas se mueven."""
     if not (cfg.get("nba") or {}).get("activo"):
@@ -156,6 +175,8 @@ def un_paso(s) -> str | None:
         _otros_deportes(s, s.cfg, s.reloj())
     if tipo in ("actualizar_todo", "solo_cuotas") and (s.cfg.get("auto") or {}).get("otros_deportes", True):
         _nba(s, s.cfg)
+    if tipo == "solo_cuotas" and (s.cfg.get("auto") or {}).get("otros_deportes", True):
+        _tenis_calendario(s, s.cfg)
     return tipo
 
 

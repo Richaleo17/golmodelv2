@@ -301,3 +301,66 @@ def test_servicio_completa_con_espn(bd):
     assert all(not l["partido_id"].startswith("tenis:espn") for l in tenis.piernas_parlay(bd, CFG, ahora, ahora + timedelta(days=3), 0.0))
     tenis.actualizar(bd, ConESPN(ahora), CFG, ahora)                               # idempotente
     assert bd.execute("SELECT count(*) AS n FROM tenis_partidos WHERE id LIKE 'e:%%'").fetchone()["n"] == 2
+
+
+def _ls_dia(ahora):
+    def ev(eid, cuando, a, b, eps="FT", ewt=1, et=10):
+        e = {"Eid": eid, "T1": [{"Nm": a}], "T2": [{"Nm": b}], "Eps": eps, "Et": et, "Esd": int(cuando.strftime("%Y%m%d%H%M%S"))}
+        if eps in ("FT", "Ret."):
+            e["Ewt"] = ewt
+        return e
+    manana = ahora + timedelta(days=1)
+    return {"Stages": [
+        {"Cnm": "ATP Challenger", "Snm": "Ankara, Turkey", "Events": [
+            ev("11", datetime(2026, 11, 17, 10, tzinfo=timezone.utc), "A Jugador15", "A Jugador16"),
+            ev("12", datetime(2026, 11, 17, 12, tzinfo=timezone.utc), "A Jugador17", "A Jugador18", eps="Ret.", ewt=2),
+            ev("13", datetime(2026, 11, 17, 13, tzinfo=timezone.utc), "A Jugador19", "A Jugador20", eps="Canc."),
+            ev("14", manana, "A Jugador02", "A Jugador04", eps="NS"),
+            {"Eid": "15", "T1": [{"Nm": "X"}, {"Nm": "Y"}], "T2": [{"Nm": "Z"}, {"Nm": "W"}], "Eps": "NS", "Et": 11, "Esd": 20261119100000}]},
+        {"Cnm": "ATP 250", "Snm": "Otro", "Events": [ev("16", manana, "A Jugador05", "A Jugador06", eps="NS")]}]}
+
+
+def test_parse_livescore_challenger():
+    ahora = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
+    f = {x["id"]: x for x in td.parse_livescore(_ls_dia(ahora), ["ATP Challenger"])}
+    assert set(f) == {"l11", "l12", "l13", "l14"}                     # sin dobles ni otras competencias
+    assert f["l12"]["ganador"] == 1 and f["l12"]["status"] == "STATUS_RETIRED" and f["l13"]["estado"] == "otro"
+    assert f["l14"]["estado"] == "pre" and f["l11"]["evento_inicio"] == "2026-11-10" and f["l11"]["torneo"] == "ATP Challenger Ankara, Turkey"
+    r = {x["id"]: x for x in td.resultados_espn(list(f.values()), lambda t: "Hard")}
+    assert set(r) == {"e:l11", "e:l12"} and r["e:l12"]["ganador"] == "jugador18 a"
+
+
+def test_servicio_challenger_y_calendario_sin_creditos(bd):
+    from golmodel.motor_tenis import servicio as tenis
+    ahora = datetime(2026, 11, 18, 12, tzinfo=timezone.utc)
+    dias = []
+
+    class ConCh(FuenteFalsa):
+        def temporada_challenger(self, anio):
+            if anio != 2026:
+                raise RuntimeError("sin red")
+            return [{"id": f"c:ch{i}", "tour": "atp", "fecha": "2026-11-05", "torneo": "Ankara CH", "superficie": "Hard", "ronda": "R32",
+                     "best_of": 3, "ganador": JUG[i], "perdedor": JUG[i + 1], "nombre_g": "g", "nombre_p": "p", "rank_g": None, "rank_p": None,
+                     "comentario": "Completed", "orden": i, "cuota_g": None, "cuota_p": None} for i in range(3)]
+
+        def livescore(self, fecha, comps):
+            dias.append(fecha)
+            return td.parse_livescore(_ls_dia(self.ahora), comps)
+
+        def torneos_activos(self):
+            raise AssertionError("sin momios no se consulta The Odds API")
+
+    r = tenis.actualizar(bd, ConCh(ahora), CFG, ahora, momios=False)
+    assert r["partidos"]["challenger2026"] == 3 and r["torneos"] == 0
+    assert min(dias) == date(2026, 11, 12)                            # una semana después del corte de Challenger (5-nov)
+    ids = {x["id"] for x in bd.execute("SELECT id FROM tenis_partidos WHERE id LIKE 'e:l%%'")}
+    assert ids == {"e:l11", "e:l12"}
+    ev = {x["odds_api_id"]: x for x in bd.execute("SELECT * FROM tenis_eventos")}
+    assert ev["espn:l14"]["sport_key"] == "livescore" and "espn:l16" not in ev
+    assert bd.execute("SELECT count(*) AS n FROM tenis_partidos WHERE id LIKE 'c:%%'").fetchone()["n"] == 3
+
+
+def test_superficie_palabra_completa():
+    from golmodel.motor_tenis.servicio import superficie_de
+    assert superficie_de("ATP Challenger Ankara, Turkey", {}, CFG) == "Hard"          # «halle» está dentro de «challenger»
+    assert superficie_de("Terra Wortmann Open (Halle)", {}, CFG) == "Grass"

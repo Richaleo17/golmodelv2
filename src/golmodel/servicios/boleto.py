@@ -38,17 +38,31 @@ LINEAS_OU = (1.5, 2.5, 3.5)
 MAX_SGP = 2                                  # selecciones por partido dentro de una misma pierna (como el ticket V3)
 
 PROMPT = """Eres un lector de capturas de boletos de apuestas deportivas. Devuelve SOLO un JSON con esta forma:
-{"partidos":[{"fecha":"DD/MM"|null,"local":"..","visita":"..","local_completo":null|"..","visita_completo":null|"..","selecciones":[{"mercado_texto":"..","seleccion_texto":"..","linea":null|número,"cuota":null|número}]}],
-"monto":número|null,"cobro":número|null,"cuota_total":número|null,"moneda":"MXN","confianza_lectura":0-1}
+{"partidos":[{"fecha":"DD/MM"|null,"local":"..","visita":"..","local_completo":null|"..","visita_completo":null|"..","selecciones":[{"mercado_texto":"..","seleccion_texto":"..","linea":null|número,"cuota":null|número,"cuota_americana":null|número}]}],
+"monto":número|null,"cobro":número|null,"cuota_total":número|null,"cuota_total_americana":null|número,"moneda":"MXN","confianza_lectura":0-1}
 Reglas: copia los textos tal como aparecen (ej. mercado "GANA" + selección "Cruz Azul"; mercado "TOTAL DE GOLES" + selección "Más 2.5" -> seleccion_texto "Más", linea 2.5).
 "local"/"visita" van TAL COMO se ven (si la casa abrevia con 3 letras como "CHE", pon "CHE"). En "local_completo"/"visita_completo" pon el nombre completo del club SOLO si estás seguro de a cuál se refiere la abreviatura; si dudas, null (nunca adivines).
 "cuota" es la cuota de ESA selección si se ve; si solo se ve la cuota total del boleto, ponla en "cuota_total". No inventes datos que no se vean: lo ilegible va como null.
 Formato de Caliente, Draftea y casas parecidas: cada fila trae fecha/hora, «ABC vs XYZ» (abreviaturas de 3 letras: copia las letras tal cual), el mercado (p. ej. «GOLES TOTALES 90'») y la selección con una flecha:
 «↑ 1.5» = Más de 1.5 (seleccion_texto "Más", linea 1.5); «↓ 3.5» = Menos de 3.5 (seleccion_texto "Menos", linea 3.5). La cuota de cada fila se ve como «1.16x» → 1.16.
+Si una cuota se ve en formato AMERICANO (con signo, p. ej. «-600», «+350», como en Caliente), NO la conviertas: ponla con su signo en
+"cuota_americana" (o "cuota_total_americana" si es la del boleto completo) y deja "cuota" (o "cuota_total") en null.
 "fecha" es el día del partido de esa fila como DD/MM («12/nov» → "12/11"); si no se ve, null.
 En el encabezado: «Entrada» = monto apostado, «Momio» (p. ej. 90.51x) = cuota_total del boleto, «Ganancia potencial» = cobro. Un «$» sin otra indicación es MXN.
 Devuelve el JSON COMPACTO (sin saltos de línea ni espacios de sobra) y con TODAS las filas del boleto, hasta la última.
 No incluyas texto fuera del JSON."""
+
+
+def _cuota_leida(decimal, americana) -> float | None:
+    """Cuota de una fila: la decimal si se leyó; si la casa la muestra en americano (Caliente: «−600», «+350»), se convierte aquí
+    (no se le pide la aritmética al lector de la imagen)."""
+    from golmodel.momios import americano_a_decimal
+    num = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool)          # noqa: E731
+    if num(decimal) and decimal > 1.0:
+        return float(decimal)
+    if num(americana):
+        return americano_a_decimal(americana)
+    return None
 
 
 class ErrorBoleto(Exception):
@@ -292,6 +306,8 @@ def _verificar_lectura(legs: list[dict], cuota_total) -> dict | None:
 
 
 def resolver(conn, ahora: datetime, zona: ZoneInfo, lectura: dict, *, dias: int = 7) -> dict:
+    if _cuota_leida(lectura.get("cuota_total"), None) is None and lectura.get("cuota_total_americana") is not None:
+        lectura = {**lectura, "cuota_total": _cuota_leida(None, lectura.get("cuota_total_americana"))}   # Caliente: momio total americano
     hoy = ahora.astimezone(zona).date()
     partidos = repo.partidos_de_dias(conn, [hoy + timedelta(days=i) for i in range(-1, dias + 1)])
     nombres = captura._nombres(conn, partidos) if partidos else {}
@@ -332,8 +348,7 @@ def resolver(conn, ahora: datetime, zona: ZoneInfo, lectura: dict, *, dias: int 
             if not isinstance(sel, dict):
                 continue
             texto = f"{f'{fecha:%d/%m} ' if fecha else ''}{local} - {visita}: {sel.get('mercado_texto') or ''} {sel.get('seleccion_texto') or ''} {sel.get('linea') or ''}".strip()
-            cuota = sel.get("cuota")
-            cuota = float(cuota) if isinstance(cuota, (int, float)) and not isinstance(cuota, bool) and cuota > 1.0 else None
+            cuota = _cuota_leida(sel.get("cuota"), sel.get("cuota_americana"))
             leg = {"texto": texto, "partido_id": None, "partido": f"{local} vs {visita}", "seleccion": None, "cuota": cuota, "estado": "ok", "motivo": ""}
             codigo, motivo = normalizar(sel.get("mercado_texto"), sel.get("seleccion_texto"), sel.get("linea"), p["local"] if p else local, p["visitante"] if p else visita,
                                         nombres.get(p["local_id"]) if p else None, nombres.get(p["visitante_id"]) if p else None)

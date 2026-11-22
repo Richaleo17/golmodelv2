@@ -25,7 +25,11 @@ BASE_TD = "https://www.tennis-data.co.uk"
 BASE_SACKMANN = "https://raw.githubusercontent.com"
 RUTA_SACKMANN = {"atp": "/Aneeshers/tennis-sackmann-archive/main/atp/atp_matches_{a}.csv",
                  "wta": "/Aneeshers/tennis-sackmann-archive/main/wta/wta_matches_{a}.csv"}
+RUTA_SACKMANN_CH = "/Aneeshers/tennis-sackmann-archive/main/atp/atp_matches_qual_chall_{a}.csv"   # Challenger + qualys ATP
 BASE_ESPN = "https://site.api.espn.com"
+# LiveScore (JSON público de su app): única fuente gratuita que encontramos con el calendario y resultados de los Challenger, que ni
+# ESPN ni The Odds API cubren. Los ITF (M15/M25) no vienen en ninguna fuente gratuita.
+BASE_LIVESCORE = "https://prod-public-api.livescore.com"
 
 
 def _plano(s: str) -> str:
@@ -158,6 +162,42 @@ def parse_espn_tenis(cuerpo: dict) -> list[dict]:
     return salida
 
 
+_ESTADO_LS = {"NS": "pre", "FT": "post", "Ret.": "post", "AET": "post"}
+
+
+def parse_livescore(cuerpo: dict, competencias: list[str]) -> list[dict]:
+    """Día de tenis de LiveScore → mismo formato que `parse_espn_tenis`, solo singles y solo las competencias pedidas (Challenger).
+    `evento_inicio` va 7 días antes del partido: el histórico de Sackmann fecha cada partido con el INICIO de su torneo, así que solo
+    se agregan partidos al menos una semana posteriores al corte (nunca se duplica un torneo que ya está en el histórico)."""
+    from datetime import timedelta
+    salida = []
+    for s in (cuerpo or {}).get("Stages") or []:
+        if str(s.get("Cnm") or "") not in competencias:
+            continue
+        torneo = f"{s.get('Cnm')} {s.get('Snm') or ''}".strip()
+        for e in s.get("Events") or []:
+            t1, t2 = e.get("T1") or [], e.get("T2") or []
+            if len(t1) != 1 or len(t2) != 1 or e.get("Et") not in (10, 15):
+                continue                                            # dobles
+            n1, n2 = str(t1[0].get("Nm") or "").strip(), str(t2[0].get("Nm") or "").strip()
+            if not n1 or not n2 or n1.upper() in ("TBD", "TBA") or n2.upper() in ("TBD", "TBA"):
+                continue
+            try:
+                inicio = datetime.strptime(str(e["Esd"]), "%Y%m%d%H%M%S").replace(tzinfo=timezone.utc)
+            except (KeyError, ValueError):
+                continue
+            eps = str(e.get("Eps") or "")
+            estado = _ESTADO_LS.get(eps, "otro" if eps in ("Canc.", "W.O.", "Postp.", "Abd.", "Susp.") else "in")
+            ewt = e.get("Ewt")
+            salida.append({
+                "id": f"l{e['Eid']}", "tour": "atp" if e.get("Et") == 10 else "wta", "torneo": torneo,
+                "evento_inicio": (inicio.date() - timedelta(days=7)).isoformat(), "inicio": inicio, "estado": estado,
+                "status": "STATUS_RETIRED" if eps.startswith("Ret") else ("STATUS_FINAL" if estado == "post" else eps),
+                "jugador1": n1, "jugador2": n2, "ganador": {1: 0, 2: 1}.get(ewt) if estado == "post" else None,
+                "rank1": None, "rank2": None, "ronda": "", "best_of": 3})
+    return salida
+
+
 def resultados_espn(filas: list[dict], superficie) -> list[dict]:
     """Partidos terminados de ESPN → formato de tenis_partidos (id «e:<partido>»). Sin walkovers ni partidos sin ganador."""
     out = []
@@ -207,6 +247,7 @@ class FuenteTenis:
         self.td = ClienteHTTP("tennis_data", BASE_TD, timeout_s=90.0, **kw)
         self.gh = ClienteHTTP("sackmann", BASE_SACKMANN, timeout_s=90.0, **kw)
         self.espn_http = ClienteHTTP("espn", BASE_ESPN, timeout_s=45.0, **kw)
+        self.ls_http = ClienteHTTP("livescore", BASE_LIVESCORE, timeout_s=30.0, headers={"User-Agent": "Mozilla/5.0"}, **kw)
         self.odds = ClienteHTTP("odds_api", "https://api.the-odds-api.com", **kw) if odds_key else None
         self.odds_key = odds_key
 
@@ -217,6 +258,17 @@ class FuenteTenis:
             ruta = f"/{anio}/{anio}.xlsx" if tour == "atp" else f"/{anio}w/{anio}.xlsx"
             return parse_tennis_data(self.td.get(ruta, costo=0).content, tour)
         return parse_sackmann(self.gh.get(RUTA_SACKMANN[tour].format(a=anio), costo=0).content, tour)
+
+    def temporada_challenger(self, anio: int) -> list[dict]:
+        """Challenger + qualys ATP de una temporada (Sackmann). id «c:…» para distinguirlos del circuito principal."""
+        filas = parse_sackmann(self.gh.get(RUTA_SACKMANN_CH.format(a=anio), costo=0).content, "atp")
+        for f in filas:
+            f["id"] = "c:" + f["id"][:18]
+        return filas
+
+    def livescore(self, fecha, competencias: list[str]) -> list[dict]:
+        return parse_livescore(self.ls_http.get_json(f"/v1/api/app/date/tennis/{fecha.strftime('%Y%m%d')}/0", {"MD": "1"}, costo=0),
+                               competencias)
 
     def espn(self, tour: str, fecha) -> list[dict]:
         """Torneos de ESPN activos ese día (cuadro completo: resultados y partidos por jugar)."""

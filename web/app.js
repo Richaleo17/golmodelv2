@@ -7,6 +7,9 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (x) => String(x ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = (x, d = 0) => (x == null ? "—" : (100 * Number(x)).toFixed(d) + "%");
 const num = (x, d = 2) => (x == null ? "—" : Number(x).toFixed(d));
+/* Momio americano (como lo muestra Caliente): 4.50 → «+350», 1.1667 → «−600». */
+const amer = (d) => { const x = Number(d); if (!(x > 1)) return ""; return x >= 2 ? `+${Math.round((x - 1) * 100)}` : `−${Math.round(100 / (x - 1))}`; };
+const cuotaAm = (d) => (d == null ? "—" : `${num(d)} <small class="meta">(${amer(d)})</small>`);
 const hoyMX = () => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date());
 /* Escudos (ESPN). La URL se arma aquí con un patrón fijo y solo un número o una abreviatura validados: nunca HTML ni URLs del
    servidor. Se pintan como fondo de un <span>, no como <img>. */
@@ -201,7 +204,7 @@ function mosaico(m) {
   const col = colorP(m.p);
   return `<div class="tile${m.clave === "primer_gol" ? " ancho" : ""}"><div class="tt">${esc(m.titulo)}${m.aprox ? " <small>(aprox.)</small>" : ""}${m.calibrado ? `<span class="cal" title="ajustado por la subrama de su KPI (antes ${pct(m.p_original)})">🧪 ${esc(m.calibrado)}</span>` : ""}</div><div class="tp">${esc(m.pick)}</div>` +
     `<div class="tv"><b style="color:${col}">${pct(m.p)}</b><span class="nv ${esc(m.nivel)}">${esc(m.nivel)}</span></div>` +
-    `<div class="barra"><i style="width:${Math.max(2, Math.min(100, 100 * m.p)).toFixed(0)}%;background:${col}"></i></div><div class="tm">CUOTA MÍN. ${num(m.cuota_min)}×</div></div>`;
+    `<div class="barra"><i style="width:${Math.max(2, Math.min(100, 100 * m.p)).toFixed(0)}%;background:${col}"></i></div><div class="tm">CUOTA MÍN. ${num(m.cuota_min)}× · ${amer(m.cuota_min)}</div></div>`;
 }
 
 function tarjetaDiario(p, nombres) {
@@ -247,7 +250,7 @@ function tarjetaDiario(p, nombres) {
   }
   if (p.jugadas && p.jugadas.length) {
     const j = p.jugadas[0];
-    h += `<div class="jug">🎯 ${esc(j.jugada)} · ${pct(j.p)} · mete si paga ≥ <b>${num(j.cuota_min)}</b></div>`;
+    h += `<div class="jug">🎯 ${esc(j.jugada)} · ${pct(j.p)} · mete si paga ≥ <b>${cuotaAm(j.cuota_min)}</b></div>`;
   }
   if (!p.solo_mercado && p.estado === "programado") {
     h += `<details class="mx" data-pid="${esc(p.partido_id)}"><summary>🚩 Córners, tarjetas y jugadores</summary><div class="mx-cuerpo meta">Abre para calcular…</div></details>`;
@@ -473,7 +476,7 @@ async function parlaysUsuario() {
 function htmlParlay(x) {
   const n1 = Number(x.uno_de_cada).toLocaleString("es-MX", { maximumFractionDigits: 1 });
   return `<div class="sonadora"><h4>${esc(x.titulo)} · ${esc(x.n)} partidos · ${pct(x.p, 1)} (1 de cada ${n1}) · cuota justa ${num(x.cuota_justa)}x</h4>` +
-    x.piernas.map((p) => `<div class="pierna">• <b>${esc(p.jugada)}</b> <span class="meta">${pct(p.p)} · mete si paga ≥ ${num(p.cuota_min)}</span><br>` +
+    x.piernas.map((p) => `<div class="pierna">• <b>${esc(p.jugada)}</b> <span class="meta">${pct(p.p)} · mete si paga ≥ ${cuotaAm(p.cuota_min)}</span><br>` +
       `<span class="meta">📅 ${esc(p.dia_texto)} ${esc(p.hora)} · ${esc(p.liga)} · ${esc(p.partido)} · ${esc(p.detalle)}</span></div>`).join("") + "</div>";
 }
 
@@ -676,7 +679,7 @@ async function vTenis() {
     const fecha = new Date(x.inicio).toLocaleString("es-MX", { weekday: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" });
     const fila = (nom, pm, pk, pf, cuota, elo, n) => `<tr><td><b>${esc(nom)}</b><br><small class="meta">Elo ${esc(elo)} · ${esc(n)} partidos</small></td>` +
       `<td>${pct(pm)}</td><td>${pk != null ? pct(pk) : "—"}</td><td><b style="color:${colorP(pf)}">${pf != null ? pct(pf) : "—"}</b></td>` +
-      `<td>${cuota ? num(cuota) : "—"}<br><small class="meta">justa ${pf ? num(1 / pf) : "—"}</small></td></tr>`;
+      `<td>${cuota ? num(cuota) : "—"}<br><small class="meta">justa ${pf ? cuotaAm(1 / pf) : "—"}</small></td></tr>`;
     return `<div class="mc"><div class="mc-top"><span>${esc(x.tour.toUpperCase())} · ${esc(x.torneo)}</span><span>${esc(fecha)}</span></div>` +
       `<div class="mc-eq">${esc(x.jugador1)} vs ${esc(x.jugador2)}</div>` +
       `<div class="meta">${esc(SUP_ES[x.superficie] || x.superficie)} · a ${esc(x.best_of)} sets · ${esc(x.fuente)}${x.casa ? " · momio " + esc(x.casa) : ""}</div>` +
