@@ -3,6 +3,7 @@ piernas para «Qué meter» / «Soñadoras»."""
 from __future__ import annotations
 
 import gc
+import re
 import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -14,12 +15,40 @@ log = logging.getLogger(__name__)
 _CACHE: dict = {}
 
 
-def actualizar(conn, fuente: FuenteTenis, cfg: dict, ahora: datetime) -> dict:
+_INSERTA = """INSERT INTO tenis_partidos (id, tour, fecha, torneo, superficie, ronda, best_of, ganador, perdedor,
+                    nombre_g, nombre_p, rank_g, rank_p, comentario, orden, cuota_g, cuota_p)
+                VALUES (%(id)s, %(tour)s, %(fecha)s, %(torneo)s, %(superficie)s, %(ronda)s, %(best_of)s, %(ganador)s,
+                    %(perdedor)s, %(nombre_g)s, %(nombre_p)s, %(rank_g)s, %(rank_p)s, %(comentario)s, %(orden)s,
+                    %(cuota_g)s, %(cuota_p)s)
+                ON CONFLICT (id) DO UPDATE SET cuota_g = EXCLUDED.cuota_g, cuota_p = EXCLUDED.cuota_p, comentario = EXCLUDED.comentario"""
+
+
+def actualizar(conn, fuente: FuenteTenis, cfg: dict, ahora: datetime, momios: bool = True) -> dict:
+    """Histórico + resultados recientes + partidos próximos. `momios=False` no gasta créditos de The Odds API (solo ESPN y
+    LiveScore, gratis): así se puede correr con cada actualización de cuotas para que el calendario esté al día."""
     t = cfg["tenis"]
     res = {"partidos": {}, "eventos": 0, "torneos": 0, "avisos": []}
     anios = list(range(ahora.year - int(t["temporadas_historico"]), ahora.year + 1))
     con_datos = {(r["tour"], r["anio"]) for r in conn.execute(
-        "SELECT DISTINCT tour, extract(year FROM fecha)::int AS anio FROM tenis_partidos")}
+        "SELECT DISTINCT tour, extract(year FROM fecha)::int AS anio FROM tenis_partidos WHERE id NOT LIKE 'e:%%' AND id NOT LIKE 'c:%%'")}
+    ch = t.get("challenger") or {}
+    if ch.get("activo") and "atp" in t["circuitos"]:
+        con_ch = {r["anio"] for r in conn.execute(
+            "SELECT DISTINCT extract(year FROM fecha)::int AS anio FROM tenis_partidos WHERE id LIKE 'c:%%'")}
+        for a in range(ahora.year - int(ch.get("temporadas", 3)), ahora.year + 1):
+            if a in con_ch and a < ahora.year:
+                continue
+            try:
+                filas = fuente.temporada_challenger(a)
+            except Exception as e:                                 # noqa: BLE001
+                res["avisos"].append(f"Challenger {a}: no disponible ({type(e).__name__}).")
+                continue
+            for f in filas:
+                conn.execute(_INSERTA, f)
+            res["partidos"][f"challenger{a}"] = len(filas)
+            conn.commit()
+            del filas
+            gc.collect()
     for tour in t["circuitos"]:
         for a in anios:
             if (tour, a) in con_datos and a < ahora.year:
@@ -30,19 +59,13 @@ def actualizar(conn, fuente: FuenteTenis, cfg: dict, ahora: datetime) -> dict:
                 res["avisos"].append(f"tennis-data {tour.upper()} {a}: no disponible ({type(e).__name__}).")
                 continue
             for f in filas:
-                conn.execute("""INSERT INTO tenis_partidos (id, tour, fecha, torneo, superficie, ronda, best_of, ganador, perdedor,
-                                    nombre_g, nombre_p, rank_g, rank_p, comentario, orden, cuota_g, cuota_p)
-                                VALUES (%(id)s, %(tour)s, %(fecha)s, %(torneo)s, %(superficie)s, %(ronda)s, %(best_of)s, %(ganador)s,
-                                    %(perdedor)s, %(nombre_g)s, %(nombre_p)s, %(rank_g)s, %(rank_p)s, %(comentario)s, %(orden)s,
-                                    %(cuota_g)s, %(cuota_p)s)
-                                ON CONFLICT (id) DO UPDATE SET cuota_g = EXCLUDED.cuota_g, cuota_p = EXCLUDED.cuota_p,
-                                    comentario = EXCLUDED.comentario""", f)
+                conn.execute(_INSERTA, f)
             res["partidos"][f"{tour}{a}"] = len(filas)
             conn.commit()
             del filas
             gc.collect()
     try:
-        torneos = fuente.torneos_activos()[: int(t["cuotas"]["max_torneos"])]
+        torneos = fuente.torneos_activos()[: int(t["cuotas"]["max_torneos"])] if momios else []
     except Exception as e:                                         # noqa: BLE001
         torneos = []
         res["avisos"].append(f"Torneos de tenis: no disponibles ({type(e).__name__}).")
@@ -72,6 +95,36 @@ def actualizar(conn, fuente: FuenteTenis, cfg: dict, ahora: datetime) -> dict:
     return res
 
 
+def _livescore(conn, fuente, cfg: dict, ahora: datetime, res: dict, vistos: dict) -> None:
+    """Challenger (LiveScore, un día por llamada): resultados desde una semana después del corte del histórico de Challenger, y los
+    próximos días. Agrega sus renglones a `vistos` (ids «l…»), que luego se guardan igual que los de ESPN."""
+    t = cfg["tenis"]
+    ch = t.get("challenger") or {}
+    if not ch.get("activo") or not ch.get("livescore", True):
+        return
+    r = conn.execute("""SELECT (SELECT max(fecha) FROM tenis_partidos WHERE id LIKE 'c:%%') AS corte,
+                               (SELECT max(fecha) FROM tenis_partidos WHERE id LIKE 'e:l%%') AS ult""").fetchone()
+    hoy = ahora.date()
+    if r["corte"] is None:
+        d = hoy
+    else:
+        d = max(r["corte"] + timedelta(days=7), (r["ult"] or r["corte"]) - timedelta(days=int(t.get("espn_reprocesar_dias", 10))))
+    comps = list(ch.get("competencias") or ["ATP Challenger"])
+    fallas = 0
+    while d <= hoy + timedelta(days=int(t["dias"])):
+        try:
+            for f in fuente.livescore(d, comps):
+                vistos[f["id"]] = f
+        except Exception as e:                                     # noqa: BLE001
+            fallas += 1
+            if fallas <= 3:
+                res["avisos"].append(f"LiveScore {d}: {type(e).__name__}")
+            if fallas >= 5:                                        # la fuente no responde: no insistir día por día
+                res["avisos"].append("LiveScore: se dejó de consultar tras 5 fallas.")
+                return
+        d += timedelta(days=1)
+
+
 def _superficies_hist(conn) -> dict:
     out = {}
     for r in conn.execute("SELECT DISTINCT ON (torneo) torneo, superficie FROM tenis_partidos WHERE id NOT LIKE 'e:%%' ORDER BY torneo, fecha DESC"):
@@ -89,8 +142,9 @@ def _espn(conn, fuente, cfg: dict, ahora: datetime, res: dict) -> None:
     fechas: set = set()
     cortes = {}
     for tour in t["circuitos"]:
-        r = conn.execute("""SELECT (SELECT max(fecha) FROM tenis_partidos WHERE tour = %s AND id NOT LIKE 'e:%%') AS corte,
-                                   (SELECT max(fecha) FROM tenis_partidos WHERE tour = %s AND id LIKE 'e:%%') AS ult""", (tour, tour)).fetchone()
+        r = conn.execute("""SELECT (SELECT max(fecha) FROM tenis_partidos WHERE tour = %s AND id NOT LIKE 'e:%%' AND id NOT LIKE 'c:%%') AS corte,
+                                   (SELECT max(fecha) FROM tenis_partidos WHERE tour = %s AND id LIKE 'e:%%' AND id NOT LIKE 'e:l%%') AS ult""",
+                         (tour, tour)).fetchone()
         if r["corte"] is None:
             continue
         cortes[tour] = r["corte"]
@@ -109,9 +163,14 @@ def _espn(conn, fuente, cfg: dict, ahora: datetime, res: dict) -> None:
                 vistos[f["id"]] = f
         except Exception as e:                                     # noqa: BLE001
             res["avisos"].append(f"ESPN {tour.upper()} {d}: {type(e).__name__}")
+    _livescore(conn, fuente, cfg, ahora, res, vistos)
     filas = list(vistos.values())
-    nuevos = [f for f in resultados_espn(filas, sup)
-              if f["tour"] in cortes and (vistos[f["id"][2:]]["evento_inicio"] or "0000") > cortes[f["tour"]].isoformat()]
+    cortes_ch = {"atp": conn.execute("SELECT max(fecha) AS f FROM tenis_partidos WHERE id LIKE 'c:%%'").fetchone()["f"]}
+
+    def _despues_del_corte(f) -> bool:
+        cs = cortes_ch if f["id"].startswith("e:l") else cortes
+        return cs.get(f["tour"]) is not None and (vistos[f["id"][2:]]["evento_inicio"] or "0000") > cs[f["tour"]].isoformat()
+    nuevos = [f for f in resultados_espn(filas, sup) if _despues_del_corte(f)]
     for f in nuevos:
         conn.execute("""INSERT INTO tenis_partidos (id, tour, fecha, torneo, superficie, ronda, best_of, ganador, perdedor,
                             nombre_g, nombre_p, rank_g, rank_p, comentario, orden, cuota_g, cuota_p)
@@ -134,9 +193,10 @@ def _espn(conn, fuente, cfg: dict, ahora: datetime, res: dict) -> None:
             continue
         conn.execute("""INSERT INTO tenis_eventos (odds_api_id, tour, sport_key, torneo, inicio, jugador1, jugador2, cuota1, cuota2, casa,
                             best_of, capturada_en)
-                        VALUES (%s, %s, 'espn', %s, %s, %s, %s, NULL, NULL, NULL, %s, %s)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, NULL, NULL, NULL, %s, %s)
                         ON CONFLICT (odds_api_id) DO UPDATE SET inicio = EXCLUDED.inicio, capturada_en = EXCLUDED.capturada_en""",
-                     (f"espn:{f['id']}", f["tour"], f["torneo"], f["inicio"], f["jugador1"], f["jugador2"], f["best_of"], ahora))
+                     (f"espn:{f['id']}", f["tour"], "livescore" if f["id"].startswith("l") else "espn", f["torneo"], f["inicio"],
+                      f["jugador1"], f["jugador2"], f["best_of"], ahora))
         n += 1
     # lo que ESPN ya dio por jugado (o cambió de fecha fuera de la ventana) no se queda como «por jugar»
     terminados = [f"espn:{f['id']}" for f in filas if f["estado"] != "pre"]
@@ -175,9 +235,9 @@ def superficie_de(torneo: str, torneos: dict, cfg: dict) -> str:
     """Superficie de un torneo de The Odds API: reglas de config por palabra clave, luego el torneo más parecido del histórico."""
     t = _plano(torneo)
     for palabra, sup in (cfg["tenis"].get("superficies") or {}).items():
-        if palabra in t:
+        if re.search(rf"\b{re.escape(_plano(palabra))}\b", t):       # palabra completa: «halle» no debe pegar en «challenger»
             return sup
-    ruido = {"atp", "wta", "open", "masters", "championships", "international", "tennis", "cup", "the", "de", "singles"}
+    ruido = {"atp", "wta", "open", "masters", "championships", "international", "tennis", "cup", "the", "de", "singles", "challenger", "ch"}
     tok = set(t.split()) - ruido
     mejor, puntos = "Hard", 0
     for nombre, sup in torneos.items():

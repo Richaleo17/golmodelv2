@@ -16,6 +16,8 @@ produciría un EV falso.
 """
 from __future__ import annotations
 
+from golmodel.momios import americano_a_decimal
+
 import difflib
 import re
 from dataclasses import dataclass, field
@@ -25,7 +27,7 @@ from golmodel import repositorio as repo
 from golmodel.ingesta.normalizacion import clave
 
 SEPARADOR = re.compile(r"\s+(?:vs\.?|v|-|–|—)\s+", re.I)
-NUMERO = re.compile(r"^\d+[.,]\d+x?$", re.I)
+NUMERO = re.compile(r"^(\d+[.,]\d+x?|[+\-−]\d{3,5})$", re.I)     # decimal («1.85», «2,10x») o americano («−600», «+350»: Caliente)
 ORDEN = ("1X2:1", "1X2:X", "1X2:2", "OU:2.5:over", "OU:2.5:under", "BTTS:si", "BTTS:no")
 MIN_PUNTAJE = 0.80
 EMPATE_PUNTAJE = 0.05          # dos partidos con puntajes así de cercanos = ambiguo
@@ -48,7 +50,11 @@ def parsear_linea(texto: str) -> Linea:
     toks = out.texto.split()
     nums: list[float] = []
     while toks and NUMERO.match(toks[-1]):
-        nums.insert(0, float(toks.pop().rstrip("xX").replace(",", ".")))
+        tok = toks.pop()
+        if tok[0] in "+-−":
+            nums.insert(0, americano_a_decimal(float(tok.replace("−", "-"))) or 0.0)
+        else:
+            nums.insert(0, float(tok.rstrip("xX").replace(",", ".")))
     partes = SEPARADOR.split(" ".join(toks))
     if len(partes) != 2 or not all(p.strip() for p in partes):
         out.error = "No pude separar los equipos: escribe «Local - Visitante» antes de las cuotas."

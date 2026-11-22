@@ -294,6 +294,11 @@ tenis:
   fuente_historico: sackmann       # espejo de Jeff Sackmann en GitHub (congelado al 25-may-2026; tennis-data.co.uk responde 403 a Render)
   espn: true                       # ESPN: resultados desde el corte del histórico + partidos próximos sin momio (salen «solo modelo»)
   espn_reprocesar_dias: 10         # cada carga vuelve a pedir los últimos días (torneos en curso)
+  challenger:                      # ATP Challenger (lo que ofrece Caliente además del circuito principal). Medido 2025-26: meterlos al
+    activo: true                   # Elo SUBE el acierto del circuito principal 64.0% → 65.2% (log loss 0.626 → 0.618); en Challenger 62.7%
+    temporadas: 3                  # + la actual (Sackmann, ~11 mil partidos por año)
+    livescore: true                # calendario y resultados recientes de Challenger (ni ESPN ni The Odds API los traen)
+    competencias: ["ATP Challenger"]   # los WTA 125 ya vienen de ESPN. ITF (M15/M25): ninguna fuente gratuita
   dias: 3                          # próximos partidos a mostrar
   peso_modelo: 0.3                 # p_final = 0.3·Elo + 0.7·mercado (PROVISIONAL: se mide en el Dashboard contra el cierre de Pinnacle)
   min_partidos_modelo: 15          # con menos partidos en el histórico, el jugador va «solo mercado»

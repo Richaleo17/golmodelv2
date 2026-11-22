@@ -319,3 +319,26 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   * Se agregan 3,832 partidos (jun-nov 2026) y 6 próximos sin momio.
   * Acierto del Elo en esos partidos de ESPN: 61.3%, contra 63.4% en el mismo periodo de 2025 con Sackmann. Los nombres empatan con
     el histórico: 14% de las apariciones son de jugadores con menos de 15 partidos, sobre todo en WTA 125.
+
+## 2026-11-22 (e) — Challenger de tenis (LiveScore) y momios americanos (Caliente)
+
+* **Challenger.** Caliente ofrece Challenger (Ankara, Hersonissos, Yokohama, Playford…) que ni ESPN ni The Odds API traen.
+  * **Historial:** `atp_matches_qual_chall_{año}` del espejo de Sackmann (ids «c:…», `tenis.challenger.temporadas: 3`).
+  * **Medición** walk-forward 2025-26: con los Challenger dentro del Elo, el circuito principal mejora de 64.0% → 65.2% de acierto
+    (log loss 0.626 → 0.618), porque los jugadores suben y bajan entre niveles. En los propios Challenger acierta 62.7%, bien
+    calibrado (dice 64%, pasa 67%; dice 74%, pasa 77%).
+  * **Calendario y resultados recientes:** LiveScore (JSON público de su app), un día por llamada. Solo «ATP Challenger»; los WTA 125
+    ya vienen de ESPN. Se agregan resultados desde una semana después del corte de Sackmann, porque Sackmann fecha cada partido con el
+    inicio de su torneo. Migración 019: proveedor `livescore`.
+  * **ITF (M15/M25)**, como el «M25 Monastir» de Caliente: ninguna fuente gratuita los trae. No se cubren.
+* **Prueba real** (espejo + ESPN + LiveScore en vivo):
+  * 54 partidos próximos, 48 de ellos de Challenger.
+  * 33 de esos 48 tienen pronóstico; los demás tienen un jugador con menos de 15 partidos.
+* **Error corregido.** La regla de superficie buscaba subcadenas: «halle» (pasto) aparecía dentro de «c-halle-nger» y todo Challenger
+  salía como pasto. Ahora compara palabras completas.
+* **Calendario más seguido.** El tenis sin momios (ESPN + LiveScore, gratis) corre con cada actualización de cuotas
+  (`actualizar(momios=False)`). Los momios de tenis, que gastan créditos de The Odds API, siguen solo en la diaria.
+* **Momios americanos.**
+  * La captura por texto acepta «−600 +350», y el lector de boletos devuelve `cuota_americana`, que se convierte en código (no se le
+    pide la aritmética al lector).
+  * La app muestra la cuota mínima y la justa también en americano, p. ej. «1.17 (−600)».
