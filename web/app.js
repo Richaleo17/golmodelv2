@@ -892,7 +892,8 @@ async function vSonadoras() {
 
 // ------------------------------------------------------------------ NFL
 async function vNfl() {
-  const r = await api("GET", "/nfl/semana");
+  const sem = Number.isInteger(S.nflSemana) ? S.nflSemana : null;
+  const r = await api("GET", "/nfl/semana" + (sem ? `?semana=${sem}` : ""));
   let h = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">🏈</b> NFL</h2><p class="lead">Moneyline, spread y totales. Modelo propio (Elo con memoria + EPA, distribución Normal), su récord de la temporada contra Las Vegas y la proyección a playoffs.</p>`;
   if (S.rol === "admin") h += `<div class="card"><button id="nfl-act" class="btn" type="button" style="width:100%">Actualizar NFL (calendario, EPA y cuotas ≈ 3 créditos)</button><div id="nfl-prog" class="meta"></div></div>`;
   if (!r.ok) return { html: h + `<div class="card"><p class="error">${esc(r.error)}</p></div>`, alMontar: montarNfl };
@@ -901,6 +902,7 @@ async function vNfl() {
   h += `<div class="aviso-prov">${esc(d.aviso)}</div>`;
   if (a.estado === "error") h += `<p class="error">Última actualización NFL: ${esc(a.error)}</p>`;
   h += `<p class="meta">Historial: ${esc(d.n_juegos_historico)} juegos · σ margen ${num(d.sigma_margen, 1)} · σ total ${num(d.sigma_total, 1)}</p>`;
+  h += nflFiltroSemanas(d.semanas, d.semana_sel);
   h += nflPronosticos(d.juegos) + nflDesempeno(d) + nflDestacados(d.destacados);
   if (!d.juegos.length) h += `<div class="card meta">No hay juegos en los próximos días${d.n_juegos_historico ? "" : " (todavía no se cargan datos: usa «Actualizar NFL»)"}.</div>`;
   h += d.juegos.map((j) => {
@@ -934,6 +936,17 @@ function nflDerivados(j) {
     `Total (esperado ${num(m.total_esperado, 1)}): ${cercanas(m.totales, "p_over", obj).map((l) => `más de ${num(l.linea, 1)} <b>${pct(l.p_over)}</b>`).join(" · ")}</p>` +
     `<p class="meta">Total del juego impar ${pct(dv.par_impar.impar)} · par ${pct(dv.par_impar.par)} (medido 2015-2025). Desde la línea de Las Vegas.</p></details>`;
   return h;
+}
+
+/* Filtro de semanas: una semana a la vez (antes se mezclaban dos: el jueves de la siguiente). */
+const NFL_RONDA = { WC: "Comodines", DIV: "Divisional", CON: "Conferencia", SB: "Super Bowl" };
+function nflFiltroSemanas(semanas, sel) {
+  if (!(semanas || []).length) return "";
+  return `<div class="filtros"><div class="meta">Semana</div><div class="chips" id="chips-nfl-sem">` + semanas.map((s) => {
+    const nombre = NFL_RONDA[s.tipo] || `Sem ${Number(s.semana)}`;
+    const dia = new Date(s.inicio).toLocaleDateString("es-MX", { day: "2-digit", month: "short", timeZone: "America/Mexico_City" });
+    return `<button class="chip" type="button" data-sem="${Number(s.semana)}" aria-pressed="${s.semana === sel}">${esc(nombre)} · ${esc(dia)} · ${Number(s.juegos)} juegos</button>`;
+  }).join("") + `</div></div>`;
 }
 
 const NFL_NOMBRES = {};
@@ -1012,6 +1025,11 @@ function nflProyeccion(p) {
 }
 
 function montarNfl(v) {
+  v.querySelectorAll("#chips-nfl-sem [data-sem]").forEach((c) => c.addEventListener("click", () => {
+    const n = parseInt(c.dataset.sem, 10);
+    S.nflSemana = Number.isInteger(n) ? n : null;
+    render();
+  }));
   const b = $("#nfl-act", v);
   if (!b) return;
   b.addEventListener("click", async () => {

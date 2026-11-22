@@ -13,7 +13,7 @@ from datetime import date, datetime, timezone
 from zoneinfo import ZoneInfo
 
 import psycopg
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -490,11 +490,12 @@ _NFL = {"estado": "inactivo", "resumen": None, "error": None, "inicio": None}
 
 
 @app.get("/nfl/semana")
-def get_nfl_semana(s: Servicio = Depends(servicio), conn=Depends(conexion)):
-    """NFL: juegos de los próximos días con moneyline, spread y totales (modelo Elo + EPA, Normal) frente a la cuota de una casa."""
+def get_nfl_semana(semana: int | None = Query(default=None, ge=1, le=25), s: Servicio = Depends(servicio), conn=Depends(conexion)):
+    """NFL: juegos por jugar de una semana (la más próxima por omisión) con moneyline, spread y totales (modelo Elo + EPA, Normal)
+    frente a la cuota de una casa. `semanas` = las que quedan, para el filtro."""
     from golmodel.motor_nfl import servicio as nfl
     try:
-        out = nfl.semana(conn, s.cfg, s.reloj())
+        out = nfl.semana(conn, s.cfg, s.reloj(), semana)
     except psycopg.errors.UndefinedTable:
         conn.rollback()
         raise HTTPException(503, "Faltan las tablas NFL: reinicia la API para aplicar la migración 007.")

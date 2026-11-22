@@ -107,6 +107,7 @@ const TENIS = { version: "tenis-elo-sup-v1", aviso: "Tenis v1", n_historico: 300
   ranking: { atp: { general: [{ lugar: 1, jugador: "sinner j", elo: 2210, partidos: 400 }], hard: [], clay: [], grass: [] }, wta: { general: [] } },
   desempeno: { atp: { partidos: 2400, pct_aciertos: 0.652, aciertos_esperados: 1580, brier: 0.214, calibracion: [{ rango: "80–90%", partidos: 300, prob_media: 0.84, pct_real: 0.82 }],
     mercado: { partidos: 2300, pct_aciertos: 0.69, brier: 0.205, coincide: 0.85 } }, wta: { partidos: 0 } } };
+const pedidasNfl = [];
 const NFLDASH = { temporada: 2026, delta_semana: 0.012, version: "nfl-elo-epa-v2", nombres: { BUF: "Buffalo Bills", ARI: "Arizona Cardinals" },
   desempeno: { partidos: 149, record: "95-53-1", pct_aciertos: 0.641, aciertos_esperados: 94.8, brier: 0.215, vegas: { partidos: 149, pct_aciertos: 0.681, brier: 0.209 },
     calibracion: [{ rango: "70–80%", partidos: 30, prob_media: 0.746, pct_real: 0.8 }], batacazo: { ganador: "ARI", p: 0.21, semana: 6, marcador: "ARI 18 – 16 LA" } },
@@ -167,6 +168,14 @@ async function simular(page) {
   await page.route(/\/dashboard\?/, (r) => r.fulfill(j(DASH)));
   await page.route(/\/nfl\/dashboard$/, (r) => r.fulfill(j(NFLDASH)));
   await page.route(/\/tenis\/semana$/, (r) => r.fulfill(j(TENIS)));
+  await page.route(/\/nfl\/semana(\?.*)?$/, (r) => {
+    const m = /semana=(\d+)/.exec(r.request().url());
+    const sel = m ? Number(m[1]) : 11;
+    pedidasNfl.push(sel);
+    r.fulfill(j({ juegos: [], n_juegos_historico: 5582, sigma_margen: 13.1, sigma_total: 13.4, aviso: "NFL v2", actualizacion: { estado: "ok" },
+      semana_sel: sel, semanas: [{ semana: 11, tipo: "REG", inicio: "2026-11-22T18:00:00Z", juegos: 13 },
+                                 { semana: 12, tipo: "REG", inicio: "2026-11-26T18:00:00Z", juegos: 16 }] }));
+  });
   await page.route(/\/nba\/semana$/, (r) => r.fulfill(j(NBA)));
   await page.route(/\/nba\/dashboard$/, (r) => r.fulfill(j({ n: 0, buckets: [], referencia: { juegos: 3944, favorito_por_spread: [{ spread: "0-3", gana: 0.527 }, { spread: "12+", gana: 0.893 }],
     modelo_vs_mercado: "el modelo propio NO mejora a la línea de cierre" } })));
@@ -297,6 +306,18 @@ async function simular(page) {
   ok(/Backtest de referencia/.test(await page.textContent("#vista")) && /Todavía no hay juegos terminados/.test(await page.textContent("#vista")), "Dashboard NBA: vacío con el backtest de referencia");
   await page.click('#deportes [data-dep="futbol"]');
   await page.waitForSelector("#vista .kpi");
+
+  // --- Hoy → NFL: filtro de semanas (una a la vez)
+  if (MODO === "mock") {
+    await page.click('#nav button[data-v="hoy"]');
+    await page.click('#deportes [data-dep="nfl"]');
+    await page.waitForSelector("#chips-nfl-sem [data-sem]");
+    const pres = await page.$$eval("#chips-nfl-sem [data-sem]", (es) => es.map((e) => e.getAttribute("aria-pressed")));
+    await page.click('#chips-nfl-sem [data-sem="12"]');
+    await page.waitForFunction(() => document.querySelector('#chips-nfl-sem [data-sem="12"]')?.getAttribute("aria-pressed") === "true");
+    ok(pres.join() === "true,false" && pedidasNfl.includes(12) && /Sem 12/.test(await page.textContent("#chips-nfl-sem")),
+       "Hoy NFL: filtro de semanas (la más próxima por omisión; elegir otra pide ?semana=12)");
+  }
 
   // --- Hoy → Tenis (rediseño multideporte)
   await page.click('#nav button[data-v="hoy"]');

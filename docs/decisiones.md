@@ -356,3 +356,15 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   * El registro partido a partido solo desde el 1-ene del año anterior, que es lo único que usan la efectividad y el Dashboard.
   * Se suelta el estado viejo antes de construir el nuevo.
 * **Resultado:** +25 MB en lugar de +100 MB (pico medido 270 MB contra 345 MB, mismo acierto).
+
+## 2026-11-22 (g) — NFL: momio suspendido y filtro de semanas
+
+* **«Actualizar NFL» fallaba** con CheckViolation `nfl_cuotas_cuota_check`. Fanatics publicó un h2h con momio 1.000 (mercado
+  suspendido) y un solo renglón tumbaba toda la actualización. `momios.cuota_valida` (1 < cuota < 1000) descarta esos momios en
+  NFL y en tenis; el fútbol ya los descartaba en `repositorio`.
+* **Filtro de semanas.** Antes se mostraban los próximos 8 días y se mezclaban dos semanas: aparecían el jueves de la siguiente y
+  equipos repetidos.
+  * `/nfl/semana?semana=N` devuelve solo esa semana, por omisión la más próxima con juegos pendientes, y `semanas` con las que
+    quedan.
+  * La app las muestra como botones («Sem 12 · 26 nov · 16 juegos»; Comodines, Divisional, Conferencia y Super Bowl en
+    playoffs).

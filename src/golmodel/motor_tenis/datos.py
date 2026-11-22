@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import pandas as pd
 
 from golmodel.ingesta.proveedores.http import ClienteHTTP
+from golmodel.momios import cuota_valida
 
 BASE_TD = "https://www.tennis-data.co.uk"
 # Históricos de Jeff Sackmann: el repositorio original ya no responde (404); se usa el espejo público con el que se calibró el Elo
@@ -227,7 +228,7 @@ def parse_eventos(sport: dict, cuerpo, capturada: datetime, casas: list[str]) ->
             for m in c.get("markets", []):
                 if m["key"] != "h2h":
                     continue
-                pr = {o["name"]: float(o["price"]) for o in m.get("outcomes", [])}
+                pr = {o["name"]: float(o["price"]) for o in m.get("outcomes", []) if cuota_valida(o.get("price"))}
                 if j1 in pr and j2 in pr:
                     por_casa[c["key"]] = (pr[j1], pr[j2])
         if not por_casa:
