@@ -230,6 +230,7 @@ function tarjetaDiario(p, nombres) {
     h += `<div class="${mal ? "rompe" : "meta"}">${mal ? "⚠️" : "✅"} ${esc(al.aviso)}` +
       `${al.local && al.local.formacion ? ` <small>(${esc(al.local.formacion)} · ${esc((al.visitante || {}).formacion || "")})</small>` : ""}</div>`;
   } else if (p.alineacion && p.alineacion.estado === "pendiente" && p.estado === "programado") {
+    if (p.alineacion.aviso) h += `<div class="rompe">⚠️ ${esc(p.alineacion.aviso)}</div>`;
     h += `<div class="meta">🕐 Alineación aún no publicada: se revisa sola desde ~100 min antes.</div>`;
   }
   if (p.jugadas && p.jugadas.length) {
@@ -649,7 +650,10 @@ async function vTenis() {
       `<table class="nfl"><thead><tr><th>Jugador</th><th>Modelo</th><th>Mercado</th><th>Final</th><th>Cuota</th></tr></thead><tbody>` +
       fila(x.jugador1, x.p_modelo, x.p_mercado, x.p_final, x.cuota1, x.elo1, x.partidos1) +
       fila(x.jugador2, 1 - x.p_modelo, x.p_mercado != null ? 1 - x.p_mercado : null, x.p_final != null ? 1 - x.p_final : null, x.cuota2, x.elo2, x.partidos2) +
-      `</tbody></table>${x.modelo_confiable ? "" : `<p class="meta">⚠ Uno de los jugadores tiene poco historial: se usa solo el mercado.</p>`}</div>`;
+      `</tbody></table>${x.modelo_confiable ? "" : `<p class="meta">⚠ Uno de los jugadores tiene poco historial: se usa solo el mercado.</p>`}` +
+      (x.sets ? `<p class="meta">🎾 Sets · 1.er set: ${esc(x.jugador1)} <b>${pct(x.sets.jugador1.set1)}</b> / ${esc(x.jugador2)} <b>${pct(x.sets.jugador2.set1)}</b> · ` +
+        `2-0: ${pct(x.sets.jugador1.dos_cero)} / ${pct(x.sets.jugador2.dos_cero)} · +1.5 sets: ${pct(x.sets.jugador1.mas_1_5)} / ${pct(x.sets.jugador2.mas_1_5)} · ` +
+        `a 3 sets ${pct(x.sets.tres_sets)}</p>` : "") + `</div>`;
   }).join("");
   const m = (d.desempeno || {})[S.tenisTour] || {};
   if (m.partidos) {
@@ -733,6 +737,22 @@ function tarjetaNba(x) {
       sl.map((a, i) => `<tr><td>${esc(x.local.abrev)} ${signo(a.linea)} · <b>${pct(a.p)}</b></td><td></td><td>${sv[i] ? `${esc(x.visitante.abrev)} ${signo(sv[i].linea)} · <b>${pct(sv[i].p)}</b>` : ""}</td></tr>`).join("") +
       `</tbody></table><table class="nfl"><thead><tr><th>Total</th><th>Más</th><th>Menos</th></tr></thead><tbody>` +
       to.map((t) => `<tr><td>${num(t.linea, 1)}</td><td><b>${pct(t.p_over)}</b></td><td><b>${pct(t.p_under)}</b></td></tr>`).join("") + `</tbody></table></details>`;
+  }
+  const dv = x.derivados;
+  if (dv && pr) {
+    const obj = [0.85, 0.7, 0.5];
+    const eq = (lado, e) => `<tr><td>${esc(e.abrev)} (esperado ${num(dv.equipos[lado].esperado, 1)})</td><td>` +
+      cercanas(dv.equipos[lado].lineas, "p_over", obj).map((l) => `+${num(l.linea, 1)} <b>${pct(l.p_over)}</b>`).join(" · ") + `</td></tr>`;
+    const tramo = (k) => {
+      const d = dv[k];
+      return `<p class="meta"><b>${esc(d.nombre)}</b> · gana ${esc(x.local.abrev)} ${pct(d.gana_local)} / ${esc(x.visitante.abrev)} ${pct(d.gana_visitante)} · ` +
+        `1x2: ${pct(d.x12.local)} · empate ${pct(d.x12.empate)} · ${pct(d.x12.visitante)}<br>` +
+        `Spread ${esc(x.local.abrev)}: ${cercanas(d.spreads_local, "p", obj).map((l) => `${signo(l.linea)} <b>${pct(l.p)}</b>`).join(" · ")}<br>` +
+        `Total (esperado ${num(d.total_esperado, 1)}): ${cercanas(d.totales, "p_over", obj).map((l) => `más de ${num(l.linea, 1)} <b>${pct(l.p_over)}</b>`).join(" · ")}</p>`;
+    };
+    h += `<details><summary>➕ Más mercados: puntos por equipo, 1.ª mitad y 1.er cuarto</summary>` +
+      `<table class="nfl"><thead><tr><th>Puntos del equipo</th><th>Más de</th></tr></thead><tbody>${eq("local", x.local)}${eq("visitante", x.visitante)}</tbody></table>` +
+      tramo("1T") + tramo("1C") + `<p class="meta">Medido en 1,231 juegos de 2025-26 contra la línea de cierre.</p></details>`;
   }
   return h + `</div>`;
 }

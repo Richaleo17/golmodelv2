@@ -47,8 +47,12 @@ class Servicio:
         espn = None
         if self.registrador is not None:                          # construcción real; las pruebas inyectan proveedores simulados y no usan la red
             from golmodel.ingesta.proveedores.espn import FuenteESPN
+            from golmodel.ingesta.proveedores.fotmob import FuenteFotMob
             espn = FuenteESPN(registrar=self.registrador)
-        self.pipeline = Pipeline(self.cfg, cadenas, dsn=dsn, reloj=reloj, registrador=self.registrador, espn=espn)
+            fotmob = FuenteFotMob(registrar=self.registrador)
+        else:
+            fotmob = None
+        self.pipeline = Pipeline(self.cfg, cadenas, dsn=dsn, reloj=reloj, registrador=self.registrador, espn=espn, fotmob=fotmob)
         try:    # cambios de esquema posteriores a la creación de la base
             c = db.conectar(dsn)
             migraciones.aplicar(c)

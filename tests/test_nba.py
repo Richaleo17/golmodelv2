@@ -226,3 +226,29 @@ def test_un_fallo_de_espn_no_borra_lo_guardado(bd):
     assert r["juegos"] == 0 and any("lesiones" in e for e in r["errores"])
     assert bd.execute("SELECT count(*) AS n FROM nba_lesiones").fetchone()["n"] == antes                         # la foto anterior se conserva
     assert bd.execute("SELECT count(*) AS n FROM nba_juegos").fetchone()["n"] == 3
+
+
+def test_mercados_derivados_medidos():
+    d = M.derivados(-7.5, 218.5)
+    assert d["equipos"]["local"]["esperado"] == 113.0 and d["equipos"]["visitante"]["esperado"] == 105.5
+    cerca = min(d["equipos"]["local"]["lineas"], key=lambda x: abs(x["linea"] - 113.0))
+    assert abs(cerca["p_over"] - 0.5) < 0.03
+    m = d["1T"]
+    assert m["margen_esperado"] == pytest.approx(0.6044 * 7.5, abs=0.05) and m["total_esperado"] == pytest.approx(0.5041 * 218.5, abs=0.05)
+    assert m["gana_local"] == pytest.approx(_phi(0.6044 * 7.5 / 11.07), abs=1e-3)
+    assert sum(m["x12"].values()) == pytest.approx(1, abs=1e-3) and 0 < m["x12"]["empate"] < 0.024        # con margen esperado, el empate baja
+    assert M.derivados(0.0, 220.0)["1C"]["x12"]["empate"] == pytest.approx(0.045, abs=1e-4)               # partido parejo: la tasa medida
+    ps = [x["p"] for x in d["1C"]["spreads_local"]]
+    assert ps == sorted(ps)
+
+
+def test_sugerencias_incluyen_equipo_y_primera_mitad(bd):
+    S.actualizar(bd, FuenteFalsa(), CFG, AHORA)
+    g = {x["id"]: x for x in S.semana(bd, CFG, AHORA)["juegos"]}["401909305"]
+    tipos = {r["tipo"]: r for r in g["recomendadas"]}
+    assert {"equipo_total", "mitad_spread"} <= set(tipos)
+    assert tipos["equipo_total"]["jugada"].startswith("Atlanta Hawks: más de") and 0.75 <= tipos["equipo_total"]["p"] < 0.95
+    assert tipos["mitad_spread"]["jugada"].startswith("1.ª mitad: Atlanta Hawks +") and 0.75 <= tipos["mitad_spread"]["p"] < 0.95
+    assert g["derivados"]["1T"]["nombre"] == "1.ª mitad"
+    legs = S.piernas_parlay(bd, CFG, AHORA, AHORA + timedelta(days=2), 0.55)
+    assert {"nba_equipo_total", "nba_mitad_spread"} <= {l["tipo"] for l in legs}

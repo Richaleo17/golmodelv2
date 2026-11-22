@@ -155,3 +155,28 @@ def metricas(registros: list[dict], p_mercado: dict | None = None) -> dict:
                               "brier_modelo": sum((1 - r["p_ganador"]) ** 2 for r, _ in con) / m,
                               "coincide": sum((pm > 0.5) == (r["p_ganador"] > 0.5) for r, pm in con) / m}
     return out
+
+
+# ------------------------------------------------------------------------------------------------- mercados por set
+# Los sets NO son independientes (quien gana el 1.º gana el 2.º más seguido): la fórmula p_partido = p_set²(3 − 2·p_set) subestima el 2-0
+# en ~9 pts. Curvas logísticas sobre logit(p del favorito), ajustadas con 2024 y probadas en 2025 (12,337 partidos ATP+WTA a 3 sets,
+# probabilidad previa del Elo de la app): error ≤ 4 pts por tramo (docs/decisiones.md).
+SETS_LOGIT = {"fav_set1": (-0.1203, 0.8686), "fav_20": (-0.8833, 0.9598), "dog_20": (-0.7345, -1.0072)}
+
+
+def mercados_sets(p_jugador1: float, best_of: int = 3) -> dict | None:
+    """Ganador del 1.er set, 2-0 de cada uno, hándicap de sets (±1.5) y total de sets (más de 2.5). Solo partidos a 3 sets."""
+    if best_of != 3 or p_jugador1 is None or not 0 < p_jugador1 < 1:
+        return None
+    uno_fav = p_jugador1 >= 0.5
+    pf = max(p_jugador1, 1 - p_jugador1)
+    x = math.log(pf / (1 - pf))
+    f = {k: 1 / (1 + math.exp(-(a + b * x))) for k, (a, b) in SETS_LOGIT.items()}
+    fav_20, dog_20 = f["fav_20"], min(f["dog_20"], 1 - pf)
+    fav_20 = min(fav_20, pf)
+    j1 = {"set1": f["fav_set1"], "dos_cero": fav_20, "menos_1_5": fav_20, "mas_1_5": 1 - dog_20}
+    j2 = {"set1": 1 - f["fav_set1"], "dos_cero": dog_20, "menos_1_5": dog_20, "mas_1_5": 1 - fav_20}
+    if not uno_fav:
+        j1, j2 = j2, j1
+    r = lambda d: {k: round(v, 4) for k, v in d.items()}           # noqa: E731
+    return {"jugador1": r(j1), "jugador2": r(j2), "tres_sets": round(1 - fav_20 - dog_20, 4)}

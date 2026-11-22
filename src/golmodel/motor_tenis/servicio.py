@@ -143,6 +143,7 @@ def pronosticos(conn, cfg: dict, ahora: datetime, dias: int | None = None) -> li
                        "partidos1": n1, "partidos2": n2, "p_modelo": p_mod, "p_mercado": p_mk, "p_final": p_fin,
                        "cuota1": float(e["cuota1"]) if e["cuota1"] else None, "cuota2": float(e["cuota2"]) if e["cuota2"] else None,
                        "casa": e["casa"], "modelo_confiable": conoce,
+                       "sets": md.mercados_sets(p_fin, int(e["best_of"] or 3)) if p_fin is not None else None,
                        "fuente": "modelo + mercado" if (conoce and p_mk is not None) else ("solo mercado" if p_mk is not None else "solo modelo")})
     return salida
 
@@ -215,4 +216,18 @@ def piernas_parlay(conn, cfg: dict, ahora: datetime, hasta: datetime, p_min: flo
                        "detalle": f"gana el partido ({x['superficie']}, a {x['best_of']} sets)", "p": p, "cuota_justa": 1 / p,
                        "cuota_min": (1 + u) / p, "confianza": None, "fuente": x["fuente"],
                        "cuota": x["cuota1"] if j1 else x["cuota2"]})
+        st = x.get("sets")
+        if not st:
+            continue
+        k = "jugador1" if j1 else "jugador2"
+        rival = x["jugador2"] if j1 else x["jugador1"]
+        extra = [("tenis_set1", f"{quien} gana el 1.er set", "gana el primer set", st[k]["set1"]),
+                 ("tenis_sets", f"{quien} −1.5 sets (gana 2-0)", "gana sin ceder un set", st[k]["menos_1_5"]),
+                 ("tenis_sets", f"{rival} +1.5 sets (gana al menos un set)", "el que no es favorito gana al menos un set",
+                  st["jugador2" if j1 else "jugador1"]["mas_1_5"])]
+        for tipo, jugada, detalle, pe in extra:
+            if pe < p_min:
+                continue
+            salida.append({**salida[-1], "tipo": tipo, "jugada": jugada, "detalle": detalle, "p": pe, "cuota_justa": 1 / pe,
+                           "cuota_min": (1 + u) / pe, "cuota": None})
     return salida

@@ -161,6 +161,35 @@ def parse_plantilla(cuerpo: dict) -> list[JugadorPlantilla]:
     return out
 
 
+def parse_calendario(cuerpo: dict) -> list[tuple[datetime, str]]:
+    """Partidos YA JUGADOS de un equipo, del más viejo al más reciente: [(fecha, id_evento)]."""
+    out = []
+    for e in (cuerpo or {}).get("events") or []:
+        try:
+            if e["competitions"][0]["status"]["type"].get("completed"):
+                out.append((_fecha(e["date"]), str(e["id"])))
+        except (KeyError, IndexError, TypeError, ValueError):
+            continue
+    return sorted(out)
+
+
+def parse_participacion(cuerpo: dict) -> dict[str, dict[str, dict]]:
+    """{id_equipo_espn: {id_jugador: {'nombre', 'titular', 'jugo', 'roja'}}} de un partido jugado (convocados de ambos equipos)."""
+    out: dict[str, dict[str, dict]] = {}
+    for r in (cuerpo or {}).get("rosters") or []:
+        if not r.get("roster"):
+            continue
+        eq = out.setdefault(str(r["team"]["id"]), {})
+        for p in r["roster"]:
+            a = p.get("athlete") or {}
+            if not a.get("id"):
+                continue
+            st = {s.get("name"): s.get("value") for s in (p.get("stats") or [])}
+            eq[str(a["id"])] = {"nombre": a.get("displayName") or "", "titular": bool(p.get("starter")),
+                                "jugo": bool(p.get("starter") or p.get("subbedIn")), "roja": (_entero(st.get("redCards")) or 0) > 0}
+    return out
+
+
 class FuenteESPN:
     def __init__(self, **kw):
         self.http = ClienteHTTP("espn", BASE, timeout_s=30.0, **kw)
@@ -170,6 +199,12 @@ class FuenteESPN:
 
     def alineacion(self, liga: str, evento_id: str) -> dict[str, AlineacionLado] | None:
         return parse_alineacion(self.http.get_json(f"{RUTA}/soccer/{liga}/summary", {"event": evento_id}, costo=0))
+
+    def calendario(self, liga: str, equipo_id: str) -> list[tuple[datetime, str]]:
+        return parse_calendario(self.http.get_json(f"{RUTA}/soccer/{liga}/teams/{equipo_id}/schedule", costo=0))
+
+    def participacion(self, liga: str, evento_id: str) -> dict[str, dict[str, dict]]:
+        return parse_participacion(self.http.get_json(f"{RUTA}/soccer/{liga}/summary", {"event": evento_id}, costo=0))
 
     def plantilla(self, liga: str, equipo_id: str) -> list[JugadorPlantilla]:
         return parse_plantilla(self.http.get_json(f"{RUTA}/soccer/{liga}/teams/{equipo_id}/roster", costo=0))

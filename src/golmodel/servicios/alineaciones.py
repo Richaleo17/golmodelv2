@@ -18,6 +18,7 @@ from golmodel.ingesta.normalizacion import ResolverEquipos
 from golmodel.ingesta.proveedores import espn as E
 
 log = logging.getLogger("golmodel.alineaciones")
+ULTIMOS_PARTIDOS = 3                     # partidos jugados por equipo que se guardan para inferir bajas
 _INTENTOS: dict[int, datetime] = {}      # equipo_id → último intento de bajar su plantilla (en memoria del proceso)
 
 UMBRAL_PRINCIPAL = 0.60          # titularidades / partidos del equipo para ser «principal»
@@ -28,7 +29,8 @@ MIN_ALINEACION_TITULARES = 9
 
 def _candidatos(conn, ahora: datetime, horizonte_h: float) -> list[dict]:
     return conn.execute("""
-        SELECT p.id, p.inicio, p.local_id, p.visitante_id, p.liga_id, p.espn_id, l.codigo, l.odds_api_sport_key, l.solo_mercado
+        SELECT p.id, p.inicio, p.local_id, p.visitante_id, p.liga_id, p.espn_id, p.fotmob_id, p.fotmob_bajas_en,
+               l.codigo, l.odds_api_sport_key, l.solo_mercado
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
         WHERE l.activa AND p.estado = 'programado' AND p.inicio > %s AND p.inicio < %s ORDER BY p.inicio""",
                         (ahora - timedelta(minutes=30), ahora + timedelta(hours=horizonte_h))).fetchall()
@@ -130,7 +132,157 @@ def sincronizar(conn, fuente, ahora: datetime, *, ventana_min: float = 100, hori
                              (eq, j.id, j.nombre, j.posicion or None, j.apariciones, j.titularidades, j.goles, j.asistencias,
                               j.tiros_arco, j.rojas, j.amarillas, j.estado, ahora))
         res["plantillas"] += 1
+    res["participaciones"] = _participaciones(conn, fuente, equipos_espn, ahora, refresco_plantilla_h, res)
     return res
+
+
+def _participaciones(conn, fuente, equipos_espn: dict, ahora: datetime, refresco_h: float, res: dict) -> int:
+    """Quién jugó los últimos partidos de cada equipo (base de las «bajas probables»). Cada partido se baja una sola vez."""
+    nuevos = 0
+    for eq, (liga, tid) in equipos_espn.items():
+        fila = conn.execute("SELECT calendario_en FROM equipos_espn WHERE equipo_id = %s", (eq,)).fetchone()
+        conn.execute("""INSERT INTO equipos_espn (equipo_id, espn_id, liga) VALUES (%s, %s, %s)
+                        ON CONFLICT (equipo_id) DO UPDATE SET espn_id = EXCLUDED.espn_id, liga = EXCLUDED.liga""", (eq, tid, liga))
+        if fila and fila["calendario_en"] and ahora - fila["calendario_en"] < timedelta(hours=refresco_h):
+            continue
+        try:
+            jugados = fuente.calendario(liga, tid)[-ULTIMOS_PARTIDOS:]
+        except Exception:                                                # noqa: BLE001
+            res["errores"] += 1
+            continue
+        for fecha, evento in jugados:
+            if conn.execute("SELECT 1 FROM participaciones_espn WHERE evento_id = %s LIMIT 1", (evento,)).fetchone():
+                continue
+            try:
+                partes = fuente.participacion(liga, evento)
+            except Exception:                                            # noqa: BLE001
+                res["errores"] += 1
+                continue
+            with conn.transaction():
+                for equipo_ext, jugadores in partes.items():
+                    for jid, j in jugadores.items():
+                        conn.execute("""INSERT INTO participaciones_espn (evento_id, equipo_externo, jugador_externo, nombre, titular, jugo, roja, fecha)
+                                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+                                     (evento, equipo_ext, jid, j["nombre"], j["titular"], j["jugo"], j["roja"], fecha))
+            nuevos += 1
+        conn.execute("UPDATE equipos_espn SET calendario_en = %s WHERE equipo_id = %s", (ahora, eq))
+    return nuevos
+
+
+def bajas_probables(conn, equipo_id: int) -> list[dict]:
+    """Titulares habituales que probablemente NO juegan, antes de que salga la alineación: no jugaron los 2 últimos partidos del equipo
+    (80.6% no fue titular en el siguiente, 72 casos) o fueron expulsados en el último (100%, 20 casos). Medido en 211 partidos."""
+    e = conn.execute("SELECT espn_id FROM equipos_espn WHERE equipo_id = %s", (equipo_id,)).fetchone()
+    if e is None:
+        return []
+    eventos = [r["evento_id"] for r in conn.execute("""SELECT DISTINCT evento_id, fecha FROM participaciones_espn WHERE equipo_externo = %s
+                                                        ORDER BY fecha DESC LIMIT 2""", (e["espn_id"],)).fetchall()]
+    if len(eventos) < 2:
+        return []
+    jug = {(r["evento_id"], r["jugador_externo"]): r for r in conn.execute(
+        "SELECT * FROM participaciones_espn WHERE evento_id = ANY(%s) AND equipo_externo = %s", (eventos, e["espn_id"]))}
+    out = []
+    for j in principales(conn, equipo_id):
+        ult = jug.get((eventos[0], j["id"]))
+        if ult is not None and ult["roja"]:
+            out.append({**j, "motivo": "expulsado en el último partido (probable sanción)"})
+        elif not any((jug.get((ev, j["id"])) or {}).get("jugo") for ev in eventos):
+            out.append({**j, "motivo": "no jugó los 2 últimos partidos (posible lesión)"})
+    return out
+
+
+def sincronizar_fotmob(conn, fuente, ahora: datetime, *, horizonte_h: float = 48, refresco_min: float = 180,
+                       refresco_cerca_min: float = 30, ventana_min: float = 100) -> dict:
+    """Lesiones, sanciones y convocatorias con selección (FotMob) de los partidos de las próximas `horizonte_h` horas.
+    Se vuelven a pedir cada `refresco_min` (cada `refresco_cerca_min` dentro de la ventana previa al partido)."""
+    from golmodel.ingesta.proveedores import fotmob as F
+    res = {"partidos": 0, "emparejados": 0, "consultados": 0, "bajas": 0, "sin_emparejar": [], "errores": 0}
+    cands = _candidatos(conn, ahora, horizonte_h)
+    res["partidos"] = len(cands)
+    grupos: dict[int, list[dict]] = defaultdict(list)
+    for p in cands:
+        lid = F.liga_fotmob(p["codigo"], p["odds_api_sport_key"])
+        if lid:
+            grupos[lid].append(p)
+    resolvers: dict = {}
+    for lid, partidos in grupos.items():
+        try:
+            calendario = [m for m in fuente.partidos(lid) if not m["terminado"]]
+        except Exception:                                                # noqa: BLE001
+            res["errores"] += 1
+            continue
+        for p in partidos:
+            r = _resolver_para(conn, resolvers, bool(p["solo_mercado"]))
+            try:
+                with conn.transaction():
+                    m = _partido_fotmob(r, p, calendario)
+            except Exception:                                            # noqa: BLE001
+                log.warning("bajas: no se pudo emparejar el partido %s con FotMob", p["id"], exc_info=True)
+                res["errores"] += 1
+                continue
+            if m is None:
+                res["sin_emparejar"].append(f"{p['codigo']} #{p['id']}")
+                continue
+            res["emparejados"] += 1
+            if p["fotmob_id"] != m["id"]:
+                conn.execute("UPDATE partidos SET fotmob_id = %s WHERE id = %s", (m["id"], p["id"]))
+            cerca = p["inicio"] - ahora <= timedelta(minutes=ventana_min)
+            espera = timedelta(minutes=refresco_cerca_min if cerca else refresco_min)
+            if p["fotmob_bajas_en"] and ahora - p["fotmob_bajas_en"] < espera:
+                continue
+            try:
+                b = fuente.bajas(m["id"])
+            except Exception:                                            # noqa: BLE001
+                res["errores"] += 1
+                continue
+            if b is None:
+                continue
+            with conn.transaction():
+                conn.execute("DELETE FROM bajas_partido WHERE partido_id = %s AND fuente = 'fotmob'", (p["id"],))
+                for lado in ("local", "visitante"):
+                    for j in b.get(lado) or []:
+                        conn.execute("""INSERT INTO bajas_partido (partido_id, lado, jugador, externo_id, tipo, regreso, fuente, capturado_en)
+                                        VALUES (%s, %s, %s, %s, %s, %s, 'fotmob', %s) ON CONFLICT DO NOTHING""",
+                                     (p["id"], lado, j["nombre"], j["id"] or None, j["tipo"], j["regreso"], ahora))
+                        res["bajas"] += 1
+                conn.execute("UPDATE partidos SET fotmob_bajas_en = %s WHERE id = %s", (ahora, p["id"]))
+            res["consultados"] += 1
+    return res
+
+
+def _partido_fotmob(r: ResolverEquipos, p: dict, calendario: list[dict]) -> dict | None:
+    if p["fotmob_id"]:
+        for m in calendario:
+            if m["id"] == p["fotmob_id"]:
+                return m
+    for m in calendario:
+        if abs((m["inicio"] - p["inicio"]).total_seconds()) > 6 * 3600:
+            continue
+        if r.resolver("fotmob", m["local"], p["liga_id"]) == p["local_id"] and r.resolver("fotmob", m["visitante"], p["liga_id"]) == p["visitante_id"]:
+            return m
+    return None
+
+
+def _norm(nombre: str) -> str:
+    import re
+    import unicodedata
+    return re.sub(r"[^a-z]", "", unicodedata.normalize("NFKD", str(nombre)).encode("ascii", "ignore").decode().lower())
+
+
+def bajas_confirmadas(conn, partido_id: int) -> dict[str, list[dict]]:
+    """{'local': [...], 'visitante': [...]} con las bajas reales (FotMob) guardadas para el partido."""
+    out: dict[str, list[dict]] = {"local": [], "visitante": []}
+    try:
+        filas = conn.execute("SELECT lado, jugador, tipo, regreso FROM bajas_partido WHERE partido_id = %s ORDER BY jugador", (partido_id,)).fetchall()
+    except Exception:                                                    # noqa: BLE001 — base sin la migración 017
+        return out
+    for f in filas:
+        out[f["lado"]].append({"nombre": f["jugador"], "tipo": f["tipo"], "regreso": f["regreso"]})
+    return out
+
+
+def _motivo_confirmado(b: dict) -> str:
+    return b["tipo"] + (f" (regreso: {b['regreso']})" if b.get("regreso") else "")
 
 
 def _evento_de(conn, r: ResolverEquipos, p: dict, eventos: list[E.EventoESPN]) -> E.EventoESPN | None:
@@ -175,14 +327,15 @@ def principales(conn, equipo_id: int) -> list[dict]:
 
 def analizar(conn, partido_id: int) -> dict:
     """{'estado': 'sin_datos'|'pendiente'|'publicada', 'local': {...}, 'visitante': {...}, 'nivel': 'bajo'|'medio'|'alto', 'aviso': texto}."""
-    p = conn.execute("SELECT local_id, visitante_id, espn_id FROM partidos WHERE id = %s", (partido_id,)).fetchone()
-    if p is None or not p["espn_id"]:
+    p = conn.execute("SELECT id, local_id, visitante_id, espn_id FROM partidos WHERE id = %s", (partido_id,)).fetchone()
+    confirmadas = bajas_confirmadas(conn, partido_id) if p is not None else {"local": [], "visitante": []}
+    if p is None or (not p["espn_id"] and not (confirmadas["local"] or confirmadas["visitante"])):
         return {"estado": "sin_datos"}
     filas = conn.execute("""SELECT equipo_id, jugador_externo, jugador_nombre, titular, posicion, formacion, capturada_en
                             FROM alineaciones WHERE partido_id = %s AND fuente = 'espn' AND confirmada ORDER BY capturada_en DESC""",
                          (partido_id,)).fetchall()
     if not filas:
-        return {"estado": "pendiente"}
+        return _previo(conn, p, confirmadas)
     out: dict = {"estado": "publicada", "capturada_en": filas[0]["capturada_en"].isoformat()}
     niveles = []
     for lado, eq in (("local", p["local_id"]), ("visitante", p["visitante_id"])):
@@ -192,10 +345,14 @@ def analizar(conn, partido_id: int) -> dict:
         titulares = {f["jugador_externo"] for f in mias if f["titular"]}
         banca = {f["jugador_externo"] for f in mias if not f["titular"]}
         fuera, en_banca = [], []
+        reales = {_norm(b["nombre"]): _motivo_confirmado(b) for b in confirmadas[lado]}
         for j in principales(conn, eq):
             if j["id"] in titulares:
                 continue
-            (en_banca if j["id"] in banca else fuera).append({**j, "motivo": "en la banca" if j["id"] in banca else "fuera de la convocatoria"})
+            if j["id"] in banca:
+                en_banca.append({**j, "motivo": "en la banca"})
+            else:
+                fuera.append({**j, "motivo": reales.get(_norm(j["nombre"]), "fuera de la convocatoria")})
         nivel = nivel_de(fuera, en_banca)
         niveles.append(nivel)
         out[lado] = {"formacion": (mias[0]["formacion"] if mias else None), "titulares": len(titulares), "fuera": fuera,
@@ -203,6 +360,37 @@ def analizar(conn, partido_id: int) -> dict:
     orden = {"bajo": 0, "medio": 1, "alto": 2}
     out["nivel"] = max(niveles, key=orden.get) if niveles else "bajo"
     out["aviso"] = _aviso(out)
+    return out
+
+
+def _previo(conn, p: dict, confirmadas: dict | None = None) -> dict:
+    """Antes de la alineación: bajas REALES de FotMob (lesión, sanción, selección) de titulares habituales + las inferidas con ESPN.
+    Las bajas de jugadores que no son titulares habituales se listan aparte («otras») y no pesan en el nivel."""
+    confirmadas = confirmadas or {"local": [], "visitante": []}
+    out: dict = {"estado": "pendiente"}
+    niveles = []
+    for lado, eq in (("local", p["local_id"]), ("visitante", p["visitante_id"])):
+        habituales = {_norm(j["nombre"]): j for j in principales(conn, eq)}
+        bajas, otras = [], []
+        for b in confirmadas[lado]:
+            j = habituales.get(_norm(b["nombre"]))
+            if j:
+                bajas.append({**j, "motivo": _motivo_confirmado(b), "fuente": "FotMob"})
+            else:
+                otras.append({"nombre": b["nombre"], "motivo": _motivo_confirmado(b)})
+        ya = {_norm(b["nombre"]) for b in bajas}
+        bajas += [{**j, "fuente": "ESPN (inferida)"} for j in bajas_probables(conn, eq) if _norm(j["nombre"]) not in ya]
+        if otras:
+            out.setdefault("otras", {})[lado] = otras
+        if bajas:
+            out.setdefault("previo", {})[lado] = bajas
+            niveles.append(nivel_de(bajas, []))
+    if niveles:
+        orden = {"bajo": 0, "medio": 1, "alto": 2}
+        out["nivel"] = max(niveles, key=orden.get)
+        partes = [f"{'Local' if lado == 'local' else 'Visitante'}: " + ", ".join(f"{j['nombre']} ({j['motivo']})" for j in bs)
+                  for lado, bs in out["previo"].items()]
+        out["aviso"] = "Bajas probables (aún sin alineación) — " + " · ".join(partes)
     return out
 
 
@@ -235,7 +423,7 @@ def aplicar_a_info(info: dict, al: dict) -> dict:
     if not al or al.get("estado") == "sin_datos":
         return info
     info["alineacion"] = al
-    if al.get("estado") == "publicada" and al.get("nivel") in REBAJA_CONFIANZA:
+    if al.get("estado") in ("publicada", "pendiente") and al.get("nivel") in REBAJA_CONFIANZA and al.get("aviso"):
         info["razones"] = [*(info.get("razones") or []), al["aviso"]]
         if info.get("confianza") is not None:
             info["confianza"] = max(0.0, round(float(info["confianza"]) - REBAJA_CONFIANZA[al["nivel"]], 1))
