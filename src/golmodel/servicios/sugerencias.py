@@ -446,8 +446,16 @@ def _calibrar_tarjetas(info: dict, cal_kpi: dict[str, dict], cfg: dict) -> None:
                  nivel="ALTA" if p >= 0.80 else "MEDIA" if p >= 0.55 else "BAJA")
 
 
+def _banderas(partidos: list[dict]) -> None:
+    """Bandera de las selecciones nacionales (código flagcdn validado, p. ej. «es», «gb-eng»). Los clubes no traen bandera."""
+    from golmodel.servicios import selecciones as sel
+    for p in partidos:
+        p["bandera_local"], p["bandera_visitante"] = sel.bandera(p.get("local") or ""), sel.bandera(p.get("visitante") or "")
+
+
 def _escudos(conn, partidos: list[dict], filas: list[dict]) -> None:
     """Id de ESPN de cada equipo (para su escudo). Solo el número: la URL la arma la app con un patrón fijo."""
+    _banderas(partidos)
     if not repo.tiene_tabla(conn, "equipos_espn"):
         return
     eq_de = {f["partido_id"]: (f["local_id"], f["visitante_id"]) for f in filas}

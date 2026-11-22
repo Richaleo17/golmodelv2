@@ -281,7 +281,19 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   (hora, probabilidad, confianza), contador y «Limpiar filtros».
 * **Escudos** (ESPN): fútbol con el id de ESPN de cada equipo (`equipos_espn`, se llena al emparejar partidos); NBA y NFL con la abreviatura.
   La URL la arma la app con un patrón fijo y solo un número/abreviatura validados; se pinta como fondo de un `<span>` (ningún `<img>`
-  con datos del servidor). Las selecciones nacionales aún no tienen bandera (no hay mapeo a ESPN para ellas).
+  con datos del servidor). Las selecciones nacionales llevan bandera (ver 2026-11-22 c).
 * **¿Mejora el modelo al recalibrar?** `aciertos.por_version`: por cada versión del modelo, los partidos que pronosticó (lo guardado al
   cierre diario en `dashboard_registro`), su log loss 1X2 y el del mercado en ESOS mismos partidos. Se juzga la brecha app − mercado
   (los días no son igual de difíciles): baja ≥ 0.005 = mejoró, sube ≥ 0.005 = empeoró; con < 30 partidos no se juzga. Tabla en el Dashboard.
+
+## 2026-11-22 (c) — Banderas de selecciones, tenis desde GitHub y casa Caliente
+
+* **Banderas.** Las selecciones nacionales llevan su bandera (flagcdn.com) en vez de escudo. `selecciones.bandera(nombre)` → código ISO
+  (`es`, `gb-eng`, `xk`…) desde la misma tabla de nombres que ya homologa las selecciones; los clubes no traen bandera. La app solo acepta
+  `[a-z]{2}(-[a-z]{3})?` y arma la URL con un patrón fijo; se pinta como fondo de un `<span>`, igual que los escudos.
+* **Tenis no aparecía.** En producción `tenis_partidos` tenía 0 filas: tennis-data.co.uk responde 403 a Render, así que el Elo nunca se
+  entrenó. El histórico ahora sale de los CSV públicos de Jeff Sackmann en GitHub (`parse_sackmann`, misma clave de nombre que los eventos
+  de The Odds API); `tenis.fuente_historico: tennis_data` regresa a la fuente anterior. Sin momios de cierre en el histórico: la
+  comparación «vs mercado» del tenis se llena con los eventos que sí trae The Odds API. Migración 018: proveedor `sackmann`.
+* **Champions.** Verificada en producción: 9 partidos próximos cargados; los del día siguiente entran con la ventana de 2 días de cuotas.
+* **Casa de apuestas.** `casa_manual_nombre: Caliente` (antes Draftea). El lector de boletos acepta el formato de ambas.

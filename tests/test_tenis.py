@@ -204,3 +204,41 @@ def test_mercados_por_set_calibrados():
     assert mercados_sets(0.75, best_of=5) is None and mercados_sets(None) is None
     parejo = mercados_sets(0.5)
     assert abs(parejo["jugador1"]["set1"] - 0.5) < 0.05 and 0.3 < parejo["tres_sets"] < 0.45      # medido: 3 sets ≈ 37% en partidos parejos
+
+
+SACKMANN_CSV = (
+    "tourney_id,tourney_name,surface,tourney_date,match_num,winner_name,loser_name,score,best_of,round,winner_rank,loser_rank\n"
+    "2025-0339,Brisbane,Hard,20241230,300,Jannik Sinner,Carlos Alcaraz,6-4 7-6(3),3,F,1,3\n"
+    "2025-0339,Brisbane,Hard,20241230,299,Alex de Minaur,Taylor Fritz,6-3 2-1 RET,3,SF,8,4\n"
+    "2025-0339,Brisbane,Hard,20241230,298,Casper Ruud,Holger Rune,W/O,3,SF,6,12\n"
+    "2025-0580,Australian Open,Hard,20250113,701,Jannik Sinner,Alexander Zverev,6-3 7-6(4) 6-3,5,F,1,2\n"
+).encode()
+
+
+def test_parse_sackmann_mismas_claves_que_las_cuotas():
+    f = td.parse_sackmann(SACKMANN_CSV, "atp")
+    assert len(f) == 3                                                   # el walkover no cuenta
+    fin = f[0]
+    assert (fin["fecha"], fin["ganador"], fin["perdedor"], fin["ronda"], fin["best_of"]) == ("2024-12-30", "sinner j", "alcaraz c", "F", 3)
+    assert fin["cuota_g"] is None and fin["rank_g"] == 1
+    assert f[1]["comentario"] == "Retired" and f[1]["ganador"] == "de minaur a"
+    assert f[2]["best_of"] == 5 and len({x["id"] for x in f}) == 3
+    assert fin["ganador"] == td.claves_nombre_completo("Jannik Sinner")[0]   # misma clave que un evento de The Odds API
+
+
+def test_fuente_tenis_usa_sackmann_por_defecto():
+    class Resp:
+        content = SACKMANN_CSV
+
+    pedidas = []
+
+    class Cliente:
+        def get(self, ruta, costo=0):
+            pedidas.append(ruta)
+            return Resp()
+
+    f = td.FuenteTenis(None, {"tenis": {}})
+    f.gh, f.td = Cliente(), None
+    assert len(f.temporada(2025, "wta")) == 3
+    assert pedidas == ["/JeffSackmann/tennis_wta/master/wta_matches_2025.csv"]
+    assert CFG["tenis"]["fuente_historico"] == "sackmann"

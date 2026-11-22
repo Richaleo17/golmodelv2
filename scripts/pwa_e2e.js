@@ -40,7 +40,7 @@ const PANEL = {
         { clave: "mas25", titulo: "Más de 2.5 goles", pick: "Sí", p: 0.58, cuota_min: 1.85, aprox: false, nivel: "MEDIA" },
         { clave: "menos35", titulo: "Menos de 3.5 goles", pick: "Sí", p: 0.71, cuota_min: 1.51, aprox: false, nivel: "MEDIA" },
         { clave: "primer_gol", titulo: "Primer gol", pick: "Arsenal", p: 0.41, cuota_min: 2.61, aprox: true, nivel: "BAJA" }] },
-    { partido_id: 2, escudo_local: "x') ;background:url(javascript:alert(1)", liga: "LL", local: "Girona", visitante: "Getafe", hora: "13:00", estado: "programado", marcador: null, prediccion: false, motivo: "Sin histórico suficiente", jugadas: [], forma: { local: "", visitante: "" } },
+    { partido_id: 2, escudo_local: "x') ;background:url(javascript:alert(1)", bandera_visitante: "es')x", liga: "LL", local: "Girona", visitante: "Getafe", hora: "13:00", estado: "programado", marcador: null, prediccion: false, motivo: "Sin histórico suficiente", jugadas: [], forma: { local: "", visitante: "" } },
   ],
   mejores: [{ partido_id: 1, hora: "10:30", liga: "EPL", partido: "Arsenal vs Chelsea", jugada: "Más de 1.5 goles", detalle: "Goles totales", p: 0.8, cuota_justa: 1.25, cuota_min: 1.31, categoria: "segura", confianza: 8, cuota_casa: null, casa: null, ev: null, ev_sospechoso: false }],
   valor: [], rompe: [{ hora: "10:30", liga: "EPL", partido: "Arsenal vs Chelsea", razones: ["Favorito frágil"], alternativa: { jugada: "Doble oportunidad 1X", p: 0.79, cuota_min: 1.32 } }],
@@ -237,6 +237,12 @@ async function simular(page) {
     ok(escudos.length >= 2 && escudos.every((u) => /a\.espncdn\.com\/i\/teamlogos\/soccer\/500\/\d+\.png/.test(u)),
        "Escudos: solo URLs de ESPN armadas con el número del equipo (el valor malicioso se ignora)");
     ok((await page.$$("#lista-diario img")).length === 0, "Escudos: se pintan como fondo, sin ningún <img>");
+    await page.evaluate(() => { const p = { bandera_local: "es", bandera_visitante: "gb-eng", escudo_local: "164" };
+      document.body.insertAdjacentHTML("beforeend", `<div id="t-band">${escudoFut(p, "local")}${escudoFut(p, "visitante")}${escudoFut({ bandera_local: "es')x" }, "local")}</div>`); });
+    const bands = await page.$$eval("#t-band .escudo", (es) => es.map((e) => e.style.backgroundImage));
+    ok(bands.length === 2 && /flagcdn\.com\/w80\/es\.png/.test(bands[0]) && /gb-eng\.png/.test(bands[1]),
+       "Banderas: las selecciones llevan su bandera (antes que el escudo) y un código inválido se ignora");
+    await page.evaluate(() => document.getElementById("t-band").remove());
     await page.click('#chips-rango [data-rango="1"]');
     await page.waitForSelector("#lista-diario .mc");
     ok(!/Lyon/.test(await page.textContent("#vista")), "Diario: «Solo este día» quita los días siguientes");

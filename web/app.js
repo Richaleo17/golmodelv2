@@ -16,6 +16,9 @@ const urlEscudo = {
   nba: (ab) => (/^[A-Za-z]{2,4}$/.test(String(ab ?? "")) ? `https://a.espncdn.com/i/teamlogos/nba/500/${String(ab).toLowerCase()}.png` : null),
   nfl: (ab) => (/^[A-Za-z]{2,4}$/.test(String(ab ?? "")) ? `https://a.espncdn.com/i/teamlogos/nfl/500/${NFL_ESPN[ab] || String(ab).toLowerCase()}.png` : null),
 };
+/* Fútbol: las selecciones nacionales llevan su bandera (flagcdn, código ISO validado); los clubes, su escudo de ESPN. */
+urlEscudo.pais = (c) => (/^[a-z]{2}(-[a-z]{3})?$/.test(String(c ?? "")) ? `https://flagcdn.com/w80/${c}.png` : null);
+const escudoFut = (p, lado) => escudo(urlEscudo.pais(p["bandera_" + lado]) || urlEscudo.futbol(p["escudo_" + lado]));
 const escudo = (url) => (url ? `<span class="escudo" style="background-image:url('${url}')" aria-hidden="true"></span>` : "");
 const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var(--lo)");
 const TOKEN = "golmodel.token";
@@ -208,7 +211,7 @@ function tarjetaDiario(p, nombres) {
   const punto = `<span class="mc-dot${enJuego ? " vivo" : ""}"></span>`;
   if (!p.prediccion) {
     return `<div class="mc">${cab}<div class="mc-top"><span>${punto}${esc(nombreLiga(p, nombres)).toUpperCase()}</span><span>${esc(p.hora)}${final}</span></div>` +
-      `<div class="mc-eq">${escudo(urlEscudo.futbol(p.escudo_local))}${esc(p.local)} vs ${escudo(urlEscudo.futbol(p.escudo_visitante))}${esc(p.visitante)}</div><div class="meta">⚠ ${esc(p.motivo)}</div></div>`;
+      `<div class="mc-eq">${escudoFut(p, "local")}${esc(p.local)} vs ${escudoFut(p, "visitante")}${esc(p.visitante)}</div><div class="meta">⚠ ${esc(p.motivo)}</div></div>`;
   }
   const g = p.gana, pg = p.primer_gol, ot = p.otro_anota, crs = p.crs || {};
   let badges = `<span class="chip ${p.solo_mercado ? "viejo" : ""}">${esc(p.fuente)}</span>`;
@@ -218,7 +221,7 @@ function tarjetaDiario(p, nombres) {
   }
   if (p.rompe) badges += '<span class="chip rojo">💥 rompe parlays</span>';
   let h = `<div class="mc">${cab}<div class="mc-top"><span>${punto}${esc(nombreLiga(p, nombres)).toUpperCase()}</span><span>${esc(p.hora)}${final} · CONF ${esc(p.confianza)}/10</span></div>` +
-    `<div class="mc-eq">${escudo(urlEscudo.futbol(p.escudo_local))}${esc(p.local)} vs ${escudo(urlEscudo.futbol(p.escudo_visitante))}${esc(p.visitante)}</div><div class="mc-badges">${badges}</div>`;
+    `<div class="mc-eq">${escudoFut(p, "local")}${esc(p.local)} vs ${escudoFut(p, "visitante")}${esc(p.visitante)}</div><div class="mc-badges">${badges}</div>`;
   if (p.mercados && p.mercados.length) {
     h += `<div class="tiles">${p.mercados.map(mosaico).join("")}</div>`;
     h += filaInd("PA(1) · PRIMER GOL", `${esc(pg.equipo)} <small>anota el primer gol del partido</small>`, pg.p);

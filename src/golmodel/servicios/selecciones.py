@@ -53,3 +53,23 @@ for _nombres, _codigos in _TABLA:
 def codigos(nombre: str) -> frozenset[str]:
     """Códigos de 3 letras de una selección por su nombre en inglés (vacío si no es una selección de la tabla)."""
     return _POR_NOMBRE.get(_clave(nombre), frozenset())
+
+
+# Bandera de cada selección: código de flagcdn.com (ISO 3166-1 alfa-2; las naciones del Reino Unido usan gb-eng / gb-sct / gb-wls / gb-nir y
+# Kosovo «xk»). Se indexa por el primer código FIFA de _TABLA. La app arma la URL con un patrón fijo y solo acepta [a-z]{2}(-[a-z]{3})?.
+_BANDERA_FIFA = {
+    "ALB": "al", "AND": "ad", "ARM": "am", "AUT": "at", "AZE": "az", "BLR": "by", "BEL": "be", "BIH": "ba", "BUL": "bg", "CRO": "hr", "CYP": "cy",
+    "CZE": "cz", "DEN": "dk", "ENG": "gb-eng", "EST": "ee", "FRO": "fo", "FIN": "fi", "FRA": "fr", "GEO": "ge", "GER": "de", "GIB": "gi", "GRE": "gr",
+    "HUN": "hu", "ISL": "is", "IRL": "ie", "ISR": "il", "ITA": "it", "KAZ": "kz", "KOS": "xk", "LVA": "lv", "LIE": "li", "LTU": "lt", "LUX": "lu",
+    "MLT": "mt", "MDA": "md", "MNE": "me", "NED": "nl", "MKD": "mk", "NIR": "gb-nir", "NOR": "no", "POL": "pl", "POR": "pt", "ROU": "ro", "SMR": "sm",
+    "SCO": "gb-sct", "SRB": "rs", "SVK": "sk", "SVN": "si", "ESP": "es", "SWE": "se", "SUI": "ch", "TUR": "tr", "UKR": "ua", "WAL": "gb-wls",
+    "ARG": "ar", "BRA": "br", "URU": "uy", "COL": "co", "CHI": "cl", "PER": "pe", "ECU": "ec", "PAR": "py", "BOL": "bo", "VEN": "ve", "MEX": "mx",
+    "USA": "us", "CAN": "ca", "CRC": "cr", "PAN": "pa", "HON": "hn", "JAM": "jm", "JPN": "jp", "KOR": "kr", "AUS": "au", "MAR": "ma", "SEN": "sn",
+    "EGY": "eg", "NGA": "ng", "GHA": "gh", "CMR": "cm", "KSA": "sa", "IRN": "ir", "QAT": "qa",
+}
+_BANDERA_POR_NOMBRE: dict[str, str] = {_clave(n): _BANDERA_FIFA[c[0]] for ns, c in _TABLA for n in ns if c[0] in _BANDERA_FIFA}
+
+
+def bandera(nombre: str) -> str | None:
+    """Código de bandera (flagcdn) de una selección por su nombre en inglés; None si no es una selección de la tabla."""
+    return _BANDERA_POR_NOMBRE.get(_clave(nombre))

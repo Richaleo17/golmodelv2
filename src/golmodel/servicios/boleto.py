@@ -43,7 +43,7 @@ PROMPT = """Eres un lector de capturas de boletos de apuestas deportivas. Devuel
 Reglas: copia los textos tal como aparecen (ej. mercado "GANA" + selección "Cruz Azul"; mercado "TOTAL DE GOLES" + selección "Más 2.5" -> seleccion_texto "Más", linea 2.5).
 "local"/"visita" van TAL COMO se ven (si la casa abrevia con 3 letras como "CHE", pon "CHE"). En "local_completo"/"visita_completo" pon el nombre completo del club SOLO si estás seguro de a cuál se refiere la abreviatura; si dudas, null (nunca adivines).
 "cuota" es la cuota de ESA selección si se ve; si solo se ve la cuota total del boleto, ponla en "cuota_total". No inventes datos que no se vean: lo ilegible va como null.
-Formato de Draftea (y casas parecidas): cada fila trae fecha/hora, «ABC vs XYZ» (abreviaturas de 3 letras: copia las letras tal cual), el mercado (p. ej. «GOLES TOTALES 90'») y la selección con una flecha:
+Formato de Caliente, Draftea y casas parecidas: cada fila trae fecha/hora, «ABC vs XYZ» (abreviaturas de 3 letras: copia las letras tal cual), el mercado (p. ej. «GOLES TOTALES 90'») y la selección con una flecha:
 «↑ 1.5» = Más de 1.5 (seleccion_texto "Más", linea 1.5); «↓ 3.5» = Menos de 3.5 (seleccion_texto "Menos", linea 3.5). La cuota de cada fila se ve como «1.16x» → 1.16.
 "fecha" es el día del partido de esa fila como DD/MM («12/nov» → "12/11"); si no se ve, null.
 En el encabezado: «Entrada» = monto apostado, «Momio» (p. ej. 90.51x) = cuota_total del boleto, «Ganancia potencial» = cobro. Un «$» sin otra indicación es MXN.

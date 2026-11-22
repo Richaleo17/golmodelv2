@@ -83,3 +83,10 @@ def test_escudos_solo_ids_numericos(bd):
     partidos = [{"partido_id": 7}]
     sugerencias._escudos(bd, partidos, [{"partido_id": 7, "local_id": a, "visitante_id": b}])
     assert partidos[0]["escudo_local"] == "83" and partidos[0]["escudo_visitante"] is None        # lo que no es número no se manda
+
+
+def test_banderas_de_selecciones():
+    partidos = [{"partido_id": 1, "local": "Spain", "visitante": "England"}, {"partido_id": 2, "local": "Barcelona", "visitante": "Korea Republic"}]
+    sugerencias._banderas(partidos)
+    assert (partidos[0]["bandera_local"], partidos[0]["bandera_visitante"]) == ("es", "gb-eng")
+    assert (partidos[1]["bandera_local"], partidos[1]["bandera_visitante"]) == (None, "kr")      # los clubes no llevan bandera
