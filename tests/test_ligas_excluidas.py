@@ -51,7 +51,8 @@ def _partido(c, liga, inicio, estado="programado", goles=None):
 
 
 def test_config_excluye_las_ligas_pedidas():
-    assert set(CFG["ligas_excluidas"]) >= {"EPL", "BUN", "ERE", "BEL", "MK:soccer_japan_j_league"}
+    assert set(CFG["ligas_excluidas"]) >= {"BUN", "ERE", "BEL", "MK:soccer_japan_j_league"}
+    assert "EPL" in CFG["ligas_activas"] and "EPL" not in CFG["ligas_excluidas"]               # Premier League regresó (2026-11-23)
     assert "SA" in CFG["ligas_activas"] and "SA" not in CFG["ligas_excluidas"]               # Serie A regresó (2026-11-22)
     assert not set(CFG["ligas_excluidas"]) & set(CFG["ligas_activas"])                 # coherentes: no hay liga activa y excluida a la vez
     for sec in ("corners", "tarjetas", "props"):

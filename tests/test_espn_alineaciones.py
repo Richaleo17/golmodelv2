@@ -24,7 +24,7 @@ def _fx(nombre):
 def test_mapa_de_ligas():
     assert E.liga_espn("LL") == "esp.1" and E.liga_espn("L1") == "fra.1" and E.liga_espn("MLS") == "usa.1"
     assert E.liga_espn("MK:soccer_uefa_champs_league") == "uefa.champions"
-    assert E.liga_espn("MK:soccer_japan_j_league") is None and E.liga_espn("EPL") is None        # excluidas: no se consultan
+    assert E.liga_espn("MK:soccer_japan_j_league") is None and E.liga_espn("BUN") is None and E.liga_espn("EPL") == "eng.1"   # excluidas no se consultan; la Premier regresó
 
 
 def test_scoreboard_real():
@@ -284,7 +284,7 @@ def test_parsers_fotmob_reales():
     assert loc["Jordi Pesquer"]["tipo"] == "con su selección"
     assert {x["nombre"] for x in bajas["visitante"]} >= {"Gerard Moreno", "Juan Foyth"}
     assert F.parse_bajas({}) is None and F.parse_partidos(None) == []
-    assert F.liga_fotmob("LL") == 87 and F.liga_fotmob("MK:soccer_uefa_champs_league") == 42 and F.liga_fotmob("EPL") is None
+    assert F.liga_fotmob("LL") == 87 and F.liga_fotmob("MK:soccer_uefa_champs_league") == 42 and F.liga_fotmob("BUN") is None and F.liga_fotmob("EPL") == 47
 
 
 class FotMobFalsa:
