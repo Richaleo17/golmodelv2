@@ -101,7 +101,7 @@ const TENIS = { version: "tenis-elo-sup-v1", aviso: "Tenis v1", n_historico: 300
     { id: "e2", tour: "atp", torneo: "ATP Finals", categoria: "ATP", superficie: "Hard", best_of: 3, inicio: "2026-11-19T07:00:00-06:00", jugador1: "Alex de Minaur", jugador2: "Carlos Alcaraz",
       elo1: 1990, elo2: 2190, partidos1: 350, partidos2: 300, p_modelo: 0.25, p_mercado: 0.22, p_final: 0.229, cuota1: 4.4, cuota2: 1.24, casa: "pinnacle",
       modelo_confiable: true, fuente: "modelo + mercado" },
-    { id: "espn:5", tour: "atp", torneo: "Challenger (Lima)", categoria: "Challenger", superficie: "Clay", best_of: 3, inicio: "2026-11-19T15:00:00-06:00", jugador1: "Juan Uno", jugador2: "Pedro Dos",
+    { id: "espn:5", tour: "atp", torneo: "Challenger (Lima)", categoria: "Challenger", superficie: "Clay", best_of: 3, inicio: "2026-11-20T15:00:00-06:00", jugador1: "Juan Uno", jugador2: "Pedro Dos",
       elo1: 1700, elo2: 1600, partidos1: 60, partidos2: 40, p_modelo: 0.64, p_mercado: null, p_final: 0.64, cuota1: null, cuota2: null, casa: null,
       modelo_confiable: true, fuente: "solo modelo" }],
   ranking: { atp: { general: [{ lugar: 1, jugador: "sinner j", elo: 2210, partidos: 400 }], hard: [], clay: [], grass: [] }, wta: { general: [] } },
@@ -333,6 +333,12 @@ async function simular(page) {
     const ps = await page.$$eval("#vista .rk-p", (es) => es.map((e) => parseFloat(e.textContent)));
     const ten = await page.textContent("#vista");
     ok(ps.length === 3 && /solo del Elo/.test(ten) && /Juan Uno/.test(ten), "Hoy Tenis: partido de ESPN sin momio con pronóstico solo del Elo");
+    await page.click('#chips-tdia [data-tdia="2026-11-20"]');
+    await page.waitForFunction(() => document.querySelector('#chips-tdia [data-tdia="2026-11-20"]')?.getAttribute("aria-pressed") === "true");
+    const delDia = await page.textContent("#vista");
+    ok(/Juan Uno/.test(delDia) && !/Carlos Alcaraz/.test(delDia.split("Mis pronósticos")[1] || ""), "Hoy Tenis: filtro de fecha (un día a la vez)");
+    await page.click('#chips-tdia [data-tdia=""]');
+    await page.waitForFunction(() => document.querySelector('#chips-tdia [data-tdia=""]')?.getAttribute("aria-pressed") === "true");
     await page.click('#chips-tcat [data-tcat="Challenger"]');
     await page.waitForFunction(() => document.querySelector('#chips-tcat [data-tcat="Challenger"]')?.getAttribute("aria-pressed") === "true");
     const soloCh = await page.textContent("#vista");

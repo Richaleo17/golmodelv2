@@ -195,7 +195,9 @@ def test_la_raiz_lleva_a_la_pwa_y_la_pwa_se_sirve(cli):
     assert [m for m in re.findall(r'data-v="(\w+)"', h.text)] == ["hoy", "dashboard", "parlays", "cuotas", "datos"]      # menú inferior (rediseño multideporte 2026-11-18)
     assert [m for m in re.findall(r'data-dep="(\w+)"', h.text)] == ["futbol", "nfl", "tenis", "nba"]                             # selector de deporte
     for recurso in ("app.css", "app.js", "sw.js", "icon.svg", "manifest.webmanifest", "icon-192.png", "icon-512.png", "icon-180.png"):
-        assert cli.get(f"/app/{recurso}").status_code == 200, recurso
+        r = cli.get(f"/app/{recurso}")
+        assert r.status_code == 200, recurso
+        assert r.headers.get("cache-control") == "no-cache", recurso          # siempre se revalida: nunca un app.js viejo tras desplegar
 
 
 def test_el_manifiesto_es_instalable():
