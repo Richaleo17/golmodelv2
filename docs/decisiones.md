@@ -389,3 +389,18 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   En fútbol se elige por LADO (local/visitante) y no por nombre, porque el nombre del favorito puede diferir del de la tarjeta.
 * **Dashboard de tenis:** tabla por circuito (ATP/WTA) y por nivel (principal/Challenger), con acierto real contra el esperado por el
   propio modelo.
+
+## 2026-11-23 (b) — Caché de la app, filtro de fecha en tenis, Europa League, voleibol y balonmano
+
+* **«No sale el filtro de liga».** El despliegue terminó a las 20:04 y la captura es de las 20:07: el iPhone seguía con el `app.js`
+  viejo por caché heurística de Safari, porque el servidor no mandaba `Cache-Control`. Ahora todo `/app/...` va con
+  `Cache-Control: no-cache` (siempre revalida con ETag), y el service worker pasa a v2 y pide la red con `cache: "no-cache"`.
+* **Tenis:** filtro de fecha (Hoy, Mañana, …, hora de CDMX), además de categoría y torneo.
+* **Europa League:** sí está conectada (`soccer_uefa_europa_league`, 88 consultas desde el 8-nov). Desde que arrancó la app no ha habido
+  jornada (la anterior fue el 6-nov, la siguiente es el 26-nov). Entra sola cuando el jueves quede dentro de la ventana de 3 días.
+  La Conference League igual. La Nations League no tiene partidos hasta su próxima ventana.
+* **Voleibol y balonmano (las ligas de Caliente): sin datos suficientes para medir.**
+  * TheSportsDB (llave pública «123»): 5 ligas por deporte en la búsqueda, 15 partidos por temporada y 1 próximo por liga. No alcanza
+    para un Elo ni para medir el acierto.
+  * LiveScore no tiene esos deportes (410), ESPN no tiene balonmano, y del voleibol solo trae el universitario de EE. UU.
+  * Con TheSportsDB Premium (de pago) sí habría temporadas completas para medir liga por liga y quedarse solo con las más certeras.

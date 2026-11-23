@@ -104,7 +104,10 @@ async def proteger(request: Request, call_next):
                     ctl.latido("admin" if r == acceso.ADMIN else "lector (compartido)", None, ruta, ip, disp)
         except Exception:                                                     # noqa: BLE001
             logging.getLogger(__name__).warning("acceso: falló el registro", exc_info=True)
-    return await call_next(request)
+    respuesta = await call_next(request)
+    if ruta == "/app" or ruta.startswith("/app/"):
+        respuesta.headers["Cache-Control"] = "no-cache"                     # revalidar siempre: nunca un app.js viejo tras desplegar
+    return respuesta
 
 
 _control: usuarios.Control | None = None

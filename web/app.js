@@ -28,7 +28,7 @@ const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var
 const TOKEN = "golmodel.token";
 const LIGAS = { LL: "LaLiga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", tenisCat: "", tenisTorneo: "", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", fLiga: "", fEstado: "todos", fPmin: 0, montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", tenisCat: "", tenisTorneo: "", tenisDia: "", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", fLiga: "", fEstado: "todos", fPmin: 0, montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -680,7 +680,17 @@ async function vTenis() {
   h += `<div class="aviso-prov">${esc(d.aviso)}</div>`;
   if (a.estado === "error") h += `<p class="error">Última actualización de tenis: ${esc(a.error)}</p>`;
   h += `<div class="chips" id="chips-tour">${[["atp", "ATP"], ["wta", "WTA"]].map(([k, t]) => `<button class="chip" type="button" data-tour="${k}" aria-pressed="${S.tenisTour === k}">${t}</button>`).join("")}</div>`;
-  const delTour = (d.partidos || []).filter((x) => x.tour === S.tenisTour);
+  const diaMX = (iso) => new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City" }).format(new Date(iso));
+  const todosTour = (d.partidos || []).filter((x) => x.tour === S.tenisTour);
+  const dias = [...new Set(todosTour.map((x) => diaMX(x.inicio)))].sort();
+  if (S.tenisDia && !dias.includes(S.tenisDia)) S.tenisDia = "";
+  const delTour = todosTour.filter((x) => !S.tenisDia || diaMX(x.inicio) === S.tenisDia);
+  if (dias.length > 1) {
+    const hoy = hoyMX();
+    const etq = (k) => (k === hoy ? "Hoy" : k === sumarDias(hoy, 1) ? "Mañana" : new Date(k + "T12:00:00").toLocaleDateString("es-MX", { weekday: "short", day: "2-digit", month: "short" }));
+    h += `<div class="chips" id="chips-tdia"><button class="chip" type="button" data-tdia="" aria-pressed="${!S.tenisDia}">Todos los días</button>` +
+      dias.map((k) => `<button class="chip" type="button" data-tdia="${esc(k)}" aria-pressed="${S.tenisDia === k}">${esc(etq(k))} (${todosTour.filter((x) => diaMX(x.inicio) === k).length})</button>`).join("") + `</div>`;
+  }
   const cats = TENIS_CATS.filter((c) => delTour.some((x) => x.categoria === c));
   if (S.tenisCat && !cats.includes(S.tenisCat)) S.tenisCat = "";
   const porCat = delTour.filter((x) => !S.tenisCat || x.categoria === S.tenisCat);
@@ -747,6 +757,7 @@ async function vTenis() {
 function montarTenis(v) {
   $$("#chips-tour .chip", v).forEach((b) => b.addEventListener("click", () => { S.tenisTour = b.dataset.tour; render(); }));
   $$("#chips-tcat [data-tcat]", v).forEach((b) => b.addEventListener("click", () => { S.tenisCat = b.dataset.tcat; S.tenisTorneo = ""; render(); }));
+  $$("#chips-tdia [data-tdia]", v).forEach((b) => b.addEventListener("click", () => { S.tenisDia = b.dataset.tdia; render(); }));
   const ft = $("#f-ttorneo", v);
   if (ft) ft.addEventListener("change", () => { S.tenisTorneo = ft.value; render(); });
   const b = $("#tenis-act", v);
