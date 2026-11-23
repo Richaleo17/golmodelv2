@@ -364,3 +364,32 @@ def test_superficie_palabra_completa():
     from golmodel.motor_tenis.servicio import superficie_de
     assert superficie_de("ATP Challenger Ankara, Turkey", {}, CFG) == "Hard"          # «halle» está dentro de «challenger»
     assert superficie_de("Terra Wortmann Open (Halle)", {}, CFG) == "Grass"
+
+
+def test_categorias_de_tenis():
+    from golmodel.motor_tenis.servicio import categoria
+    assert categoria("ATP Challenger Ankara, Turkey", "atp", "livescore") == "Challenger"
+    assert categoria("WTA Challenger Buenos Aires, Argentina", "wta", "livescore") == "WTA 125"
+    assert categoria("WTA 125 · LP Open by IND (Colina)", "wta", "espn") == "WTA 125"
+    assert categoria("Davis Cup Finals", "atp", "livescore") == "Copa Davis"
+    assert categoria("Billie Jean King Cup World Group", "wta", "livescore") == "Billie Jean King Cup"
+    assert categoria("Wimbledon (London)", "wta", "espn") == "Grand Slam" and categoria("ATP Finals", "atp", "tennis_atp_finals") == "ATP"
+
+
+def test_livescore_duplicado_de_espn_se_descarta_y_marca_wta125():
+    from golmodel.motor_tenis.servicio import _quitar_duplicados_livescore
+    t0 = datetime(2026, 11, 23, 15, tzinfo=timezone.utc)
+    vistos = {"9": {"id": "9", "jugador1": "Ana Uno", "jugador2": "Bea Dos", "inicio": t0, "torneo": "LP Open by IND (Colina)"},
+              "l1": {"id": "l1", "jugador1": "Bea Dos", "jugador2": "Ana Uno", "inicio": t0 + timedelta(hours=2), "torneo": "WTA Challenger Colina, Chile"},
+              "l2": {"id": "l2", "jugador1": "Eva Tres", "jugador2": "Ida Cuatro", "inicio": t0, "torneo": "WTA Challenger Colina, Chile"}}
+    _quitar_duplicados_livescore(vistos)
+    assert set(vistos) == {"9", "l2"} and vistos["9"]["torneo"] == "WTA 125 · LP Open by IND (Colina)"
+
+
+def test_parse_livescore_davis_y_bjk():
+    dia = {"Stages": [{"Cnm": "Davis Cup", "Snm": "Finals", "Events": [
+        {"Eid": "1", "T1": [{"Nm": "A Jugador01"}], "T2": [{"Nm": "A Jugador02"}], "Eps": "NS", "Et": 10, "Esd": 20261125100000}]},
+        {"Cnm": "Billie Jean King Cup", "Snm": "World Group", "Events": [
+            {"Eid": "2", "T1": [{"Nm": "Ana Uno"}], "T2": [{"Nm": "Bea Dos"}], "Eps": "NS", "Et": 15, "Esd": 20261125100000}]}]}
+    f = {x["id"]: x for x in td.parse_livescore(dia, CFG["tenis"]["challenger"]["competencias"])}
+    assert f["l1"]["tour"] == "atp" and f["l2"]["tour"] == "wta" and f["l1"]["torneo"] == "Davis Cup Finals"

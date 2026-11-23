@@ -128,6 +128,45 @@ def _livescore(conn, fuente, cfg: dict, ahora: datetime, res: dict, vistos: dict
         d += timedelta(days=1)
 
 
+def _quitar_duplicados_livescore(vistos: dict) -> None:
+    """Un mismo partido puede venir de ESPN y de LiveScore (Copa Davis, BJK Cup): se queda el de ESPN (mismos jugadores, ±36 h)."""
+    espn = {}
+    for f in vistos.values():
+        if not f["id"].startswith("l"):
+            espn.setdefault(frozenset((claves_nombre_completo(f["jugador1"])[0], claves_nombre_completo(f["jugador2"])[0])), []).append(f["inicio"])
+    for k in [k for k, f in vistos.items() if f["id"].startswith("l")]:
+        f = vistos[k]
+        par = frozenset((claves_nombre_completo(f["jugador1"])[0], claves_nombre_completo(f["jugador2"])[0]))
+        if any(abs((i - f["inicio"]).total_seconds()) < 36 * 3600 for i in espn.get(par, [])):
+            if str(f["torneo"]).startswith("WTA Challenger"):            # ESPN no distingue los WTA 125: LiveScore sí
+                for g in vistos.values():
+                    if not g["id"].startswith("l") and frozenset((claves_nombre_completo(g["jugador1"])[0],
+                                                                  claves_nombre_completo(g["jugador2"])[0])) == par \
+                            and not str(g["torneo"]).startswith("WTA 125"):
+                        g["torneo"] = f"WTA 125 · {g['torneo']}"
+            del vistos[k]
+
+
+# Categoría (el «liga» del tenis, como la agrupan las casas: Grand Slam, ATP, WTA, Challenger, Copa Davis, BJK Cup)
+CATEGORIAS = ("Grand Slam", "ATP", "WTA", "Challenger", "WTA 125", "Copa Davis", "Billie Jean King Cup")
+_SLAMS = ("australian open", "roland garros", "french open", "wimbledon", "us open", "aus_open", "french_open", "us_open")
+
+
+def categoria(torneo: str, tour: str, sport_key: str = "") -> str:
+    t = f"{_plano(torneo)} {sport_key or ''}".lower()
+    if "davis" in t:
+        return "Copa Davis"
+    if "billie jean" in t or "bjk" in t:
+        return "Billie Jean King Cup"
+    if "wta challenger" in t or "wta 125" in t:
+        return "WTA 125"
+    if "challenger" in t:
+        return "Challenger"
+    if any(s in t for s in _SLAMS):
+        return "Grand Slam"
+    return (tour or "atp").upper()
+
+
 def _superficies_hist(conn) -> dict:
     out = {}
     for r in conn.execute("SELECT DISTINCT ON (torneo) torneo, superficie FROM tenis_partidos WHERE id NOT LIKE 'e:%%' ORDER BY torneo, fecha DESC"):
@@ -167,11 +206,12 @@ def _espn(conn, fuente, cfg: dict, ahora: datetime, res: dict) -> None:
         except Exception as e:                                     # noqa: BLE001
             res["avisos"].append(f"ESPN {tour.upper()} {d}: {type(e).__name__}")
     _livescore(conn, fuente, cfg, ahora, res, vistos)
+    _quitar_duplicados_livescore(vistos)
     filas = list(vistos.values())
     cortes_ch = {"atp": conn.execute("SELECT max(fecha) AS f FROM tenis_partidos WHERE id LIKE 'c:%%'").fetchone()["f"]}
 
     def _despues_del_corte(f) -> bool:
-        cs = cortes_ch if f["id"].startswith("e:l") else cortes
+        cs = cortes_ch if categoria(f["torneo"], "") == "Challenger" else cortes
         return cs.get(f["tour"]) is not None and (vistos[f["id"][2:]]["evento_inicio"] or "0000") > cs[f["tour"]].isoformat()
     nuevos = [f for f in resultados_espn(filas, sup) if _despues_del_corte(f)]
     for f in nuevos:
@@ -197,7 +237,8 @@ def _espn(conn, fuente, cfg: dict, ahora: datetime, res: dict) -> None:
         conn.execute("""INSERT INTO tenis_eventos (odds_api_id, tour, sport_key, torneo, inicio, jugador1, jugador2, cuota1, cuota2, casa,
                             best_of, capturada_en)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, NULL, NULL, NULL, %s, %s)
-                        ON CONFLICT (odds_api_id) DO UPDATE SET inicio = EXCLUDED.inicio, capturada_en = EXCLUDED.capturada_en""",
+                        ON CONFLICT (odds_api_id) DO UPDATE SET inicio = EXCLUDED.inicio, torneo = EXCLUDED.torneo,
+                            capturada_en = EXCLUDED.capturada_en""",
                      (f"espn:{f['id']}", f["tour"], "livescore" if f["id"].startswith("l") else "espn", f["torneo"], f["inicio"],
                       f["jugador1"], f["jugador2"], f["best_of"], ahora))
         n += 1
@@ -287,6 +328,7 @@ def pronosticos(conn, cfg: dict, ahora: datetime, dias: int | None = None) -> li
             p_fin = alfa * p_mod + (1 - alfa) * p_mk if conoce else p_mk
         inicio = e["inicio"].astimezone(zona)
         salida.append({"id": e["odds_api_id"], "tour": tour, "torneo": e["torneo"], "superficie": sup, "best_of": e["best_of"],
+                       "categoria": categoria(e["torneo"], tour, e["sport_key"]),
                        "inicio": inicio.isoformat(), "jugador1": e["jugador1"], "jugador2": e["jugador2"],
                        "elo1": round(est.general.get((tour, k1), 1500.0)), "elo2": round(est.general.get((tour, k2), 1500.0)),
                        "partidos1": n1, "partidos2": n2, "p_modelo": p_mod, "p_mercado": p_mk, "p_final": p_fin,
@@ -324,6 +366,11 @@ def semana(conn, cfg: dict, ahora: datetime) -> dict:
             "desempeno": {t: md.metricas([r for r in temporada if r["tour"] == t], mercado) for t in cfg["tenis"]["circuitos"]}}
 
 
+def _nivel(pid: str) -> str:
+    """Nivel de un partido del histórico por su id: «c:» = Challenger de Sackmann, «e:l» = LiveScore (Challenger/Davis/BJK)."""
+    return "Challenger" if pid.startswith(("c:", "e:l")) else "Circuito principal"
+
+
 def dashboard(conn, cfg: dict, ahora: datetime) -> dict:
     _, reg, mercado, _, _ = _estado(conn, cfg)
     actual, previa = str(ahora.year), str(ahora.year - 1)
@@ -339,6 +386,7 @@ def dashboard(conn, cfg: dict, ahora: datetime) -> dict:
         m["vegas"] = {"pct_aciertos": m["mercado"]["pct_aciertos"], "brier": m["mercado"]["brier"]}
     return {"temporada": ahora.year, "desempeno": m, "curva": curva, "delta_semana": delta,
             "por_circuito": {t: md.metricas([r for r in temp if r["tour"] == t], mercado) for t in cfg["tenis"]["circuitos"]},
+            "por_nivel": {n: md.metricas([r for r in temp if _nivel(r["id"]) == n], mercado) for n in ("Circuito principal", "Challenger")},
             "temporada_pasada": {"temporada": ahora.year - 1, "partidos": mp.get("partidos"), "pct_aciertos": mp.get("pct_aciertos"),
                                  "brier": mp.get("brier")},
             "version": md.VERSION}

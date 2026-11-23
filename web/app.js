@@ -21,13 +21,14 @@ const urlEscudo = {
 };
 /* Fútbol: las selecciones nacionales llevan su bandera (flagcdn, código ISO validado); los clubes, su escudo de ESPN. */
 urlEscudo.pais = (c) => (/^[a-z]{2}(-[a-z]{3})?$/.test(String(c ?? "")) ? `https://flagcdn.com/w80/${c}.png` : null);
-const escudoFut = (p, lado) => escudo(urlEscudo.pais(p["bandera_" + lado]) || urlEscudo.futbol(p["escudo_" + lado]));
+const icoFut = (p, lado) => urlEscudo.pais(p["bandera_" + lado]) || urlEscudo.futbol(p["escudo_" + lado]);
+const escudoFut = (p, lado) => escudo(icoFut(p, lado));
 const escudo = (url) => (url ? `<span class="escudo" style="background-image:url('${url}')" aria-hidden="true"></span>` : "");
 const colorP = (p) => (p >= 0.65 ? "var(--hi)" : p >= 0.45 ? "var(--mid)" : "var(--lo)");
 const TOKEN = "golmodel.token";
 const LIGAS = { LL: "LaLiga", L1: "Ligue 1", MX1: "Liga MX", MXF: "Liga MX Femenil", MLS: "MLS", BR1: "Brasileirão", POR: "Primeira Liga" };
 
-const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", fLiga: "", fEstado: "todos", fPmin: 0, montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
+const S = { rol: "admin", modo: "login", dia: hoyMX(), vista: "hoy", deporte: "futbol", ptab: "boletos", tenisTour: "atp", tenisCat: "", tenisTorneo: "", cache: {}, ligasOff: new Set(), q: "", orden: "Hora", fLiga: "", fEstado: "todos", fPmin: 0, montoSon: null, rango: 3, dvista: "tarjetas", rkMercado: "ganador", rkLiga: "", boleto: null, sa: { min: 20, max: 50 } };
 
 // ------------------------------------------------------------------ API
 async function api(metodo, ruta, cuerpo) {
@@ -324,7 +325,7 @@ const RK_MERCADOS = [["ganador", "Gana"], ["primer_gol", "PA(1) primer gol"], ["
 function barrasRanking(titulo, filas, pie) {
   if (!filas.length) return `<div class="card vacio">No hay partidos para este filtro.</div>`;
   return `<div class="card rk"><div class="rk-tit">${titulo}</div>` + filas.map((f) =>
-    `<div class="rk-fila"><div class="rk-eq">${esc(f.eq)}${f.sub ? `<small>${esc(f.sub)}</small>` : ""}</div>` +
+    `<div class="rk-fila"><div class="rk-eq">${f.ico ? escudo(f.ico) : ""}${esc(f.eq)}${f.sub ? `<small>${esc(f.sub)}</small>` : ""}</div>` +
     `<div class="rk-vs">${f.rival ? "vs " + esc(f.rival) : ""}${f.lugar ? `<small>${esc(f.lugar)}</small>` : ""}</div>` +
     `<div class="rk-barra"><i class="${f.p >= 0.6 ? "fuerte" : ""}" style="width:${Math.max(2, Math.min(100, 100 * f.p)).toFixed(0)}%"></i></div>` +
     `<b class="rk-p" style="color:${colorP(f.p)}">${pct(f.p)}</b></div>`).join("") + (pie ? `<div class="meta rk-pie">${pie}</div>` : "") + `</div>`;
@@ -341,10 +342,14 @@ function rankingFutbol(lista, nombres) {
     const enCasa = p.gana && p.gana.lado === "local";
     if (k === "ganador" || k === "primer_gol") {
       const pr = tile ? tile.p : (k === "ganador" ? p.gana.p : p.primer_gol.p);
-      filas.push({ eq: k === "ganador" ? p.gana.favorito : p.primer_gol.equipo, rival: p.gana.rival, lugar: enCasa ? "en casa" : "de visita", p: pr, sub: cuando });
+      const eqN = k === "ganador" ? p.gana.favorito : p.primer_gol.equipo;
+      const otroLado = (l) => (l === "local" ? "visitante" : l === "visitante" ? "local" : null);
+      const lado = eqN === p.gana.favorito ? p.gana.lado : otroLado(p.gana.lado);     // por lado, no por nombre (los nombres pueden diferir)
+      filas.push({ eq: eqN, rival: p.gana.rival, lugar: (lado ? lado === "local" : enCasa) ? "en casa" : "de visita", p: pr, sub: cuando, ico: lado ? icoFut(p, lado) : null });
     } else if (k === "otro") {
       if (!p.otro_anota || p.otro_anota.p == null) return;
-      filas.push({ eq: p.otro_anota.equipo, rival: p.gana.favorito, lugar: enCasa ? "de visita" : "en casa", p: p.otro_anota.p, sub: cuando });
+      filas.push({ eq: p.otro_anota.equipo, rival: p.gana.favorito, lugar: enCasa ? "de visita" : "en casa", p: p.otro_anota.p, sub: cuando,
+        ico: p.gana.lado === "local" ? icoFut(p, "visitante") : p.gana.lado === "visitante" ? icoFut(p, "local") : null });
     } else if (k === "corners" || k === "tarjetas") {
       if (!tile) return;
       filas.push({ eq: `${p.local} – ${p.visitante}`, rival: "", lugar: tile.pick, p: tile.p, sub: cuando });
@@ -614,8 +619,17 @@ function cabDashboard() {
 }
 
 function dashboardTenis(r) {
-  return dashboardNfl(r, { icono: "🎾", nombre: "Tenis", vs: "el mercado (Pinnacle)", clase: "kpi-tenis", unidad: "partidos",
+  const base = dashboardNfl(r, { icono: "🎾", nombre: "Tenis", vs: "el mercado (Pinnacle)", clase: "kpi-tenis", unidad: "partidos",
     accion: "Ve a Hoy → 🎾 Tenis → «Actualizar tenis»", base: "temporada pasada" });
+  const d = r && r.ok ? r.data : {};
+  const filas = [["ATP", (d.por_circuito || {}).atp], ["WTA", (d.por_circuito || {}).wta],
+    ["Circuito principal", (d.por_nivel || {})["Circuito principal"]], ["Challenger", (d.por_nivel || {}).Challenger]].filter(([, m]) => m && m.partidos);
+  if (!filas.length) return base;
+  return base + `<h3>🎾 Por circuito y nivel · ${esc(d.temporada)}</h3><div class="card"><table class="nfl"><thead><tr><th></th><th>Partidos</th><th>Acierto</th><th>Esperado</th><th>Brier</th></tr></thead><tbody>` +
+    filas.map(([n, m]) => `<tr><td><b>${esc(n)}</b></td><td>${Number(m.partidos)}</td><td><b style="color:${colorP(m.pct_aciertos)}">${pct(m.pct_aciertos, 1)}</b></td>` +
+      `<td>${m.aciertos_esperados != null ? pct(m.aciertos_esperados / m.partidos, 1) : "—"}</td><td>${num(m.brier, 3)}</td></tr>`).join("") +
+    `</tbody></table><p class="meta">Predicción previa a cada partido (Elo). «Esperado» = lo que el propio modelo decía que iba a acertar: si el acierto real ` +
+    `se le parece, el modelo está bien calibrado.</p></div>`;
 }
 
 /* Apartado NFL del Dashboard: récord de la temporada con la predicción previa, curva acumulada semana a semana, cambio vs la
@@ -653,6 +667,8 @@ function dashboardNfl(r, o = {}) {
 
 // ------------------------------------------------------------------ Tenis
 const SUP_ES = { Hard: "dura", Clay: "arcilla", Grass: "pasto" };
+/* Orden fijo de las «ligas» del tenis (como las agrupa la casa). */
+const TENIS_CATS = ["Grand Slam", "ATP", "WTA", "Copa Davis", "Billie Jean King Cup", "Challenger", "WTA 125"];
 
 async function vTenis() {
   const r = await api("GET", "/tenis/semana");
@@ -664,7 +680,21 @@ async function vTenis() {
   h += `<div class="aviso-prov">${esc(d.aviso)}</div>`;
   if (a.estado === "error") h += `<p class="error">Última actualización de tenis: ${esc(a.error)}</p>`;
   h += `<div class="chips" id="chips-tour">${[["atp", "ATP"], ["wta", "WTA"]].map(([k, t]) => `<button class="chip" type="button" data-tour="${k}" aria-pressed="${S.tenisTour === k}">${t}</button>`).join("")}</div>`;
-  const ps = (d.partidos || []).filter((x) => x.tour === S.tenisTour);
+  const delTour = (d.partidos || []).filter((x) => x.tour === S.tenisTour);
+  const cats = TENIS_CATS.filter((c) => delTour.some((x) => x.categoria === c));
+  if (S.tenisCat && !cats.includes(S.tenisCat)) S.tenisCat = "";
+  const porCat = delTour.filter((x) => !S.tenisCat || x.categoria === S.tenisCat);
+  const torneos = [...new Set(porCat.map((x) => x.torneo))].sort((a2, b2) => a2.localeCompare(b2));
+  if (S.tenisTorneo && !torneos.includes(S.tenisTorneo)) S.tenisTorneo = "";
+  const ps = porCat.filter((x) => !S.tenisTorneo || x.torneo === S.tenisTorneo)
+    .sort((a2, b2) => (TENIS_CATS.indexOf(a2.categoria) - TENIS_CATS.indexOf(b2.categoria)) || a2.torneo.localeCompare(b2.torneo) || a2.inicio.localeCompare(b2.inicio));
+  if (delTour.length) {
+    h += `<div class="filtros"><div class="chips" id="chips-tcat"><button class="chip" type="button" data-tcat="" aria-pressed="${!S.tenisCat}">Todas (${delTour.length})</button>` +
+      cats.map((c) => `<button class="chip" type="button" data-tcat="${esc(c)}" aria-pressed="${S.tenisCat === c}">${esc(c)} (${delTour.filter((x) => x.categoria === c).length})</button>`).join("") + `</div>` +
+      `<div class="fila"><select id="f-ttorneo" aria-label="Torneo"><option value="">Todos los torneos (${porCat.length} partidos)</option>` +
+      torneos.map((tn) => `<option value="${esc(tn)}"${S.tenisTorneo === tn ? " selected" : ""}>${esc(tn)} (${porCat.filter((x) => x.torneo === tn).length})</option>`).join("") +
+      `</select></div></div>`;
+  }
   if (!d.n_historico) h += `<div class="card meta">Todavía no se cargan datos de tenis: usa «Actualizar tenis».</div>`;
   else if (!ps.length) h += `<div class="card meta">No hay partidos ${S.tenisTour.toUpperCase()} en los próximos días (fuera de temporada o sin torneo activo).</div>`;
   const filas = ps.filter((x) => x.p_final != null).map((x) => {
@@ -675,12 +705,15 @@ async function vTenis() {
   }).sort((a2, b2) => b2.p - a2.p);
   if (filas.length) h += `<h3>🎾 Mis pronósticos · quién gana</h3>` + barrasRanking(`${S.tenisTour.toUpperCase()} · de mayor a menor`, filas,
     "Probabilidad final = 30% Elo por superficie + 70% momio de Pinnacle (sin margen). Barra fuerte = 60% o más.");
+  let grupo = null;
   h += ps.map((x) => {
+    const cab = x.torneo !== grupo ? `<h4 class="grupo-torneo">${esc(x.categoria || "")} · ${esc(x.torneo)}</h4>` : "";
+    grupo = x.torneo;
     const fecha = new Date(x.inicio).toLocaleString("es-MX", { weekday: "short", day: "2-digit", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" });
     const fila = (nom, pm, pk, pf, cuota, elo, n) => `<tr><td><b>${esc(nom)}</b><br><small class="meta">Elo ${esc(elo)} · ${esc(n)} partidos</small></td>` +
       `<td>${pct(pm)}</td><td>${pk != null ? pct(pk) : "—"}</td><td><b style="color:${colorP(pf)}">${pf != null ? pct(pf) : "—"}</b></td>` +
       `<td>${cuota ? num(cuota) : "—"}<br><small class="meta">justa ${pf ? cuotaAm(1 / pf) : "—"}</small></td></tr>`;
-    return `<div class="mc"><div class="mc-top"><span>${esc(x.tour.toUpperCase())} · ${esc(x.torneo)}</span><span>${esc(fecha)}</span></div>` +
+    return cab + `<div class="mc"><div class="mc-top"><span>${esc(x.tour.toUpperCase())} · ${esc(x.torneo)}</span><span>${esc(fecha)}</span></div>` +
       `<div class="mc-eq">${esc(x.jugador1)} vs ${esc(x.jugador2)}</div>` +
       `<div class="meta">${esc(SUP_ES[x.superficie] || x.superficie)} · a ${esc(x.best_of)} sets · ${esc(x.fuente)}${x.casa ? " · momio " + esc(x.casa) : ""}</div>` +
       `<table class="nfl"><thead><tr><th>Jugador</th><th>Modelo</th><th>Mercado</th><th>Final</th><th>Cuota</th></tr></thead><tbody>` +
@@ -713,6 +746,9 @@ async function vTenis() {
 
 function montarTenis(v) {
   $$("#chips-tour .chip", v).forEach((b) => b.addEventListener("click", () => { S.tenisTour = b.dataset.tour; render(); }));
+  $$("#chips-tcat [data-tcat]", v).forEach((b) => b.addEventListener("click", () => { S.tenisCat = b.dataset.tcat; S.tenisTorneo = ""; render(); }));
+  const ft = $("#f-ttorneo", v);
+  if (ft) ft.addEventListener("change", () => { S.tenisTorneo = ft.value; render(); });
   const b = $("#tenis-act", v);
   if (!b) return;
   b.addEventListener("click", async () => {
@@ -806,7 +842,8 @@ async function vNba() {
   const js = d.juegos || [];
   if (!js.length) h += `<div class="card meta">No hay juegos de NBA en los próximos días. Usa «Actualizar NBA».</div>`;
   const filas = js.filter((x) => x.favorito).map((x) => ({ eq: x.favorito.nombre, rival: x.favorito.nombre === x.local.nombre ? x.visitante.nombre : x.local.nombre,
-    lugar: `${x.dia_texto} ${x.hora}`, p: x.favorito.p, sub: x.nivel_lesiones === "alto" ? "⚠ baja importante" : "" })).sort((p, q) => q.p - p.p);
+    lugar: `${x.dia_texto} ${x.hora}`, p: x.favorito.p, sub: x.nivel_lesiones === "alto" ? "⚠ baja importante" : "",
+    ico: urlEscudo.nba(x.favorito.nombre === x.local.nombre ? x.local.abrev : x.visitante.abrev) })).sort((p, q) => q.p - p.p);
   if (filas.length) h += `<h3>🏀 Mis pronósticos · quién gana</h3>` + barrasRanking("NBA · de mayor a menor", filas,
     "Probabilidad = línea de DraftKings con la dispersión medida en 3 temporadas (σ margen 13.3). Barra fuerte = 60% o más.");
   h += js.map(tarjetaNba).join("");
@@ -960,7 +997,7 @@ function nflPronosticos(juegos) {
     const loc = p >= 0.5;
     const fecha = j.inicio ? new Date(j.inicio).toLocaleString("es-MX", { weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "America/Mexico_City" }) : "";
     const eq = loc ? j.local : j.visitante, riv = loc ? j.visitante : j.local;
-    return { eq: nflNom(eq), rival: nflNom(riv), lugar: (loc ? "en casa" : "de visita") + ` · ${riv}`, p: loc ? p : 1 - p, sub: `${eq} · ${fecha}` };
+    return { eq: nflNom(eq), rival: nflNom(riv), lugar: (loc ? "en casa" : "de visita") + ` · ${riv}`, p: loc ? p : 1 - p, sub: `${eq} · ${fecha}`, ico: urlEscudo.nfl(eq) };
   }).filter(Boolean).sort((a, b) => b.p - a.p);
   if (!filas.length) return "";
   return `<h3>🏈 Mis pronósticos · quién gana</h3>` + barrasRanking(`Semana ${esc(juegos[0].semana)} · de mayor a menor`, filas,

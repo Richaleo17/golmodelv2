@@ -298,7 +298,7 @@ tenis:
     activo: true                   # Elo SUBE el acierto del circuito principal 64.0% → 65.2% (log loss 0.626 → 0.618); en Challenger 62.7%
     temporadas: 3                  # + la actual (Sackmann, ~11 mil partidos por año)
     livescore: true                # calendario y resultados recientes de Challenger (ni ESPN ni The Odds API los traen)
-    competencias: ["ATP Challenger"]   # los WTA 125 ya vienen de ESPN. ITF (M15/M25): ninguna fuente gratuita
+    competencias: ["ATP Challenger", "WTA Challenger", "Davis Cup", "Billie Jean King Cup"]   # si ESPN ya trae el partido, se queda el de ESPN. ITF (M15/M25, W15-W75) y UTR: ninguna fuente gratuita
   dias: 3                          # próximos partidos a mostrar
   peso_modelo: 0.3                 # p_final = 0.3·Elo + 0.7·mercado (PROVISIONAL: se mide en el Dashboard contra el cierre de Pinnacle)
   min_partidos_modelo: 15          # con menos partidos en el histórico, el jugador va «solo mercado»
