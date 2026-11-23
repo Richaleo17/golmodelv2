@@ -173,7 +173,8 @@ def parse_livescore(cuerpo: dict, competencias: list[str]) -> list[dict]:
     from datetime import timedelta
     salida = []
     for s in (cuerpo or {}).get("Stages") or []:
-        if str(s.get("Cnm") or "") not in competencias:
+        cnm = str(s.get("Cnm") or "")
+        if not any(c.lower() in cnm.lower() for c in competencias):  # «ATP Challenger», «Davis Cup», «Billie Jean King Cup»
             continue
         torneo = f"{s.get('Cnm')} {s.get('Snm') or ''}".strip()
         for e in s.get("Events") or []:

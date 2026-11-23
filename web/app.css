@@ -227,3 +227,6 @@ nav button{font-size:10px}
 .filtros .fila { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 4px 0; }
 .filtros select, .filtros input { flex: 1 1 160px; min-width: 0; }
 .filtros .chips { margin: 6px 0; }
+
+/* Tenis: encabezado de cada torneo */
+.grupo-torneo { margin: 14px 2px 6px; font-size: 13px; letter-spacing: .03em; text-transform: uppercase; color: var(--accent); }

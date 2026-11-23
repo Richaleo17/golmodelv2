@@ -368,3 +368,24 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
     quedan.
   * La app las muestra como botones («Sem 12 · 26 nov · 16 juegos»; Comodines, Divisional, Conferencia y Super Bowl en
     playoffs).
+
+## 2026-11-23 — Ligas de tenis, logos en rankings, hockey y voleibol medidos
+
+* **Hockey (NHL): no se agrega**, porque el pedido era «si son muy certeros» y no lo son.
+  * Medido con 3 temporadas reales de ESPN (4,568 juegos): el mejor Elo (K 8, ventaja de local 35, margen de goles) acierta **56.1%**
+    en 2025-26, contra 53.9% de ir siempre con el local. Log loss 0.677, casi una moneda.
+  * Las casas en la NHL rondan 58-60%. ESPN trae los momios de DraftKings para los juegos próximos, así que un módulo «solo mercado»
+    como el de la NBA es posible si se pide aun así.
+* **Voleibol: sin fuente.** LiveScore no lo tiene (410). ESPN solo trae voleibol universitario de EE. UU., sin momios. Ninguna fuente
+  gratuita encontrada trae ligas profesionales.
+* **Tenis, ligas de la casa (Playdoit):**
+  * **Categoría por partido:** Grand Slam, ATP, WTA, Copa Davis, Billie Jean King Cup, Challenger, WTA 125.
+  * **App:** filtro por categoría, selector de torneo y tarjetas agrupadas por torneo en ese orden fijo.
+  * **LiveScore agrega** «WTA Challenger», «Davis Cup» y «Billie Jean King Cup». Si el partido ya viene de ESPN se queda el de ESPN, y si
+    LiveScore dice que es WTA 125 el de ESPN se etiqueta así (ESPN no distingue los 125).
+  * **ITF y UTR no tienen fuente:** M15/M25 y W15-W75 no están en ESPN, LiveScore ni The Odds API, y UTR Pro Match Series tampoco. Los
+    Grand Slam de la casa ahora son «PA» (futuros), no partidos.
+* **Logos en los rankings:** las barras «de mayor a menor» llevan escudo (fútbol por ESPN o bandera de selección), logo NFL y logo NBA.
+  En fútbol se elige por LADO (local/visitante) y no por nombre, porque el nombre del favorito puede diferir del de la tarjeta.
+* **Dashboard de tenis:** tabla por circuito (ATP/WTA) y por nivel (principal/Challenger), con acierto real contra el esperado por el
+  propio modelo.

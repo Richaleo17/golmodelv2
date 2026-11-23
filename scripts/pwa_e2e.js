@@ -31,7 +31,7 @@ const PANEL = {
   partidos: [
     { partido_id: 1, escudo_local: "359", escudo_visitante: "363", liga: "EPL", liga_nombre: "Premier League", local: "Arsenal " + XSS, visitante: "Chelsea", hora: "10:30", estado: "programado", marcador: null, prediccion: true, solo_mercado: false,
       fuente: "modelo+mercado", confianza: 8, crs: { alerta: "ALTA", total: 61 }, rompe: { razones: ["Favorito frágil <b>x</b>"] },
-      gana: { favorito: "Arsenal", empate: 0.24, p: 0.55, margen: 0.21, rival: "Chelsea" }, primer_gol: { equipo: "Arsenal", p: 0.41 }, otro_anota: { equipo: "Chelsea", p: 0.62 },
+      gana: { favorito: "Arsenal", lado: "local", empate: 0.24, p: 0.55, margen: 0.21, rival: "Chelsea" }, primer_gol: { equipo: "Arsenal", p: 0.41 }, otro_anota: { equipo: "Chelsea", p: 0.62 },
       goles_esperados: { local: 1.8, visitante: 1.1 }, forma: { local: "WWDLW", visitante: "LDWWL" }, over25: 0.58, btts: 0.52, jugadas: [{ jugada: "Más de 1.5 goles", p: 0.8, cuota_min: 1.31 }],
       mercados: [
         { clave: "ganador", titulo: "Ganador", pick: "Arsenal", p: 0.55, cuota_min: 1.95, aprox: false, nivel: "BAJA" },
@@ -95,13 +95,13 @@ const NBA = { metodo: "mercado primero", nota: "La probabilidad sale de la líne
       favorito: { nombre: "Orlando Magic", p: 0.69 }, escalera: _esc(6.5, 224.5), recomendadas: [{ tipo: "ml", jugada: "Gana Orlando Magic", p: 0.69 }] }] };
 const TENIS = { version: "tenis-elo-sup-v1", aviso: "Tenis v1", n_historico: 30000, peso_modelo: 0.3, actualizacion: { estado: "ok" },
   partidos: [
-    { id: "e1", tour: "atp", torneo: "ATP Finals", superficie: "Hard", best_of: 3, inicio: "2026-11-19T13:00:00-06:00", jugador1: "Jannik Sinner", jugador2: "Taylor Fritz",
+    { id: "e1", tour: "atp", torneo: "ATP Finals", categoria: "ATP", superficie: "Hard", best_of: 3, inicio: "2026-11-19T13:00:00-06:00", jugador1: "Jannik Sinner", jugador2: "Taylor Fritz",
       elo1: 2210, elo2: 1980, partidos1: 400, partidos2: 380, p_modelo: 0.82, p_mercado: 0.78, p_final: 0.792, cuota1: 1.25, cuota2: 4.2, casa: "pinnacle",
       modelo_confiable: true, fuente: "modelo + mercado" },
-    { id: "e2", tour: "atp", torneo: "ATP Finals", superficie: "Hard", best_of: 3, inicio: "2026-11-19T07:00:00-06:00", jugador1: "Alex de Minaur", jugador2: "Carlos Alcaraz",
+    { id: "e2", tour: "atp", torneo: "ATP Finals", categoria: "ATP", superficie: "Hard", best_of: 3, inicio: "2026-11-19T07:00:00-06:00", jugador1: "Alex de Minaur", jugador2: "Carlos Alcaraz",
       elo1: 1990, elo2: 2190, partidos1: 350, partidos2: 300, p_modelo: 0.25, p_mercado: 0.22, p_final: 0.229, cuota1: 4.4, cuota2: 1.24, casa: "pinnacle",
       modelo_confiable: true, fuente: "modelo + mercado" },
-    { id: "espn:5", tour: "atp", torneo: "Challenger (Lima)", superficie: "Clay", best_of: 3, inicio: "2026-11-19T15:00:00-06:00", jugador1: "Juan Uno", jugador2: "Pedro Dos",
+    { id: "espn:5", tour: "atp", torneo: "Challenger (Lima)", categoria: "Challenger", superficie: "Clay", best_of: 3, inicio: "2026-11-19T15:00:00-06:00", jugador1: "Juan Uno", jugador2: "Pedro Dos",
       elo1: 1700, elo2: 1600, partidos1: 60, partidos2: 40, p_modelo: 0.64, p_mercado: null, p_final: 0.64, cuota1: null, cuota2: null, casa: null,
       modelo_confiable: true, fuente: "solo modelo" }],
   ranking: { atp: { general: [{ lugar: 1, jugador: "sinner j", elo: 2210, partidos: 400 }], hard: [], clay: [], grass: [] }, wta: { general: [] } },
@@ -272,6 +272,10 @@ async function simular(page) {
     const vacio = await page.$("#lista-diario .vacio");
     ok((ps.length > 0 || !!vacio) && ps.every((x, i) => i === 0 || ps[i - 1] >= x) &&
        (await page.$$('#chips-rk [aria-pressed="true"]')).length === 1, `Diario Ranking «${k}»: un solo filtro y barras de mayor a menor (${ps.length})`);
+    if (k === "ganador" && MODO === "mock") {
+      const icos = await page.$$eval("#lista-diario .rk-fila .escudo", (es) => es.map((e) => e.style.backgroundImage));
+      ok(icos.length >= 1 && icos.every((u) => /espncdn\.com\/i\/teamlogos\/soccer\/500\/\d+\.png|flagcdn\.com/.test(u)), "Diario Ranking: escudo del equipo en la barra");
+    }
   }
   await page.screenshot({ path: `${OUT}/01b-ranking.png`, fullPage: true });
   await page.click('#chips-dvista [data-dvista="tarjetas"]');
@@ -329,6 +333,19 @@ async function simular(page) {
     const ps = await page.$$eval("#vista .rk-p", (es) => es.map((e) => parseFloat(e.textContent)));
     const ten = await page.textContent("#vista");
     ok(ps.length === 3 && /solo del Elo/.test(ten) && /Juan Uno/.test(ten), "Hoy Tenis: partido de ESPN sin momio con pronóstico solo del Elo");
+    await page.click('#chips-tcat [data-tcat="Challenger"]');
+    await page.waitForFunction(() => document.querySelector('#chips-tcat [data-tcat="Challenger"]')?.getAttribute("aria-pressed") === "true");
+    const soloCh = await page.textContent("#vista");
+    ok(/Juan Uno/.test(soloCh) && !/Carlos Alcaraz/.test(soloCh.split("Mis pronósticos")[1] || "") && (await page.$$("#vista .grupo-torneo")).length === 1,
+       "Hoy Tenis: filtro por categoría (la «liga») muestra solo los Challenger, agrupados por torneo");
+    await page.click('#chips-tcat [data-tcat=""]');
+    await page.waitForSelector('#f-ttorneo');
+    await page.selectOption("#f-ttorneo", "ATP Finals");
+    await page.waitForFunction(() => document.querySelector("#f-ttorneo")?.value === "ATP Finals");
+    ok((await page.$$("#vista .grupo-torneo")).length === 1 && /ATP · ATP Finals/i.test(await page.textContent("#vista .grupo-torneo")),
+       "Hoy Tenis: filtro por torneo");
+    await page.selectOption("#f-ttorneo", "");
+    await page.waitForSelector("#vista .rk-fila");
     ok(ps[0] >= ps[1] && /Carlos Alcaraz/.test(ten) && /Jannik Sinner/.test(ten) && /Pinnacle/.test(ten) && /65\.2%/.test(ten),
        "Hoy Tenis: pronósticos en barras, tarjetas, efectividad vs Pinnacle");
   }
