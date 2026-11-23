@@ -404,3 +404,10 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
     para un Elo ni para medir el acierto.
   * LiveScore no tiene esos deportes (410), ESPN no tiene balonmano, y del voleibol solo trae el universitario de EE. UU.
   * Con TheSportsDB Premium (de pago) sí habría temporadas completas para medir liga por liga y quedarse solo con las más certeras.
+
+## 2026-11-23 (c) — Premier League de regreso
+
+* La Premier League sale de `ligas_excluidas` (pedido del responsable) y vuelve a `ligas_activas`, córners, tarjetas y props.
+* Su historial no se había borrado: 2,000 partidos en producción. Alineaciones y bajas: ESPN `eng.1` y FotMob 47.
+* Memoria: con la Serie A el servidor quedó en ~400 MB de 512. La Premier League agrega un modelo de liga más, así que hay que vigilar el
+  uso tras el despliegue.
