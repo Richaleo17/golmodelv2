@@ -39,7 +39,7 @@ Después de cargar el histórico, la UI queda en http://localhost:8501 y la API 
 
 **Desde el celular sin tu Mac:** `render.yaml` + [`docs/operacion.md` §14](docs/operacion.md).
 
-Guía completa: [`docs/operacion.md`](docs/operacion.md). Decisiones de diseño: [`docs/decisiones.md`](docs/decisiones.md), [`docs/proveedores.md`](docs/proveedores.md) y [`docs/modulo2_pseudocodigo.md`](docs/modulo2_pseudocodigo.md).
+Guía completa: [`docs/operacion.md`](docs/operacion.md). Decisiones de diseño: [`docs/decisiones.md`](docs/decisiones.md) y [`docs/proveedores.md`](docs/proveedores.md).
 
 ## Pruebas
 ```bash

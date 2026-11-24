@@ -87,6 +87,12 @@ auto:
   alineaciones: true               # «solo_alineaciones» antes de cada partido (ESPN: alineación oficial ~1 h antes)
   alineaciones_cada_min: 10
   alineaciones_ventana_min: 100
+  previa:                          # actualización PREVIA a cada horario (jobs/automatico.py «previa_partido»): alineaciones → cuotas → recálculo
+    activo: true
+    minutos_antes: 50              # se lanza al cruzar inicio − 50 min: alineación oficial (~60 min antes) ya publicada y el mercado ajustado
+    minutos_min: 15                # si el servicio estuvo caído y faltan < 15 min, ya no se lanza
+    agrupar_min: 10                # una previa cubre también los partidos que empiezan hasta 10 min después
+    horizonte_cuotas_min: 120      # solo se piden cuotas de los partidos que empiezan en las próximas 2 h (≈ 2-6 créditos por previa)
   reintentos: 2
 
 modelo:
@@ -452,7 +458,8 @@ parlays_usuario:
   dias: 3
   que_meter: [3, 4, 5]             # 3 opciones: 3, 4 y 5 partidos
   sonadoras: [6, 8, 10]            # 3 opciones: 6, 8 y 10 partidos
-  p_min: 0.55                      # pierna mínima
+  p_min: 0.65                      # pierna mínima. Era 0.55; subida el 2026-11-24 (precisión): en el registro del Dashboard (6-23 nov) las piernas
+                                   # Ganador de 55-65% acertaron 67.6% (37) contra 95.0% (20) las de 75-85%; con 0.55, 3 piernas salían ~1 de cada 6
   confianza_min: 3.5               # confianza de datos mínima (0-10)
   incluir_nfl: true                # suma juegos NFL («Gana» moneyline, p ≥ p_min) a Qué meter y Soñadoras
   incluir_tenis: true              # suma partidos de tenis («Gana <jugador>», con momio) a Qué meter y Soñadoras

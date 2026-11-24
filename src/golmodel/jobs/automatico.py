@@ -10,6 +10,8 @@ era la mayor fuente de error evitable. Este hilo corre dentro de la API (mismo p
   algún partido empieza en las próximas `horas_cerca` horas.
 * «solo_alineaciones» cada `alineaciones_cada_min` mientras haya un partido que empieza en `alineaciones_ventana_min` sin alineación
   guardada (salen ~1 h antes). Fuente: ESPN (ligas y competiciones mapeadas en proveedores/espn.py) o API-Football si el partido tiene id.
+* «previa_partido» al cruzar `previa.minutos_antes` (50) antes de cada horario de partidos (también fuera de `hora_inicio`-`hora_fin`):
+  alineaciones → cuotas de los partidos que empiezan pronto → recálculo. Una previa cubre los partidos de los `agrupar_min` siguientes.
 * Nunca si ya hay una actualización en curso (del usuario o del job), y nunca si el presupuesto de créditos no alcanza
   (el pipeline lo revisa en cada proveedor).
 """
@@ -51,6 +53,19 @@ def _toca_alineaciones(conn, a: dict, ahora: datetime) -> bool:
     return reciente is None
 
 
+def _toca_previa(conn, pv: dict, ahora: datetime) -> bool:
+    """¿Hay un partido que empieza entre `minutos_min` y `minutos_antes` desde ahora sin una previa lanzada para su horario?
+    Cubierto = ya hubo una previa (con cualquier resultado: un fallo no se reintenta en bucle) desde inicio − minutos_antes − agrupar_min."""
+    antes = timedelta(minutes=float(pv.get("minutos_antes", 50)))
+    minimo = timedelta(minutes=float(pv.get("minutos_min", 15)))
+    agrupar = timedelta(minutes=float(pv.get("agrupar_min", 10)))
+    return conn.execute("""
+        SELECT 1 FROM partidos p JOIN ligas l ON l.id = p.liga_id
+        WHERE l.activa AND p.estado = 'programado' AND p.inicio > %s AND p.inicio <= %s
+          AND NOT EXISTS (SELECT 1 FROM ejecuciones e WHERE e.tipo = 'previa_partido' AND e.iniciada_en >= p.inicio - %s)
+        LIMIT 1""", (ahora + minimo, ahora + antes, antes + agrupar)).fetchone() is not None
+
+
 def decidir(conn, cfg: dict, ahora: datetime) -> str | None:
     """Qué actualización toca ahora (o None). Pura respecto a la BD: no lanza nada."""
     a = cfg.get("auto") or {}
@@ -61,6 +76,9 @@ def decidir(conn, cfg: dict, ahora: datetime) -> str | None:
         return None
     zona = ZoneInfo(cfg["zona_horaria"])
     local = ahora.astimezone(zona)
+    pv = a.get("previa") or {}
+    if pv.get("activo") and _toca_previa(conn, pv, ahora):       # antes de la ventana horaria: los partidos de las 6:00 también la llevan
+        return "previa_partido"
     if not (_hora(a.get("hora_inicio", "07:00")) <= local.time() <= _hora(a.get("hora_fin", "23:30"))):
         return None
     todo = _hora(a.get("todo_hora", "07:10"))

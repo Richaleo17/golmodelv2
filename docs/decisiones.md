@@ -434,3 +434,21 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   commit; el CLV vive en `servicios/liquidacion.py`, el desglose diario en `servicios/vistas.py`/`sugerencias.py` y «el día» en `dia_mx()` del
   esquema + `ZoneInfo(cfg["zona_horaria"])`) y `motor/modulo2.py` con sus pruebas: el armador de
   parlays por producto de probabilidades que el ticket V3 (`motor/dependencia.py`) reemplazó y que ya no llama ningún código de producción.
+
+### 2026-11-24 (b) · Actualización previa a cada horario y piernas más seguras en los parlays
+
+* **Problema (medido en producción, 23-nov):** la completa corre a las 07:10 y después solo hubo cuotas a las 09:11 y 11:11. Las
+  alineaciones se buscaron cada 10 min desde las 12:05, pero `solo_alineaciones` NO recalcula ni trae cuotas (las alineaciones no mueven
+  ninguna probabilidad). Resultado: a las 12-13 h el panel tenía cuotas de 1-2 h, de antes de las alineaciones, y hubo que actualizar a mano
+  (13:04-13:10). Para la Champions (solo mercado: su probabilidad ES el momio sin margen) la última cuota era de la tarde anterior.
+* **Cambio:** nuevo tipo `previa_partido` en `jobs/automatico.py` (config `auto.previa`): al cruzar inicio − 50 min de cada horario
+  corre alineaciones → cuotas de los partidos que empiezan en las próximas 2 h (y las competiciones solo-mercado si hay alguna) →
+  recálculo. Una previa cubre los partidos de los 10 min siguientes; corre también antes de las 07:00 (partidos europeos tempranos);
+  no se lanza si faltan < 15 min; un fallo no se reintenta en bucle. Migración 021 (tipo nuevo en `ejecuciones`).
+  Por qué 50 min: la alineación oficial sale ~60 min antes y el mercado la descuenta en minutos; α ≈ 0 (el mercado le gana al modelo),
+  así que la forma de que la alineación mejore la recomendación es usar el momio posterior a ella.
+* **Costo:** ~2 créditos por liga con partidos en las próximas 2 h (+ hasta `max_creditos_por_actualizacion` si hay Champions u otra
+  solo-mercado). Gasto medido 20-23 nov: 200-450 créditos/día de 20,000/mes; quedan ~17,800 al 24-nov.
+* **Parlays (`parlays_usuario.p_min` 0.55 → 0.65):** con 0.55, tres piernas salían ~1 de cada 6. Registro del Dashboard (6-23 nov,
+  pick de la app): Ganador 75-85% → 95.0% (20); PA(1) 65-75% → 90.9% (11); Más de 1.5 75-85% → 81.0% (63); Menos de 3.5 75-85% →
+  79.5% (39); El otro anota 65-75% → 62.7% (51, esperado 69.4%: algo sobreconfiado). Muestras chicas: se revisa con el Dashboard.

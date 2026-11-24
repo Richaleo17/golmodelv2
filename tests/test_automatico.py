@@ -121,3 +121,56 @@ def test_alineaciones_ligas_sin_fuente_solo_con_id_de_api_football(bd):
     assert automatico.decidir(bd, CFG, _t(13, 45)) is None
     bd.execute("UPDATE partidos SET api_football_id = 123 WHERE id = %s", (pid,))
     assert automatico.decidir(bd, CFG, _t(13, 45)) == "solo_alineaciones"           # con id de API-Football sí
+
+
+# ------------------------------------------------------------------ previa (~50 min antes de cada horario)
+
+def test_previa_50_min_antes_de_cada_horario_como_la_champions(bd):
+    _ejec(bd, "actualizar_todo", _t(7, 15))
+    _ejec(bd, "solo_cuotas", _t(10, 0))
+    _partido_en(bd, "LL", _t(11, 45))
+    _partido_en(bd, "LL", _t(11, 50))                                                 # 5 min después: lo cubre la misma previa
+    _partido_en(bd, "LL", _t(14, 0))
+    assert automatico.decidir(bd, CFG, _t(10, 50)) != "previa_partido"                # a 55 min: todavía no
+    assert automatico.decidir(bd, CFG, _t(10, 56)) == "previa_partido"                # a 49 min de las 11:45
+    _ejec(bd, "previa_partido", _t(10, 56))
+    assert automatico.decidir(bd, CFG, _t(11, 2)) != "previa_partido"                 # 11:45 y 11:50 ya cubiertos
+    assert automatico.decidir(bd, CFG, _t(13, 11)) == "previa_partido"                # el horario de las 14:00 lleva la suya
+    _ejec(bd, "previa_partido", _t(13, 11), estado="error")
+    assert automatico.decidir(bd, CFG, _t(13, 20)) != "previa_partido"                # un fallo no se reintenta en bucle
+
+
+def test_previa_fuera_del_horario_diurno_y_no_si_ya_es_tarde(bd):
+    _partido_en(bd, "EPL", _t(6, 30))
+    assert automatico.decidir(bd, CFG, _t(5, 45)) == "previa_partido"                 # partido de las 6:30: antes de las 7:00 también
+    assert automatico.decidir(bd, CFG, _t(6, 20)) is None                             # faltan 10 min (< 15): ya no sirve
+    cfg = copy.deepcopy(CFG)
+    cfg["auto"]["previa"]["activo"] = False
+    assert automatico.decidir(bd, cfg, _t(5, 45)) is None                             # se puede apagar
+
+
+def test_previa_pide_cuotas_solo_de_los_partidos_proximos(monkeypatch):
+    from types import SimpleNamespace
+
+    from golmodel.ingesta import pipeline as pl
+    p = object.__new__(pl.Pipeline)
+    p.cfg = CFG
+    partidos = [{"id": 1, "liga": "LL", "inicio": _t(11, 45), "solo_mercado": False},
+                {"id": 2, "liga": "MK:soccer_uefa_champs_league", "inicio": _t(14), "solo_mercado": True},
+                {"id": 3, "liga": "EPL", "inicio": _t(20), "solo_mercado": False}]
+    llamadas = []
+    real = pl.Pipeline._etapa_cuotas
+
+    def espia(self, st, *, tipo="actual", cap=pl.Capacidad.CUOTAS, partidos=None):
+        if partidos is not None:
+            llamadas.append(sorted(x["id"] for x in partidos))
+            return {"cuotas": 0, "avisos": []}
+        return real(self, st, tipo=tipo, cap=cap, partidos=partidos)
+    monkeypatch.setattr(pl.repo, "partidos_de_dias", lambda conn, dias: partidos)
+    monkeypatch.setattr(pl.Pipeline, "_etapa_cuotas", espia)
+    monkeypatch.setattr(pl.Pipeline, "_competiciones_mercado", lambda self, st: llamadas.append("mercado") or {"creditos": 2})
+    r = p._etapa_cuotas(SimpleNamespace(conn=None, ahora=_t(10, 55), tipo="previa_partido", dias=lambda: []))
+    assert llamadas == [[1]] and r["partidos_previa"] == 1                            # solo LaLiga 11:45; nada de mercado
+    llamadas.clear()
+    r = p._etapa_cuotas(SimpleNamespace(conn=None, ahora=_t(13, 10), tipo="previa_partido", dias=lambda: []))
+    assert llamadas == [[], "mercado"] and r["mercado"] == {"creditos": 2}           # Champions 14:00: competiciones de mercado
