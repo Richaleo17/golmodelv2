@@ -120,7 +120,7 @@ class Pipeline:
             if "alineaciones" in etapas:
                 sumar(Capacidad.ALINEACIONES, cerca)
             if "cuotas" in etapas:
-                if tipo == "previa_partido":
+                if tipo == "previa_partido" and not self._previa_hace_general(conn, ahora):
                     partidos = self._partidos_previa(partidos, ahora)
                 for l in sorted({p["liga"] for p in partidos if not p.get("solo_mercado")}):   # solo ligas con partidos próximos
                     sumar(Capacidad.CUOTAS, liga=l)
@@ -376,9 +376,24 @@ class Pipeline:
         hasta = ahora + timedelta(minutes=float(pv.get("horizonte_cuotas_min", 120)))
         return [p for p in partidos if ahora < p["inicio"] <= hasta]
 
+    def _previa_hace_general(self, conn, ahora: datetime) -> bool:
+        """¿A la consulta general de cuotas le faltan menos de `auto.previa.adelantar_general_min`? Entonces la previa la hace ella
+        (todas las ligas) y cuenta como general: una sola consulta en vez de la previa + la general unos minutos después."""
+        from golmodel.jobs import automatico as au
+        a = self.cfg.get("auto") or {}
+        adelanto = (a.get("previa") or {}).get("adelantar_general_min")
+        if adelanto is None:
+            return False
+        ultima = au.ultima_general_cuotas(conn)
+        return ultima is None or ahora - ultima >= au.cadencia_cuotas(conn, a, ahora) - timedelta(minutes=float(adelanto))
+
     def _etapa_cuotas(self, st: Estado, *, tipo: str = "actual", cap: Capacidad = Capacidad.CUOTAS,
-                      partidos: list[dict] | None = None) -> dict:
-        if partidos is None and st.tipo == "previa_partido" and cap is Capacidad.CUOTAS and tipo == "actual":
+                      partidos: list[dict] | None = None, _general: bool = False) -> dict:
+        if partidos is None and not _general and st.tipo == "previa_partido" and cap is Capacidad.CUOTAS and tipo == "actual":
+            if self._previa_hace_general(st.conn, st.ahora):
+                res = self._etapa_cuotas(st, _general=True)
+                res["completa"] = True                            # automatico.ultima_general_cuotas la cuenta como general
+                return res
             proximos = self._partidos_previa(repo.partidos_de_dias(st.conn, st.dias()), st.ahora)
             res = self._etapa_cuotas(st, partidos=[p for p in proximos if not p.get("solo_mercado")])
             if any(p.get("solo_mercado") for p in proximos):     # Champions y demás competiciones solo-mercado

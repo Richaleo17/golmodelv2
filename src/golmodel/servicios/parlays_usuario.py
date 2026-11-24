@@ -223,3 +223,24 @@ def armar(conn, cfg: dict, dia: date, ahora: datetime) -> dict:
             "nota": "Fútbol: cada pierna es «Gana» o «PA(1)» (anota el primer gol), la más probable de su partido. NFL y tenis: «Gana» "
                     "(moneyline). NBA: moneyline o spread/total alternativo ≈ 85% de la línea de DraftKings. Probabilidad del parlay = "
                     "producto de sus piernas (partidos distintos). Ninguna combinada es segura."}
+
+
+CAMPOS_PIERNA = ("partido_id", "liga", "partido", "inicio", "tipo", "jugada", "p")
+
+
+def registrar(conn, cfg: dict, dia: date, ahora: datetime, disparado_por: str, *, armado: dict | None = None) -> int:
+    """Guarda lo que muestra la sección (parlays_registro) para medir su efectividad real. Mismas piernas el mismo día = una fila."""
+    import hashlib
+    import json
+    r = armado if armado is not None else armar(conn, cfg, dia, ahora)
+    n = 0
+    for seccion in ("que_meter", "sonadoras", "boletos"):
+        for x in r.get(seccion) or []:
+            piernas = [{k: pi.get(k) for k in CAMPOS_PIERNA} for pi in x["piernas"]]
+            firma = hashlib.sha1(json.dumps(sorted((str(pi["partido_id"]), pi["jugada"]) for pi in piernas)).encode()).hexdigest()[:16]
+            cur = conn.execute("""INSERT INTO parlays_registro (dia, capturado_en, disparado_por, seccion, titulo, n, p, piernas, firma)
+                                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT (dia, seccion, firma) DO NOTHING""",
+                               (dia, ahora, disparado_por, seccion, x.get("titulo") or seccion, x["n"], float(x["p"]),
+                                json.dumps(piernas, default=str), firma))
+            n += cur.rowcount
+    return n

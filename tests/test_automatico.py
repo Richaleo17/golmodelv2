@@ -161,12 +161,16 @@ def test_previa_pide_cuotas_solo_de_los_partidos_proximos(monkeypatch):
     llamadas = []
     real = pl.Pipeline._etapa_cuotas
 
-    def espia(self, st, *, tipo="actual", cap=pl.Capacidad.CUOTAS, partidos=None):
+    def espia(self, st, *, tipo="actual", cap=pl.Capacidad.CUOTAS, partidos=None, _general=False):
         if partidos is not None:
             llamadas.append(sorted(x["id"] for x in partidos))
             return {"cuotas": 0, "avisos": []}
-        return real(self, st, tipo=tipo, cap=cap, partidos=partidos)
+        if _general:
+            llamadas.append("general")
+            return {"cuotas": 0, "avisos": []}
+        return real(self, st, tipo=tipo, cap=cap, partidos=partidos, _general=_general)
     monkeypatch.setattr(pl.repo, "partidos_de_dias", lambda conn, dias: partidos)
+    monkeypatch.setattr(pl.Pipeline, "_previa_hace_general", lambda self, conn, ahora: False)
     monkeypatch.setattr(pl.Pipeline, "_etapa_cuotas", espia)
     monkeypatch.setattr(pl.Pipeline, "_competiciones_mercado", lambda self, st: llamadas.append("mercado") or {"creditos": 2})
     r = p._etapa_cuotas(SimpleNamespace(conn=None, ahora=_t(10, 55), tipo="previa_partido", dias=lambda: []))
@@ -174,3 +178,56 @@ def test_previa_pide_cuotas_solo_de_los_partidos_proximos(monkeypatch):
     llamadas.clear()
     r = p._etapa_cuotas(SimpleNamespace(conn=None, ahora=_t(13, 10), tipo="previa_partido", dias=lambda: []))
     assert llamadas == [[], "mercado"] and r["mercado"] == {"creditos": 2}           # Champions 14:00: competiciones de mercado
+    # Si a la consulta general le falta poco, la previa la hace (todas las ligas) y queda marcada como completa
+    llamadas.clear()
+    monkeypatch.setattr(pl.Pipeline, "_previa_hace_general", lambda self, conn, ahora: True)
+    r = p._etapa_cuotas(SimpleNamespace(conn=None, ahora=_t(13, 10), tipo="previa_partido", dias=lambda: []))
+    assert llamadas == ["general"] and r["completa"] is True
+
+
+def _previa_con_cuotas(bd, inicio, completa):
+    eid = bd.execute("INSERT INTO ejecuciones (tipo, iniciada_en, estado, disparada_por) VALUES ('previa_partido', %s, 'ok', 'job') "
+                     "RETURNING id", (inicio,)).fetchone()["id"]
+    bd.execute("INSERT INTO ejecucion_etapas (ejecucion_id, orden, etapa, estado, resumen) VALUES (%s, 2, 'cuotas', 'ok', %s::jsonb)",
+               (eid, '{"completa": true}' if completa else '{"partidos_previa": 2}'))
+
+
+def test_previa_completa_cuenta_como_consulta_general_de_cuotas(bd):
+    _ejec(bd, "actualizar_todo", _t(7, 15))
+    _ejec(bd, "solo_cuotas", _t(11, 11))
+    _partido_en(bd, "MXF", _t(14, 0))                                                 # sin fuente de alineaciones: aísla las cuotas
+    _previa_con_cuotas(bd, _t(13, 10), completa=False)                                # previa chica: solo partidos próximos
+    assert automatico.decidir(bd, CFG, _t(13, 14)) == "solo_cuotas"                  # la general sigue tocando (2 h desde 11:11)
+    _previa_con_cuotas(bd, _t(13, 12), completa=True)                                 # previa que hizo la general
+    assert automatico.decidir(bd, CFG, _t(13, 14)) is None                            # ya no se repite a los 3 minutos
+    assert automatico.ultima_general_cuotas(bd) == _t(13, 12)
+
+
+def test_la_previa_decide_hacer_la_general_si_le_falta_menos_del_adelanto(bd):
+    from golmodel.ingesta import pipeline as pl
+    p = object.__new__(pl.Pipeline)
+    p.cfg = CFG
+    _ejec(bd, "solo_cuotas", _t(11, 11))
+    _partido_en(bd, "LL", _t(14, 0))                                                  # partido cerca: la general toca cada 2 h
+    assert p._previa_hace_general(bd, _t(13, 10))                                     # a la general le falta 1 min: la hace la previa
+    assert not p._previa_hace_general(bd, _t(11, 40))                                 # le faltan 91 min: previa chica
+    cfg = copy.deepcopy(CFG)
+    del cfg["auto"]["previa"]["adelantar_general_min"]
+    p.cfg = cfg
+    assert not p._previa_hace_general(bd, _t(13, 10))                                 # sin la clave: comportamiento anterior
+
+
+def test_registro_de_parlays_guarda_una_vez_y_es_inmutable(bd):
+    import psycopg
+    from golmodel.servicios import parlays_usuario as pu
+    pierna = lambda pid, p: {"partido_id": pid, "liga": "LL", "partido": f"A{pid} vs B{pid}", "inicio": "2026-11-18T20:00:00+00:00",
+                             "tipo": "gana", "jugada": f"Gana A{pid}", "p": p, "detalle": "x"}
+    armado = {"que_meter": [{"titulo": "Opción A · la más probable", "n": 3, "p": 0.5, "piernas": [pierna(1, 0.8), pierna(2, 0.8), pierna(3, 0.78)]}],
+              "sonadoras": [], "boletos": [{"titulo": "🏆 Boleto seguro", "n": 2, "p": 0.6, "piernas": [pierna(4, 0.8), pierna(5, 0.75)]}]}
+    dia = _t(12).date()
+    assert pu.registrar(bd, CFG, dia, _t(7, 15), "actualizar_todo", armado=armado) == 2
+    assert pu.registrar(bd, CFG, dia, _t(13, 10), "previa_partido", armado=armado) == 0          # mismas piernas: no se duplica
+    fila = bd.execute("SELECT * FROM parlays_registro WHERE seccion = 'que_meter'").fetchone()
+    assert fila["n"] == 3 and [x["partido_id"] for x in fila["piernas"]] == [1, 2, 3] and "detalle" not in fila["piernas"][0]
+    with pytest.raises(psycopg.errors.RestrictViolation):
+        bd.execute("UPDATE parlays_registro SET p = 0.9")

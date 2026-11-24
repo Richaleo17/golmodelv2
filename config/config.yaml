@@ -93,6 +93,8 @@ auto:
     minutos_min: 15                # si el servicio estuvo caído y faltan < 15 min, ya no se lanza
     agrupar_min: 10                # una previa cubre también los partidos que empiezan hasta 10 min después
     horizonte_cuotas_min: 120      # solo se piden cuotas de los partidos que empiezan en las próximas 2 h (≈ 2-6 créditos por previa)
+    adelantar_general_min: 60      # si a la consulta general de cuotas le falta < 60 min, la previa la hace (todas las ligas) y cuenta
+                                   # como general: el 24-nov corrió una general 3 min después de la previa (28 créditos de más)
   reintentos: 2
 
 modelo:
