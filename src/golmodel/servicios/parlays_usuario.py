@@ -16,6 +16,11 @@ from zoneinfo import ZoneInfo
 DIAS_SEMANA = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 
+def _escudos(p: dict) -> dict:
+    """Escudo (id de ESPN) o bandera de cada equipo, para pintar la pierna como un boleto de Draftea."""
+    return {k: p.get(k) for k in ("escudo_local", "escudo_visitante", "bandera_local", "bandera_visitante")}
+
+
 def piernas_de_panel(pan: dict, dia: date, ahora: datetime, cfg: dict) -> list[dict]:
     cp = cfg.get("parlays_usuario") or {}
     p_min, conf_min = float(cp.get("p_min", 0.55)), float(cp.get("confianza_min", 3.5))
@@ -42,7 +47,7 @@ def piernas_de_panel(pan: dict, dia: date, ahora: datetime, cfg: dict) -> list[d
                     "hora": p["hora"], "inicio": inicio.isoformat(), "liga": p.get("liga_nombre") or p["liga"],
                     "partido": f"{p['local']} vs {p['visitante']}", "tipo": tipo, "jugada": jugada, "detalle": detalle,
                     "p": prob, "cuota_justa": 1 / prob, "cuota_min": (1 + u) / prob, "confianza": p.get("confianza"),
-                    "fuente": p.get("fuente")})
+                    "fuente": p.get("fuente"), **_escudos(p)})
     return out
 
 
@@ -79,7 +84,8 @@ def candidatos_de_panel(pan: dict, dia: date, ahora: datetime, cfg: dict) -> lis
             out.append({"partido_id": p["partido_id"], "dia": str(dia), "dia_texto": f"{DIAS_SEMANA[dia.weekday()]} {dia.day:02d}/{dia.month:02d}",
                         "hora": p["hora"], "inicio": inicio.isoformat(), "liga": p.get("liga_nombre") or p["liga"],
                         "partido": f"{p['local']} vs {p['visitante']}", "tipo": tipo, "jugada": jugada, "detalle": detalle,
-                        "p": prob, "cuota_justa": 1 / prob, "cuota_min": (1 + u) / prob, "confianza": p.get("confianza"), "fuente": p.get("fuente")})
+                        "p": prob, "cuota_justa": 1 / prob, "cuota_min": (1 + u) / prob, "confianza": p.get("confianza"), "fuente": p.get("fuente"),
+                        **_escudos(p)})
     return out
 
 

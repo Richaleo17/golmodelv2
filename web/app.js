@@ -478,11 +478,40 @@ async function parlaysUsuario() {
   return { d: S.cache[k] };
 }
 
+/* Parlays con la forma de una entrada de Draftea (2026-11-24, pedido del responsable): monto, momio y ganancia arriba; cada pierna con su
+   mercado (GANA · PA(1) · 90'), la selección resaltada, su momio justo y los dos equipos con escudo. PA(1) = ese equipo anota primero. */
+const leerEntrada = () => { try { const v = Number(localStorage.getItem("golmodel.entrada")); return v > 0 ? v : 10; } catch { return 10; } };
+const pesos = (x) => "$" + Number(x).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+function mercadoDe(p) {
+  const t = String(p.tipo || ""), j = String(p.jugada || "");
+  if (["gana", "ganador", "nfl_gana", "tenis_gana", "nba_ml"].includes(t) || /^Gana /.test(j))
+    return { m: "GANA", chips: [t.startsWith("nfl") ? "NFL" : t.startsWith("tenis") ? "TENIS" : t.startsWith("nba") ? "NBA" : "90'"], sel: j.replace(/^Gana /, "") };
+  if (t === "pa1" || t === "primer_gol") return { m: "GANA", chips: ["PA(1)", "90'"], sel: j.replace(/^PA\(1\) /, "") };
+  if (t === "otro") return { m: "EQUIPO ANOTA", chips: ["90'"], sel: j.replace(/ anota$/, "") + " · Sí" };
+  const i = j.indexOf(": ");
+  return i > 0 ? { m: j.slice(0, i).toUpperCase(), chips: ["90'"], sel: j.slice(i + 2) } : { m: String(p.detalle || "").toUpperCase(), chips: [], sel: j };
+}
+
+function htmlPiernaDraftea(p) {
+  const { m, chips, sel } = mercadoDe(p);
+  const [loc, vis] = String(p.partido || "").split(" vs ");
+  const eq = (nombre, lado) => `<div class="dtk-eq">${escudoFut(p, lado)}<span>${esc(nombre || "")}</span></div>`;
+  return `<div class="dtk-p"><div class="dtk-est">${esc(p.dia_texto)} · ${esc(p.hora)} · ${esc(p.liga)}</div>` +
+    `<div class="dtk-mer"><span class="dtk-m">${esc(m)}</span>${chips.map((c) => `<span class="dtk-chip">${esc(c)}</span>`).join("")}` +
+    `<b class="dtk-sel">${esc(sel)}</b><span class="dtk-x">${num(p.cuota_justa)}x</span></div>` +
+    (vis ? eq(loc, "local") + eq(vis, "visitante") : eq(p.partido, "local")) +
+    `<div class="meta">${pct(p.p)} · mete si paga ≥ ${cuotaAm(p.cuota_min)}</div></div>`;
+}
+
 function htmlParlay(x) {
   const n1 = Number(x.uno_de_cada).toLocaleString("es-MX", { maximumFractionDigits: 1 });
-  return `<div class="sonadora"><h4>${esc(x.titulo)} · ${esc(x.n)} partidos · ${pct(x.p, 1)} (1 de cada ${n1}) · cuota justa ${num(x.cuota_justa)}x</h4>` +
-    x.piernas.map((p) => `<div class="pierna">• <b>${esc(p.jugada)}</b> <span class="meta">${pct(p.p)} · mete si paga ≥ ${cuotaAm(p.cuota_min)}</span><br>` +
-      `<span class="meta">📅 ${esc(p.dia_texto)} ${esc(p.hora)} · ${esc(p.liga)} · ${esc(p.partido)} · ${esc(p.detalle)}</span></div>`).join("") + "</div>";
+  const monto = leerEntrada(), piernas = [...x.piernas].sort((a, b) => String(a.inicio).localeCompare(String(b.inicio)));
+  return `<div class="dtk" data-momio="${Number(x.cuota_justa)}"><h4>${esc(x.titulo)}</h4>` +
+    `<div class="dtk-cab"><label><span>Entrada</span><input class="dtk-monto" type="number" min="1" step="1" inputmode="decimal" value="${monto}" aria-label="Monto de la entrada"></label>` +
+    `<div><span>Momio</span><b>${num(x.cuota_justa)}x</b></div><div><span>Ganancia</span><b class="dtk-gan">${pesos(monto * x.cuota_justa)}</b></div></div>` +
+    piernas.map(htmlPiernaDraftea).join("") +
+    `<div class="dtk-pie">${esc(x.n)} piernas · sale ${pct(x.p, 1)} · 1 de cada ${n1} · momio justo (Draftea paga menos: compara antes de meter)</div></div>`;
 }
 
 function htmlSeccionParlays(d, clave, vacio) {
@@ -909,6 +938,16 @@ async function vParlays() {
     html: tabs + r.html,
     alMontar: (v) => {
       $$("#ptabs .chip", v).forEach((b) => b.addEventListener("click", () => { S.ptab = b.dataset.pt; render(); }));
+      $$(".dtk-monto", v).forEach((inp) => inp.addEventListener("input", () => {       // un solo monto para todos los boletos
+        const monto = Number(inp.value);
+        if (!(monto > 0)) return;
+        try { localStorage.setItem("golmodel.entrada", String(monto)); } catch { /* sin almacenamiento: solo esta vista */ }
+        $$(".dtk", v).forEach((t) => {
+          const otro = $(".dtk-monto", t);
+          if (otro !== inp) otro.value = inp.value;
+          $(".dtk-gan", t).textContent = pesos(monto * Number(t.dataset.momio));
+        });
+      }));
       if (r.alMontar) r.alMontar(v);
     },
   };

@@ -54,7 +54,7 @@ const ESTADO = { llaves: { API_FOOTBALL_KEY: true, ODDS_API_KEY: true, FOOTBALL_
   consumo_api: { odds_api: { periodo: "mes", limite: 500, usado: 120, restante_reportado: null } }, alias_pendientes: 3, conflictos_abiertos: 0, modelo: { version_id: 7, tipo: "semanal", creado: "09/11 10:00", calibrado: true },
   cobertura_ligas: [{ codigo: "EPL", finalizados: 2000, proximos: 0, pendientes: 1, problema: "Hay partidos sin guardar porque 1 nombres esperan revisión." }], ultima_ejecucion: { tipo: "recalcular", estado: "ok", etapas: [{ etapa: "recalculo_modulos", estado: "ok", error: null }] } };
 const PIERNA = (id, dia, hora, partido, jugada, p) => ({ partido_id: id, dia: "2026-11-14", dia_texto: dia, hora, inicio: "2026-11-14T" + hora, liga: "Premier League",
-  partido, tipo: "gana", jugada, detalle: "gana el partido (sin empate)", p, cuota_justa: 1 / p, cuota_min: 1.06 / p, confianza: 8 });
+  partido, tipo: String(jugada).startsWith("PA(1)") ? "pa1" : "gana", jugada, detalle: "gana el partido (sin empate)", p, cuota_justa: 1 / p, cuota_min: 1.06 / p, confianza: 8 });
 const PU = { dias: ["2026-11-14", "2026-11-15", "2026-11-16"], piernas_disponibles: 9, nota: "Cada pierna es «Gana» o «PA(1)».",
   repiten_partidos: { que_meter: false, sonadoras: true },
   que_meter: [{ titulo: "Opción A · la más probable", n: 3, p: 0.42, cuota_justa: 2.38, uno_de_cada: 2.38, dias: ["2026-11-14"],
@@ -377,13 +377,13 @@ async function simular(page) {
   await page.click('#nav button[data-v="parlays"]');
   await page.waitForSelector("#ptabs");
   await page.click('#ptabs [data-pt="meter"]');
-  await page.waitForSelector("#vista .sonadora, #vista .card");
+  await page.waitForSelector("#vista .dtk, #vista .card");
   ok(!(await page.isVisible("#deportes")), "Parlays: sin selector de deporte (mezcla todos los deportes)");
   if (MODO === "mock") {
     await page.click('#ptabs [data-pt="boletos"]');
-    await page.waitForFunction(() => /Boletos de 7/.test(document.querySelector("#vista").textContent) && document.querySelector("#vista .sonadora"));
+    await page.waitForFunction(() => /Boletos de 7/.test(document.querySelector("#vista").textContent) && document.querySelector("#vista .dtk"));
     const bol = await page.textContent("#vista");
-    ok(/Boleto seguro/.test(bol) && /7 partidos/.test(bol) && /Más de 1\.5 goles/.test(bol), "Parlays: boletos de 7 piernas con mercados mezclados");
+    ok(/Boleto seguro/.test(bol) && /7 piernas/.test(bol) && /Más de 1\.5 goles/.test(bol), "Parlays: boletos de 7 piernas con mercados mezclados");
     await page.screenshot({ path: `${OUT}/02b-boletos.png`, fullPage: true });
     await page.click('#ptabs [data-pt="meter"]');
     await page.waitForFunction(() => /Qué meter/.test(document.querySelector("#vista h2") ? document.querySelector("#vista h2").textContent : ""));
@@ -391,18 +391,23 @@ async function simular(page) {
   const meter = await page.textContent("#vista");
   ok(/Qué meter/.test(meter) && !/Ticket V3/.test(meter) && !/Rompen parlays/.test(meter), "Qué meter: solo parlays (sin ticket V3 ni «rompen parlays»)");
   if (MODO === "mock") {
-    ok(/Opción A/.test(meter) && /3 partidos/.test(meter) && /sáb 14\/11/.test(meter) && /PA\(1\) Lyon/.test(meter), "Qué meter: parlay con día, hora y PA(1)");
+    const chipsPa1 = await page.$$eval("#vista .dtk-mer", (ms) => ms.filter((m) => /PA\(1\)/.test(m.textContent)).map((m) => m.querySelector(".dtk-sel").textContent));
+    ok(/Opción A/.test(meter) && /3 piernas/.test(meter) && /sáb 14\/11/.test(meter) && chipsPa1.includes("Lyon"), "Qué meter: parlay con día, hora y PA(1) (chip PA(1) + selección Lyon)");
     ok(!(await page.$("#vista b b")), "Qué meter: el HTML de los nombres se escapa");
+    ok(/Entrada/.test(meter) && /Momio/.test(meter) && /2\.38x/.test(meter) && /Ganancia/.test(meter), "Qué meter: boleto estilo Draftea (entrada, momio, ganancia)");
+    await page.fill("#vista .dtk-monto", "100");
+    const gan = await page.textContent("#vista .dtk-gan");
+    ok(/\$238\.00/.test(gan), "Qué meter: la ganancia se recalcula con el monto (100 × 2.38)");
   }
   await page.screenshot({ path: `${OUT}/02-meter.png`, fullPage: true });
 
   // --- Parlays → Soñadoras
   await page.click('#ptabs [data-pt="sonadoras"]');
   await page.waitForFunction(() => /Soñadoras/.test(document.querySelector("#vista h2") ? document.querySelector("#vista h2").textContent : ""));
-  await page.waitForSelector("#vista .sonadora, #vista .card");
+  await page.waitForSelector("#vista .dtk, #vista .card");
   const son = await page.textContent("#vista");
   ok(/Soñadoras/.test(son) && !/Soñadoras analíticas/.test(son), "Soñadoras: pantalla cargada sin las analíticas");
-  if (MODO === "mock") ok(/Soñadora 1/.test(son) && /6 partidos/.test(son) && /comparte partido/.test(son), "Soñadoras: parlay de 6 y aviso de partidos repetidos");
+  if (MODO === "mock") ok(/Soñadora 1/.test(son) && /6 piernas/.test(son) && /comparte partido/.test(son), "Soñadoras: parlay de 6 y aviso de partidos repetidos");
   await page.screenshot({ path: `${OUT}/03-sonadoras.png`, fullPage: true });
 
   // --- Cuotas
