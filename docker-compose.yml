@@ -15,17 +15,29 @@ services:
       interval: 5s
       retries: 10
 
+  # api, ui y worker comparten UNA imagen (`golmodelv2-app`): `docker compose build` (o `build api`) actualiza las tres a la vez.
+  # Antes cada servicio tenía su propia imagen y reconstruir solo `api` dejaba la pantalla (`ui`) con código viejo.
   api:
     build: .
+    image: golmodelv2-app
     command: uvicorn golmodel.api.main:app --host 0.0.0.0 --port 8000
     env_file: .env
     environment:
       DATABASE_URL: postgresql://golmodel:${POSTGRES_PASSWORD:-golmodel_local}@db:5432/golmodel
-    ports: ["127.0.0.1:8000:8000"]
+      UI_BIND: ${UI_BIND:-0.0.0.0}
+      APP_PASSWORD: ${APP_PASSWORD:-}            # mismas llaves que la ui (misma fuente: .env): la ui se presenta a la API con un token firmado con ellas
+      APP_VIEWER_PASSWORD: ${APP_VIEWER_PASSWORD:-}
+      APP_SECRET: ${APP_SECRET:-}
+    # La API sirve también la PWA del celular en http://IP-de-tu-Mac:8000/app/ — protegida con contraseña (APP_PASSWORD en .env): sin ella NO responde.
+    # Para dejarla solo en tu computadora: UI_BIND=127.0.0.1 en .env
+    ports: ["${UI_BIND:-0.0.0.0}:8000:8000"]
+    volumes:
+      - ./reports:/app/reports        # scripts/backtest_oos.py escribe aquí su reporte (visible en tu carpeta del proyecto)
     depends_on: { db: { condition: service_healthy } }
 
   worker:   # único job automático: snapshots de cierre
     build: .
+    image: golmodelv2-app
     command: python -m golmodel.jobs.cierre
     env_file: .env
     environment:
@@ -35,6 +47,7 @@ services:
 
   ui:
     build: .
+    image: golmodelv2-app
     command: streamlit run ui/app.py --server.port 8501 --server.address 0.0.0.0
     environment:
       API_URL: http://api:8000

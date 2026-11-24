@@ -197,6 +197,24 @@ def etapas(conn=Depends(conexion)):
     return {"ejecucion": ult and ult["id"], "etapas": et, "llamadas": ll, "programados": prog}
 
 
+@app.get("/diag/aciertos", dependencies=[Depends(autorizar)])
+def aciertos_diag(dias: int = 7, conn=Depends(conexion)):
+    """Marcador de aciertos por mercado con datos reales (decisión vs mercado)."""
+    from datetime import date, timedelta
+
+    from golmodel.servicios import aciertos
+    hoy = date.today()
+    return aciertos.marcador(conn, hoy - timedelta(days=max(1, min(dias, 120))), hoy)
+
+
+@app.get("/diag/dashboard", dependencies=[Depends(autorizar)])
+def dashboard_diag(dias: int = 60, conn=Depends(conexion)):
+    from datetime import date
+
+    from golmodel.servicios import aciertos
+    return aciertos.dashboard(conn, date.today(), max(7, min(dias, 365)))
+
+
 @app.get("/diag/alias", dependencies=[Depends(autorizar)])
 def alias(conn=Depends(conexion)):
     """Nombres de equipo que las fuentes envían y que no se pudieron unir con seguridad (bloquean partidos)."""

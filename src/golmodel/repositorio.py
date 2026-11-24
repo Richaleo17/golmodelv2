@@ -153,16 +153,38 @@ def set_xg(conn, partido_id: int, xg_l: float, xg_v: float, fuente: str) -> str:
     return "sin_cambios"
 
 
+def tiene_tabla(conn, nombre: str) -> bool:
+    return conn.execute("SELECT to_regclass(%s) IS NOT NULL AS ok", (nombre,)).fetchone()["ok"]
+
+
 def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
     """Partidos de liga en el formato del modelo (equipos = id como texto)."""
-    filas = conn.execute("""
+    # xG: el de Understat si existe; si no, «xG por tiros» (a·tiros a puerta + b·tiros fuera) con las estadísticas de
+    # football-data (Understat bloquea a Render desde 2026-11-15). Walk-forward 2024/25, 8 ligas: con w_xg 0.3, log loss 1X2
+    # 0.9817 → 0.9800 y O/U 2.5 0.6761 → 0.6747. La calibración semanal decide el peso (0 si no ayuda).
+    from golmodel.config import cargar
+    xt = (cargar().get("modelo") or {}).get("xg_tiros") or {}
+    a, b = (float(xt.get("coef_arco", 0.33)), float(xt.get("coef_fuera", 0.0))) if xt.get("activo", True) else (None, None)
+    if not tiene_tabla(conn, "estadisticas_partido"):           # base sin la migración 006 (p. ej. pruebas): xG solo de Understat
+        a = b = None
+    sin_est = a is None
+    filas = conn.execute(("""
         SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.temporada, p.local_id::text AS local,
                p.visitante_id::text AS visitante, p.goles_local, p.goles_visitante,
                p.xg_local::float8 AS xg_local, p.xg_visitante::float8 AS xg_visitante, p.estado
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
-        WHERE p.estado NOT IN ('cancelado','abandonado') AND (%s::timestamptz IS NULL OR p.inicio < %s)
+        WHERE l.activa AND NOT l.solo_mercado AND p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
+        ORDER BY p.inicio""" if sin_est else """
+        SELECT p.id AS partido_id, p.inicio, l.codigo AS liga, p.temporada, p.local_id::text AS local,
+               p.visitante_id::text AS visitante, p.goles_local, p.goles_visitante,
+               COALESCE(p.xg_local::float8, %(a)s * e.tiros_arco_local + %(b)s * greatest(e.tiros_local - e.tiros_arco_local, 0))::float8 AS xg_local,
+               COALESCE(p.xg_visitante::float8, %(a)s * e.tiros_arco_visitante
+                        + %(b)s * greatest(e.tiros_visitante - e.tiros_arco_visitante, 0))::float8 AS xg_visitante, p.estado
+        FROM partidos p JOIN ligas l ON l.id = p.liga_id
+        LEFT JOIN estadisticas_partido e ON e.partido_id = p.id
+        WHERE l.activa AND NOT l.solo_mercado AND p.estado NOT IN ('cancelado','abandonado') AND (%(h)s::timestamptz IS NULL OR p.inicio < %(h)s)
         ORDER BY p.inicio
-    """, (hasta, hasta)).fetchall()
+    """), {"a": a, "b": b, "h": hasta}).fetchall()
     df = pd.DataFrame(filas)
     if df.empty:
         return pd.DataFrame(columns=["partido_id", "inicio", "liga", "temporada", "local", "visitante",
@@ -175,12 +197,65 @@ def historial(conn, hasta: datetime | None = None) -> pd.DataFrame:
     return df
 
 
+def sincronizar_ligas(conn, cfg: dict) -> list[str]:
+    """Aplica `ligas_excluidas` (códigos) y `ligas_excluidas_patrones` (texto en la clave de The Odds API, solo competiciones solo-mercado)
+    a la columna `ligas.activa`. Las excluidas dejan de aparecer en el panel, las sugerencias,
+    los parlays, el Dashboard y la calibración, y dejan de gastar créditos. NO se borran filas (cuotas, predicciones y picks son
+    inmutables por diseño: son la auditoría). Quitar una liga de la lista la reactiva. Devuelve los códigos que quedaron inactivos."""
+    excluidas = [str(x) for x in (cfg.get("ligas_excluidas") or [])]
+    patrones = [str(x).lower() for x in (cfg.get("ligas_excluidas_patrones") or [])]
+    conn.execute("""UPDATE ligas SET activa = (codigo <> ALL(%(c)s) AND NOT (solo_mercado AND EXISTS (
+                        SELECT 1 FROM unnest(%(p)s::text[]) pt WHERE position(pt in lower(coalesce(odds_api_sport_key, ''))) > 0)))""",
+                 {"c": excluidas, "p": patrones})
+    return [r["codigo"] for r in conn.execute("SELECT codigo FROM ligas WHERE NOT activa ORDER BY codigo")]
+
+
 def asegurar_liga_mercado(conn, clave_deporte: str, titulo: str) -> dict:
     """Crea (una vez) la competición «solo mercado» asociada a una clave de The Odds API."""
     codigo = f"MK:{clave_deporte}"
     conn.execute("""INSERT INTO ligas (codigo, nombre, pais, odds_api_sport_key, solo_mercado)
                     VALUES (%s, %s, '', %s, true) ON CONFLICT (codigo) DO NOTHING""", (codigo, titulo, clave_deporte))
     return conn.execute("SELECT * FROM ligas WHERE codigo = %s", (codigo,)).fetchone()
+
+
+def _claves_equipos_de_liga(conn) -> dict[int, set[str]]:
+    from golmodel.ingesta.normalizacion import clave
+    d: dict[int, set[str]] = {}
+    for f in conn.execute("""SELECT e.id, e.nombre, a.nombre_externo, a.fuente FROM equipos e LEFT JOIN equipo_alias a ON a.equipo_id = e.id
+                             WHERE e.pais <> ''""").fetchall():
+        d.setdefault(f["id"], set()).add(clave(f["nombre"]))
+        if f["nombre_externo"] and f["fuente"] != "odds_api":
+            d[f["id"]].add(clave(f["nombre_externo"]))
+    return d
+
+
+def equipo_de_liga(conn, nombre: str, claves: dict | None = None) -> int | None:
+    """Equipo de una LIGA (pais no vacío) al que corresponde un nombre de The Odds API: misma clave normalizada o, si no, la tabla
+    explícita config/alias_equipos.yaml. Solo si es único (nunca se adivina)."""
+    from golmodel.ingesta.normalizacion import clave, semillas
+    claves = claves if claves is not None else _claves_equipos_de_liga(conn)
+    k = clave(nombre)
+    ids = [eid for eid, ks in claves.items() if k in ks]
+    if len(ids) == 1:
+        return ids[0]
+    canon = {c for sem in semillas().values() for kk, c in sem.items() if kk == k}
+    ids = sorted({eid for eid, ks in claves.items() if ks & canon}) if canon else []
+    return ids[0] if len(ids) == 1 else None
+
+
+def reparar_duplicados_mercado(conn) -> list[tuple[str, int, int]]:
+    """Funde los equipos duplicados que crearon las competiciones solo-mercado (pais vacío) con su equipo de liga. Idempotente.
+    Devuelve [(nombre_odds, id_duplicado, id_liga)]."""
+    from golmodel.ingesta.normalizacion import fusionar_equipo
+    claves = _claves_equipos_de_liga(conn)
+    hechos = []
+    for d in conn.execute("""SELECT e.id, a.nombre_externo FROM equipos e JOIN equipo_alias a ON a.equipo_id = e.id AND a.fuente = 'odds_api'
+                             WHERE e.pais = '' ORDER BY e.id""").fetchall():
+        eid = equipo_de_liga(conn, d["nombre_externo"], claves)
+        if eid is not None and eid != d["id"]:
+            fusionar_equipo(conn, d["id"], eid)
+            hechos.append((d["nombre_externo"], d["id"], eid))
+    return hechos
 
 
 def equipo_mercado(conn, liga_id: int, nombre: str, cache: dict) -> int:
@@ -191,8 +266,13 @@ def equipo_mercado(conn, liga_id: int, nombre: str, cache: dict) -> int:
         return cache[k]
     r = conn.execute("SELECT equipo_id FROM equipo_alias WHERE fuente = 'odds_api' AND nombre_externo = %s",
                      (nombre,)).fetchone()
+    de_liga = None if r else equipo_de_liga(conn, nombre)         # ¿ya existe como equipo de una liga con modelo? No se duplica
     if r:
         eid = r["equipo_id"]
+    elif de_liga is not None:
+        eid = de_liga
+        conn.execute("INSERT INTO equipo_alias (equipo_id, fuente, nombre_externo, automatico) VALUES (%s, 'odds_api', %s, true) "
+                     "ON CONFLICT (fuente, nombre_externo) DO NOTHING", (eid, nombre))
     else:
         eid = conn.execute("""INSERT INTO equipos (nombre, pais) VALUES (%s, '')
                               ON CONFLICT (nombre, pais) DO UPDATE SET nombre = EXCLUDED.nombre RETURNING id""",
@@ -210,7 +290,7 @@ def partidos_de_dias(conn, dias: list[date]) -> list[dict]:
         SELECT p.*, l.codigo AS liga, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
         JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
-        WHERE dia_mx(p.inicio) = ANY(%s) AND p.estado = 'programado'
+        WHERE l.activa AND dia_mx(p.inicio) = ANY(%s) AND p.estado = 'programado'
         ORDER BY p.inicio
     """, (dias,)).fetchall()
 

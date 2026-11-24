@@ -18,6 +18,7 @@ sys.path.insert(0, str(RAIZ / "src"))
 
 from golmodel import db, repositorio as repo  # noqa: E402
 from golmodel.config import cargar  # noqa: E402
+from golmodel.ingesta import estadisticas  # noqa: E402
 from golmodel.ingesta.historico_api import cargar_historico_api, necesita_historico_api  # noqa: E402
 from golmodel.ingesta.limpieza import limpiar  # noqa: E402
 from golmodel.ingesta.normalizacion import ResolverEquipos  # noqa: E402
@@ -80,6 +81,8 @@ def main() -> None:
                     corte = datetime(anio_actual - n_temp, 1, 1, tzinfo=timezone.utc)
                     partidos = partidos[partidos["inicio"] >= corte]
                 n = cargar_historico(conn, codigo, partidos, cuotas)
+                if formato == "principal":                   # córners, tiros y árbitro (mercados nuevos)
+                    n["estadisticas"] = estadisticas.guardar(conn, liga, estadisticas.leer(texto, codigo))["guardadas"]
                 conn.commit()
             except Exception as e:                           # un archivo malo no debe tumbar las demás ligas
                 conn.rollback()

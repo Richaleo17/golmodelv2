@@ -7,12 +7,12 @@ Principios de precisión:
   paga menos, no conviene aunque la jugada sea probable.
 * La «confianza» (0-10) mide cuánto respaldo tienen los datos del partido; NO es la probabilidad de
   acertar. La probabilidad de acertar es la que se muestra en %.
-* Los parlays se arman buscando, para el pago objetivo de cada perfil, la combinación MÁS probable.
-  Se asume independencia solo entre partidos distintos.
+* Las combinadas ya NO se arman aquí: el ticket (5-8 piernas) lo propone V3 con probabilidad conjunta real (`panel_v3`).
+  Los parlays por perfil, «más seguros» y tickets de 5 equipos de V2 usaban el producto de probabilidades (independencia) y se
+  retiraron hasta rediseñarlos sobre `tickets.py` con datos validados.
 """
 from __future__ import annotations
 
-import itertools
 import math
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime
@@ -24,6 +24,7 @@ from golmodel import repositorio as repo
 from golmodel.modelos.matriz import matriz_marcadores
 from golmodel.modelos.mercados import APTAS_PARLAY, CONDICIONES, probabilidad
 from golmodel.motor.valor import umbral_efectivo
+from golmodel.servicios import alineaciones
 from golmodel.servicios.prediccion import vigente
 
 EXCLUIDAS = {"1X2:X", "ANOTA:local:no", "ANOTA:visitante:no", "BTTS:no"}
@@ -164,17 +165,19 @@ def _forma(conn, equipo_ids: list[int], antes: datetime) -> dict[int, str]:
 
 
 def _cargar(conn, d: date) -> list[dict]:
+    arbitro = ("(SELECT e.arbitro FROM estadisticas_partido e WHERE e.partido_id = p.id)"
+               if repo.tiene_tabla(conn, "estadisticas_partido") else "NULL::text")
     return conn.execute("""
         SELECT p.id AS partido_id, p.inicio, p.estado, p.goles_local, p.goles_visitante, p.local_id, p.visitante_id,
-               l.codigo AS liga, l.nombre AS liga_nombre, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante,
+               p.liga_id, """ + arbitro + """ AS arbitro, l.codigo AS liga, l.nombre AS liga_nombre, l.solo_mercado, el.nombre AS local, ev.nombre AS visitante,
                pr.id AS prediccion_id, pr.version_id, pr.matriz, pr.lambda_local, pr.lambda_visitante, pr.rho,
                pr.lambda_mercado_local, pr.lambda_mercado_visitante, pr.ajuste_local, pr.ajuste_visitante,
-               pr.crs_total, pr.crs_alerta, pr.crs_veto, pr.crs_completo, pr.crs_selecciones_vetadas
+               pr.crs_total, pr.crs_alerta, pr.crs_veto, pr.crs_completo, pr.crs_selecciones_vetadas, pr.cr_scores
         FROM partidos p JOIN ligas l ON l.id = p.liga_id
         JOIN equipos el ON el.id = p.local_id JOIN equipos ev ON ev.id = p.visitante_id
         LEFT JOIN LATERAL (SELECT * FROM predicciones x WHERE x.partido_id = p.id AND x.origen = 'produccion'
                            ORDER BY x.creada_en DESC LIMIT 1) pr ON true
-        WHERE dia_mx(p.inicio) = %s AND p.estado NOT IN ('cancelado', 'abandonado', 'pospuesto')
+        WHERE l.activa AND dia_mx(p.inicio) = %s AND p.estado NOT IN ('cancelado', 'abandonado', 'pospuesto')
         ORDER BY p.inicio, l.codigo, el.nombre
     """, (d,)).fetchall()
 
@@ -290,6 +293,9 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         alpha_calibrado=alpha_cal, crs_alerta=f["crs_alerta"] or "INSUFICIENTE",
         ajuste_bajas=min(f["ajuste_local"] or 0.0, f["ajuste_visitante"] or 0.0))
 
+    _sel = (f.get("cr_scores") or {}).get("_selecciones") if isinstance(f.get("cr_scores"), dict) else None
+    if _sel:                                              # selecciones con modelo propio + factores (altitud, clima, motivación, ambiente)
+        razones = list(razones) + ["modelo propio de selecciones"]
     pg_l, pg_v, pg_0 = primer_gol(f["lambda_local"], f["lambda_visitante"])
     pg_fav = pg_l if fav == "local" else pg_v
     s_otro = f"ANOTA:{riv}:si"
@@ -306,12 +312,30 @@ def analizar_partido(f: dict, sels: dict[str, dict], pesos: dict[int, float], fo
         "goles_esperados": {"local": f["lambda_local"], "visitante": f["lambda_visitante"]},
         "forma": {"local": forma.get(f["local_id"], ""), "visitante": forma.get(f["visitante_id"], "")},
         "confianza": conf, "razones": razones,
-        "fuente": "solo mercado" if solo else ("mercado + modelo" if mercado_ok else "solo modelo"),
+        "fuente": _sel["fuente"] if _sel else ("solo mercado" if solo else ("mercado + modelo" if mercado_ok else "solo modelo")),
+        "factores": _sel.get("razones", []) if _sel else [],
         "liga_nombre": f["liga_nombre"], "solo_mercado": solo,
         "crs": {"total": f["crs_total"], "alerta": f["crs_alerta"], "veto": f["crs_veto"]},
         "p_fav_mercado": pf_mk, "p_fav_modelo": pf_mod,
         "peso_min": peso_min if (f["local_id"] in pesos and f["visitante_id"] in pesos) else None,
     }
+    # Tarjetas de mercados del Diario (aditivo; NO alimenta «Qué meter»): lo más probable de cada mercado con su probabilidad y la cuota mínima para tener valor.
+    u_edge = float(cfg["valor"]["umbral_edge"])
+
+    def _mercado(clave: str, titulo: str, pick: str, p: float, aprox: bool = False) -> dict:
+        return {"clave": clave, "titulo": titulo, "pick": pick, "p": p, "cuota_min": (1 + u_edge) / p if p > 0 else None, "aprox": aprox,
+                "nivel": "ALTA" if p >= 0.80 else "MEDIA" if p >= 0.55 else "BAJA"}
+
+    def _si_no(clave: str, titulo: str, s_: str) -> dict:
+        ps = p_para_mostrar(s_)
+        return _mercado(clave, titulo, "Sí" if ps >= 0.5 else "No", ps if ps >= 0.5 else 1 - ps)
+    info["mercados"] = [
+        _mercado("ganador", "Ganador", nom[fav], p1[sf]),
+        _si_no("ambos", "Ambos anotan", "BTTS:si"),
+        _si_no("mas15", "Más de 1.5 goles", "OU:1.5:over"),
+        _si_no("mas25", "Más de 2.5 goles", "OU:2.5:over"),
+        _si_no("menos35", "Menos de 3.5 goles", "OU:3.5:under"),
+        _mercado("primer_gol", "Primer gol", nom[fav], pg_fav, aprox=True)]
 
     vetadas = set(f["crs_selecciones_vetadas"] or [])
     lado_fav = "1" if fav == "local" else "2"
@@ -380,60 +404,73 @@ def riesgo_del_favorito(info: dict, cfg: dict) -> dict | None:
             "alternativa": None if alt is None else {"jugada": alt.jugada, "p": alt.p, "cuota_min": alt.cuota_min}}
 
 
-def _combinaciones(piernas: list[Pierna], perfil: dict, cfg_s: dict, top: int = 1) -> list[tuple[float, tuple[Pierna, ...]]]:
-    """Las `top` combinaciones MÁS probables (partidos distintos) cuya cuota justa cae en el rango del perfil.
-    Entre combinaciones se ordena por P × credibilidad CRS; la P que se muestra es la real (sin factor)."""
-    banda = [x for x in piernas if perfil["p_min_pierna"] <= x.p <= perfil["p_max_pierna"]]
-    por_partido: dict[int, list[Pierna]] = {}
-    for x in sorted(banda, key=lambda y: -(y.puntaje * y.crs_factor)):
-        if len(por_partido.setdefault(x.partido_id, [])) < 2:
-            por_partido[x.partido_id].append(x)
-    pool = sorted((x for xs in por_partido.values() for x in xs),
-                  key=lambda y: -(y.puntaje * y.crs_factor))[: perfil.get("top_piernas", cfg_s["top_piernas"])]
-    hallados: list[tuple[float, float, tuple[Pierna, ...]]] = []
-    for k in range(perfil["piernas_min"], perfil["piernas_max"] + 1):
-        for combo in itertools.combinations(pool, k):
-            if len({x.partido_id for x in combo}) < k:
-                continue
-            P = math.prod(x.p for x in combo)
-            if not perfil["cuota_min"] <= 1 / P <= perfil["cuota_max"]:
-                continue
-            hallados.append((P * math.prod(x.crs_factor for x in combo), P, combo))
-    hallados.sort(key=lambda t: -t[0])
-    salida: list[tuple[float, tuple[Pierna, ...]]] = []
-    usados: list[frozenset[int]] = []
-    for _, P, combo in hallados:
-        ids = frozenset(x.partido_id for x in combo)
-        if any(len(ids & u) >= len(ids) - 1 and len(ids) > 2 for u in usados):   # evitar casi-copias
+def panel_v3(conn, d: date, zona: ZoneInfo) -> dict | None:
+    """Decisión V3 del día para el panel: el ticket (5-8 piernas, probabilidad conjunta con dependencia) o la ABSTENCIÓN con su
+    motivo; `None` si todavía no hay decisión (o la migración 004 no está aplicada). Es lo ÚNICO de combinadas que muestra el panel:
+    los parlays por perfil, «más seguros» y los tickets de 5 equipos de V2 se armaban con el producto de probabilidades
+    (independencia) y se retiraron (decisión 2026-11-09) hasta que V3 los genere con datos validados."""
+    from golmodel.servicios import vistas
+    dec = vistas.decision_v3(conn, d)
+    if dec is None:
+        return None
+    ticket = None
+    if dec["ticket"]:
+        ticket = vistas._ticket_v3_como_parlay(conn, dec)
+        for b in ticket["bloques"]:
+            ini = conn.execute("SELECT inicio FROM partidos WHERE id = %s", (b["partido_id"],)).fetchone()
+            b["hora"] = ini["inicio"].astimezone(zona).strftime("%H:%M") if ini else "—"
+            b["jugada"] = " + ".join(texto_jugada(sel, b["local"], b["visitante"])[0]
+                                     for sel in (b["seleccion_a"], b["seleccion_b"]) if sel)
+    return {"dia": dec["dia"], "estado": dec["estado"], "estado_tickets": dec["estado_tickets"], "motivo": dec["motivo"],
+            "categoria": dec["categoria"], "veredicto": dec["veredicto"], "modo_experimental": dec["modo_experimental"],
+            "techo_estado": dec["techo_estado"], "calibrado_con": dec["calibrado_con"], "n_candidatas": dec["n_candidatas"],
+            "advertencia": dec["advertencia"], "beta": dec.get("beta"), "sello": dec.get("sello"), "ticket": ticket}
+
+
+TARJETA_KPI = {"ganador": "Ganador", "primer_gol": "PA(1) primer gol", "ambos": "Ambos anotan", "mas15": "Más de 1.5",
+               "mas25": "Más de 2.5", "menos35": "Menos de 3.5"}
+
+
+def _calibrar_tarjetas(info: dict, cal_kpi: dict[str, dict], cfg: dict) -> None:
+    """Aplica a las tarjetas del Diario la subrama de calibración ACTIVA de su KPI (laboratorio por KPI)."""
+    if not cal_kpi:
+        return
+    from golmodel.servicios.calibracion_kpi import aplicar
+    u = float(cfg["valor"]["umbral_edge"])
+    for m in info.get("mercados") or []:
+        c = cal_kpi.get(TARJETA_KPI.get(m["clave"], ""))
+        if not c:
             continue
-        usados.append(ids)
-        salida.append((P, combo))
-        if len(salida) >= top:
-            break
-    return salida
+        p = aplicar(m["p"], c["a"], c["b"])
+        m.update(p_original=m["p"], p=p, cuota_min=(1 + u) / p if p > 0 else None, calibrado=f"v{c['version']}",
+                 nivel="ALTA" if p >= 0.80 else "MEDIA" if p >= 0.55 else "BAJA")
 
 
-def _ficha(P: float, combo: tuple[Pierna, ...]) -> dict:
-    umbral = max(x.umbral for x in combo)
-    con = all(x.cuota_casa for x in combo)
-    return {"piernas": [asdict(x) for x in sorted(combo, key=lambda y: y.hora)], "p": P, "cuota_justa": 1 / P,
-            "cuota_min": (1 + umbral) / P, "uno_de_cada": 1 / P, "n": len(combo), "con_cuotas": con,
-            "cuota_casa": math.prod(x.cuota_casa for x in combo) if con else None,
-            "crs_en_juego": [x.partido for x in combo if x.crs_alerta in ("MEDIA", "ALTA") and x.crs_factor < 1]}
+def _banderas(partidos: list[dict]) -> None:
+    """Bandera de las selecciones nacionales (código flagcdn validado, p. ej. «es», «gb-eng»). Los clubes no traen bandera."""
+    from golmodel.servicios import selecciones as sel
+    for p in partidos:
+        p["bandera_local"], p["bandera_visitante"] = sel.bandera(p.get("local") or ""), sel.bandera(p.get("visitante") or "")
 
 
-def armar_perfil(piernas: list[Pierna], perfil: dict, cfg_s: dict) -> dict | None:
-    """La combinación MÁS probable, de partidos distintos, cuya cuota justa cae en el rango del perfil."""
-    r = _combinaciones(piernas, perfil, cfg_s, 1)
-    return _ficha(*r[0]) if r else None
-
-
-def armar_tickets(piernas: list[Pierna], cfg_s: dict) -> list[dict]:
-    """Tickets de pago alto (estilo 5 equipos ≈ 15-25x): las mejores combinaciones, con razones por pierna."""
-    t = cfg_s.get("ticket")
-    if not t:
-        return []
-    return [_ficha(P, c) for P, c in _combinaciones(piernas, t, cfg_s, t.get("cuantos", 3))]
+def _escudos(conn, partidos: list[dict], filas: list[dict]) -> None:
+    """Id de ESPN de cada equipo (para su escudo). Solo el número: la URL la arma la app con un patrón fijo."""
+    _banderas(partidos)
+    if not repo.tiene_tabla(conn, "equipos_espn"):
+        return
+    eq_de = {f["partido_id"]: (f["local_id"], f["visitante_id"]) for f in filas}
+    ids = list({i for par in eq_de.values() for i in par})
+    if not ids:
+        return
+    try:
+        with conn.transaction():
+            espn = {r["equipo_id"]: r["espn_id"] for r in conn.execute("SELECT equipo_id, espn_id FROM equipos_espn WHERE equipo_id = ANY(%s)", (ids,))}
+    except Exception:                                            # noqa: BLE001 — el escudo es adorno: nunca tumba el panel
+        return
+    for p in partidos:
+        loc, vis = eq_de.get(p["partido_id"], (None, None))
+        p["escudo_local"] = espn.get(loc) if str(espn.get(loc, "")).isdigit() else None
+        p["escudo_visitante"] = espn.get(vis) if str(espn.get(vis, "")).isdigit() else None
 
 
 def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
@@ -459,10 +496,14 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
         modelo_equipos = {r["equipo_id"] for r in conn.execute(
             "SELECT equipo_id FROM parametros_equipo WHERE version_id = %s", (ultimo["id"],))}
     sin_historico = {r["codigo"] for r in conn.execute("""
-        SELECT l.codigo FROM ligas l WHERE NOT EXISTS (SELECT 1 FROM partidos p WHERE p.liga_id = l.id
+        SELECT l.codigo FROM ligas l WHERE l.activa AND NOT EXISTS (SELECT 1 FROM partidos p WHERE p.liga_id = l.id
                                                        AND p.estado = 'finalizado')""")}
     casa_ej = cfg["mercado"]["casa_ejecucion"]
+    from golmodel.servicios import calibracion_kpi
+    cal_kpi = {k: v for k, v in calibracion_kpi.vigentes(conn).items() if v.get("estado") == "activa"}
 
+    con_estadisticas = repo.tiene_tabla(conn, "estadisticas_partido")
+    con_alineaciones = repo.tiene_tabla(conn, "plantilla_jugadores")          # base sin la migración 014
     partidos, piernas_todas, rompe = [], [], []
     for f in filas:
         if not f["prediccion_id"]:
@@ -484,6 +525,22 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
                                              "casa_nombre": cfg["mercado"].get("casa_manual_nombre", "Tu casa")
                                              if casa == "manual" else casa.capitalize()}
         info = analizar_partido(f, sels.get(f["prediccion_id"], {}), pesos_v.get(f["version_id"], {}), forma, ejec, cfg, zona)
+        _calibrar_tarjetas(info, cal_kpi, cfg)
+        if con_alineaciones and f["estado"] == "programado":
+            try:
+                with conn.transaction():
+                    alineaciones.aplicar_a_info(info, alineaciones.analizar(conn, f["partido_id"]))
+            except Exception:                                    # noqa: BLE001 — la alineación nunca tumba el panel
+                pass
+        if info.get("mercados") is not None and not f["solo_mercado"] and con_estadisticas:
+            conn.execute("SAVEPOINT mosaicos_extra")     # córners y tarjetas (modelos paralelos; si fallan, el Diario sigue)
+            try:
+                from golmodel.integracion.mercados_extendidos import mosaicos_extra
+                info["mercados"] += mosaicos_extra(conn, cfg, f["liga"], f["liga_id"], f["local_id"], f["visitante_id"],
+                                                   f.get("arbitro"), ahora)
+                conn.execute("RELEASE SAVEPOINT mosaicos_extra")
+            except Exception:                           # noqa: BLE001
+                conn.execute("ROLLBACK TO SAVEPOINT mosaicos_extra")
         if f["estado"] == "programado":
             piernas_todas.extend(info["_piernas"])
             r_ = riesgo_del_favorito(info, cfg)
@@ -504,14 +561,12 @@ def panel(conn, cfg: dict, d: date, ahora: datetime) -> dict:
     # Con valor: probabilidad mínima, y se prefieren los EV creíbles a los gigantes (casi siempre error del modelo).
     valor = sorted((x for x in piernas_todas if x.valor),
                    key=lambda y: (y.ev_sospechoso, -(y.p * (y.ev or 0))))[:cs["max_mejores"]]
-    parlays = {nombre: armar_perfil(piernas_todas, perfil, cs) for nombre, perfil in cs["perfiles"].items()}
-    tickets = armar_tickets(piernas_todas, cs)
-    extra = {nombre: [_ficha(P, c) for P, c in _combinaciones(piernas_todas, perfil, cs, perfil["cuantos"])]
-             for nombre, perfil in cs.get("mas_seguros", {}).items()}
+    v3 = panel_v3(conn, d, zona)
     for p in partidos:
         p.pop("_piernas", None)
+    _escudos(conn, partidos, filas)
     return {"fecha": d.isoformat(), "partidos": partidos, "mejores": [asdict(x) for x in mejores],
-            "valor": [asdict(x) for x in valor], "rompe": rompe, "parlays": parlays, "tickets": tickets, "mas_seguros": extra,
+            "valor": [asdict(x) for x in valor], "rompe": rompe, "v3": v3,
             "resumen": {"partidos": len(partidos), "con_prediccion": sum(1 for p in partidos if p["prediccion"]),
                         "ligas": sorted({p["liga"] for p in partidos}),
                         "nombres_liga": {p["liga"]: p.get("liga_nombre") for p in partidos},
@@ -535,27 +590,18 @@ def texto_panel(pan: dict) -> str:
         L.append(f"- {r['hora']} {r['partido']}: {'; '.join(r['razones'])}{alt}")
     if not pan["rompe"]:
         L.append("- (ninguno)")
-    L += ["", "## Parlays por perfil (el más probable que paga lo objetivo)"]
-    for nombre, p in pan["parlays"].items():
-        if p is None:
-            L.append(f"- {nombre}: no hay jugadas suficientes hoy")
-            continue
-        piernas = " + ".join(f"{x['jugada']} ({x['partido']})" for x in p["piernas"])
-        L.append(f"- {nombre}: {piernas} · acierta {p['p']:.1%} (1 de cada {p['uno_de_cada']:.0f}) · "
-                 f"justa {p['cuota_justa']:.2f} · mete si paga ≥ {p['cuota_min']:.2f}")
-    L += ["", "## Más parlays seguros (probabilidad real de acertar)"]
-    for nombre, lst in (pan.get("mas_seguros") or {}).items():
-        for i, p in enumerate(lst, 1):
-            piernas = " + ".join(f"{x['jugada']} ({x['partido']}, {x['p']:.0%})" for x in p["piernas"])
-            L.append(f"- {nombre} {i}: {piernas} · acierta {p['p']:.0%} (1 de cada {p['uno_de_cada']:.1f}) · "
-                     f"justa {p['cuota_justa']:.2f} · mete si paga ≥ {p['cuota_min']:.2f}")
-    L += ["", "## Tickets de pago alto (5 equipos) — la probabilidad real es baja, léela"]
-    for i, t in enumerate(pan.get("tickets") or [], 1):
-        L.append(f"### Ticket {i}: justa {t['cuota_justa']:.1f}x · acierta {t['p']:.1%} (1 de cada {t['uno_de_cada']:.0f}) · "
-                 f"mete si paga ≥ {t['cuota_min']:.1f}x")
-        for x in t["piernas"]:
-            L.append(f"- {x['hora']} {x['partido']} → {x['jugada']} · {x['p']:.0%} (justa {x['cuota_justa']:.2f})")
-            L += [f"    · {r}" for r in x["porque"]]
-    if not pan.get("tickets"):
-        L.append("- (hoy no hay 5 partidos con jugadas que armen ese pago)")
+    L += ["", "## Ticket V3 (5-8 piernas · probabilidad conjunta con dependencia)"]
+    v3 = pan.get("v3")
+    if v3 is None:
+        L.append("- (todavía no hay decisión V3 para este día)")
+    elif v3["ticket"] is None:
+        L.append(f"- ABSTENCIÓN: {v3['motivo'] or 'sin ticket'}. No se propone ticket antes que inventar una probabilidad.")
+    else:
+        t = v3["ticket"]
+        L.append(f"- Estado {v3['estado']} · {t['n_bloques']} partidos · prob. conservadora {t['p_parlay']:.1%} "
+                 f"(media {t['p_media']:.1%}; si fueran independientes {t['p_independencia']:.1%}) · cuota combinada {t['cuota_combinada']:.2f}")
+        for b in t["bloques"]:
+            L.append(f"  - {b['hora']} {b['local']} vs {b['visitante']} → {b['jugada']} · {b['p_calibrada']:.0%} · cuota {b['cuota']:.2f}")
+    if v3:
+        L.append(f"> ⚠️ {v3['advertencia']}")
     return "\n".join(L)

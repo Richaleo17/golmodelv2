@@ -1,0 +1,742 @@
+{
+ "rosters": [
+  {
+   "homeAway": "home",
+   "team": {
+    "id": "160",
+    "displayName": "Paris Saint-Germain"
+   },
+   "roster": [
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "248699",
+      "displayName": "Matvei Safonov"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "287005",
+      "displayName": "Willian Pacho"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "304503",
+      "displayName": "Illia Zabarnyi"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "196200",
+      "displayName": "Lucas Hernández"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "345581",
+      "displayName": "Warren Zaïre-Emery"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "288897",
+      "displayName": "Vitinha"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "214596",
+      "displayName": "Fabián Ruiz"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "379088",
+      "displayName": "Senny Mayulu"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "265869",
+      "displayName": "Ferran Torres"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "353363",
+      "displayName": "Mika Godts"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "336388",
+      "displayName": "Désiré Doué"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "288925",
+      "displayName": "Lucas Chevalier"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "3121652",
+      "displayName": "Younes Idder"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "355061",
+      "displayName": "João Neves"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "403419",
+      "displayName": "Quentin Ndjantou"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "160115",
+      "displayName": "Lucas Digne"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "387725",
+      "displayName": "Alessandro Longoni"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "403578",
+      "displayName": "Dro Fernández"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "403981",
+      "displayName": "David Boly"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "316128",
+      "displayName": "Lucas Beraldo"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "homeAway": "away",
+   "team": {
+    "id": "170",
+    "displayName": "Troyes"
+   },
+   "roster": [
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "206835",
+      "displayName": "Hillel Konaté"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "112988",
+      "displayName": "Michel Diaz"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "181582",
+      "displayName": "Adrien Monfray"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "304898",
+      "displayName": "Ismael Boura"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "334281",
+      "displayName": "Lucas Maronnier"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "346359",
+      "displayName": "Mouhamed Diop"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "270173",
+      "displayName": "Antoine Mille"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "323058",
+      "displayName": "Dermane Karim"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "298511",
+      "displayName": "Kandet Diawara"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "386387",
+      "displayName": "Merwan Ifnaoui"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": true,
+     "subbedIn": false,
+     "athlete": {
+      "id": "176406",
+      "displayName": "Renaud Ripart"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "305693",
+      "displayName": "Jeremy Le Douaron"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "3131916",
+      "displayName": "Idrissa Soukouna"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "371562",
+      "displayName": "Yvann Titi"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "351379",
+      "displayName": "Hugo Picard"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "286972",
+      "displayName": "Iron Gomis"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": true,
+     "athlete": {
+      "id": "287514",
+      "displayName": "Timothé Nkada"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 1.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "283692",
+      "displayName": "Alexandre Philiponeau"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "335240",
+      "displayName": "Patrick Beach"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    },
+    {
+     "starter": false,
+     "subbedIn": false,
+     "athlete": {
+      "id": "287576",
+      "displayName": "Paolo Gozzi Iweru"
+     },
+     "stats": [
+      {
+       "name": "appearances",
+       "value": 0.0
+      },
+      {
+       "name": "redCards",
+       "value": 0.0
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,32 @@
+{
+ "fixtures": {
+  "allMatches": [
+   {
+    "id": "5868133",
+    "home": {
+     "name": "Barcelona"
+    },
+    "away": {
+     "name": "Villarreal"
+    },
+    "status": {
+     "utcTime": "2026-11-22T13:00:00.000Z",
+     "finished": false
+    }
+   },
+   {
+    "id": "5868137",
+    "home": {
+     "name": "Racing Santander"
+    },
+    "away": {
+     "name": "Real Sociedad"
+    },
+    "status": {
+     "utcTime": "2026-11-22T15:15:00.000Z",
+     "finished": false
+    }
+   }
+  ]
+ }
+}

@@ -11,6 +11,7 @@ from datetime import date, datetime, timezone
 
 from golmodel import repositorio as repo
 from golmodel.ingesta.normalizacion import ResolverEquipos, clave, semillas
+from golmodel.ingesta.proveedores.cadena import Cadena, Interruptor
 from golmodel.ingesta.proveedores.football_data_csv import CODIGOS
 from golmodel.ingesta.tipos import Calidad, Capacidad, Solicitud
 
@@ -57,7 +58,12 @@ def cargar_historico_api(conn, cadena_resultados, codigo: str, anios: list[int],
     resolver = resolver or ResolverEquipos(conn)
     res: dict = {"partidos": 0, "temporadas": {}, "avisos": []}
     for y in anios:
-        r = cadena_resultados.obtener(Solicitud(Capacidad.RESULTADOS, codigo, temporada=f"{y}-Apertura"))
+        # Interruptor PROPIO por temporada: el plan gratis de API-Football rechaza la temporada en curso («try from 2022
+        # to 2024») y ese ErrorPlan pausa al proveedor 24 h en el interruptor compartido. Aquí una temporada fuera del
+        # plan no debe bloquear las que sí cubre (ni las del resto del pipeline dependen de esto).
+        cad = Cadena(Capacidad.RESULTADOS, cadena_resultados.eslabones, interruptor=Interruptor(),
+                     presupuestos=cadena_resultados.presupuestos)
+        r = cad.obtener(Solicitud(Capacidad.RESULTADOS, codigo, temporada=f"{y}-Apertura"))
         if r.calidad is Calidad.SIN_DATOS:
             res["temporadas"][y] = "sin datos"
             res["avisos"] += r.avisos

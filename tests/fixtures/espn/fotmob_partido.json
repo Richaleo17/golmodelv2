@@ -1,0 +1,89 @@
+{
+ "content": {
+  "lineup": {
+   "lineupType": "predicted",
+   "homeTeam": {
+    "name": "Barcelona",
+    "unavailable": [
+     {
+      "id": 1901980,
+      "name": "Jordi Pesquer",
+      "unavailability": {
+       "type": "internationalDuty",
+       "expectedReturn": "Mid December 2026",
+       "expectedReturnDate": "2026-12-13T00:00:00Z"
+      }
+     },
+     {
+      "id": 1815149,
+      "name": "Xavi Espart",
+      "unavailability": {
+       "injuryId": 30,
+       "type": "injury",
+       "expectedReturn": "Early January 2027"
+      }
+     },
+     {
+      "id": 675088,
+      "name": "Rodri",
+      "unavailability": {
+       "injuryId": 42,
+       "type": "injury",
+       "expectedReturn": "Early December 2026"
+      }
+     },
+     {
+      "id": 1315475,
+      "name": "Roony Bardghji",
+      "unavailability": {
+       "injuryId": 76,
+       "type": "injury",
+       "expectedReturn": "Late February 2027"
+      }
+     }
+    ]
+   },
+   "awayTeam": {
+    "name": "Villarreal",
+    "unavailable": [
+     {
+      "id": 246438,
+      "name": "Gerard Moreno",
+      "unavailability": {
+       "injuryId": 87,
+       "type": "injury",
+       "expectedReturn": "Back in training"
+      }
+     },
+     {
+      "id": 833219,
+      "name": "Juan Foyth",
+      "unavailability": {
+       "injuryId": 87,
+       "type": "injury",
+       "expectedReturn": "Back in training"
+      }
+     },
+     {
+      "id": 1695966,
+      "name": "Alassane Diatta",
+      "unavailability": {
+       "injuryId": 87,
+       "type": "injury",
+       "expectedReturn": "Early December 2026"
+      }
+     },
+     {
+      "id": 1311915,
+      "name": "Ilias Akhomach",
+      "unavailability": {
+       "injuryId": 87,
+       "type": "injury",
+       "expectedReturn": "Back in training"
+      }
+     }
+    ]
+   }
+  }
+ }
+}

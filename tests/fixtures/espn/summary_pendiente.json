@@ -1,0 +1,18 @@
+{
+ "rosters": [
+  {
+   "homeAway": "home",
+   "team": {
+    "id": "2502",
+    "displayName": "Nice"
+   }
+  },
+  {
+   "homeAway": "away",
+   "team": {
+    "id": "160",
+    "displayName": "Paris Saint-Germain"
+   }
+  }
+ ]
+}

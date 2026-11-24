@@ -16,15 +16,14 @@ import numpy as np
 import pandas as pd
 from psycopg.types.json import Jsonb
 
-from golmodel.config import hash_config
+from golmodel.config import cargar_v3, hash_config
 from golmodel.modelos import crs as crs_mod
 from golmodel.modelos import devig
 from golmodel.modelos.combinacion import matriz_mercado, p_ajustada, p_ajustada_push
 from golmodel.modelos.contexto import ajuste_equipo
 from golmodel.modelos.dixon_coles import ModeloDC
-from golmodel.modelos.matriz import Matriz
+from golmodel.modelos.matriz import Matriz, matriz_marcadores
 from golmodel.modelos.mercados import CONDICIONES, GRUPO_DE, GRUPOS, PUSH, probabilidad, probabilidad_push
-from golmodel.motor import modulo2
 from golmodel.motor.bankroll import (
     Apuesta,
     asignar_exposicion,
@@ -151,6 +150,19 @@ def construir_mercado(conn, cfg: dict, modelo: ModeloDC, version_id: int, partid
     if mmk is None or not mmk.usable:
         return None
     m = mmk.matriz
+    # Selecciones nacionales: modelo PROPIO (histórico con amistosos) + factores de partido (altitud, clima, motivación, ambiente).
+    # Se mezcla con el mercado con α = selecciones_modelo.alpha. Si no aplica (clubes, sin historial), queda solo mercado como antes.
+    sel_info = None
+    try:
+        from golmodel.servicios import pronostico_selecciones as ps
+        sel_info = ps.para_partido(cfg, partido, (m.lambda_local, m.lambda_visitante), conn=conn)
+    except Exception:                                             # noqa: BLE001 — opcional: nunca tumba la predicción de mercado
+        sel_info = None
+    m_mod, alpha = None, 0.0
+    if sel_info is not None and sel_info.lambda_modelo is not None:
+        alpha = sel_info.alpha
+        m_mod = matriz_marcadores(*sel_info.lambda_modelo, m.rho, gmax)
+        m_fin = matriz_marcadores(*sel_info.lambda_final, m.rho, gmax)
     sel = {}
     for s in CONDICIONES:
         pw, pp = probabilidad(m, s), probabilidad_push(m, s)
@@ -160,24 +172,81 @@ def construir_mercado(conn, cfg: dict, modelo: ModeloDC, version_id: int, partid
             pm = pad = p_mk[s]
         else:
             pm, pad = None, None         # derivado de la matriz implícita: el panel lo calcula de lambda_mercado
+        if m_mod is not None:
+            pw, pp = probabilidad(m_mod, s), probabilidad_push(m_mod, s)
+            pad = alpha * pw + (1 - alpha) * pm if pm is not None else None
         sel[s] = (pw, pp, pm, pad)
+    lam_l, lam_v, mat_guardar = m.lambda_local, m.lambda_visitante, m
+    crs_json = {"_solo_mercado": True}
+    if m_mod is not None:
+        lam_l, lam_v, mat_guardar = m_fin.lambda_local, m_fin.lambda_visitante, m_fin
+        crs_json = {"_solo_mercado": False, "_selecciones": {
+            "fuente": sel_info.fuente, "alpha": alpha, "lambda_modelo": list(sel_info.lambda_modelo),
+            "razones": sel_info.factores.razones + sel_info.avisos, "factores": sel_info.factores.detalle}}
     pid = conn.execute("""
         INSERT INTO predicciones (partido_id, version_id, origen, creada_en, info_hasta, lambda_local, lambda_visitante,
             rho, ajuste_local, ajuste_visitante, matriz, masa_truncada, lambda_mercado_local, lambda_mercado_visitante,
             cr_scores, crs_completo, crs_alerta, crs_version, crs_modo_ajuste)
         VALUES (%s,%s,'produccion',%s,%s,%s,%s,%s,0,0,%s,%s,%s,%s,%s,false,'INSUFICIENTE',%s,%s)
         RETURNING id
-    """, (partido["id"], version_id, ahora, ahora, m.lambda_local, m.lambda_visitante, m.rho, m.aplanada(),
-          m.masa_truncada, m.lambda_local, m.lambda_visitante, _j({"_solo_mercado": True}),
+    """, (partido["id"], version_id, ahora, ahora, lam_l, lam_v, m.rho, mat_guardar.aplanada(),
+          mat_guardar.masa_truncada, m.lambda_local, m.lambda_visitante, _j(crs_json),
           cfg["crs"]["version"], cfg["crs"]["ajuste_favorito"]["modo"])).fetchone()["id"]
     with conn.cursor() as cur:
         cur.executemany("""
             INSERT INTO predicciones_seleccion (prediccion_id, seleccion, origen, p_modelo, p_modelo_sin_ajuste, p_push,
                 p_mercado, metodo_devig, p_mercado_consenso, alpha, alpha_calibrado, p_adj)
-            VALUES (%s, %s, 'produccion', %s, %s, %s, %s, %s, %s, 0.0, false, %s)
-        """, [(pid, s, pw, pw, pp, pm, cfg["mercado"]["metodo_devig"] if pm is not None else None, s in sust, pad)
+            VALUES (%s, %s, 'produccion', %s, %s, %s, %s, %s, %s, %s, false, %s)
+        """, [(pid, s, pw, pw, pp, pm, cfg["mercado"]["metodo_devig"] if pm is not None else None, s in sust, alpha, pad)
               for s, (pw, pp, pm, pad) in sel.items()])
     return pid
+
+
+def cuotas_ejecucion(cuotas: pd.DataFrame, partido: dict, ahora: datetime, cfg: dict) -> dict[str, dict]:
+    """Cuota de ejecución por selección: casa fija; la captura manual VIGENTE la reemplaza.
+    Fuente única: la usan `construir` (V2) y `integracion/candidatas.py` (V3) para no divergir."""
+    ejec: dict[str, dict] = {}
+    if not cuotas.empty:
+        for casa in (cfg["mercado"]["casa_ejecucion"], "manual"):
+            for r in cuotas[cuotas["casa"] == casa].itertuples():
+                vig = vigente(r.capturada_en, partido["inicio"], ahora, cfg)
+                if casa == "manual" and not vig:
+                    continue
+                ejec[r.seleccion] = {"cuota": float(r.cuota), "cuota_id": int(r.id), "casa_id": int(r.casa_id),
+                                     "capturada_en": r.capturada_en, "vigente": vig, "casa": casa}
+    return ejec
+
+
+def _factores_club(cfg: dict, partido: dict):
+    """Factores de partido para CLUBES (Liga MX con altitud, etc.). Solo aplica si factores_partido.aplicar_clubes y si
+    algún equipo está en config/sedes.yaml o el partido tiene motivación cargada. Nunca tumba la predicción."""
+    cf = cfg.get("factores_partido") or {}
+    if not (cf.get("activo") and cf.get("aplicar_clubes")):
+        return None
+    try:
+        from golmodel.modelos import factores_partido as fp
+        from golmodel.servicios import pronostico_selecciones as ps
+        if ps._CACHE["sedes"] is None:
+            ps._CACHE["sedes"] = fp.cargar_sedes()
+        sedes = ps._CACHE["sedes"]
+        loc, vis = partido["local"], partido["visitante"]
+        mot = ps.cargar_motivacion().get(f"{loc} vs {vis}")
+        baj = ps.cargar_bajas().get(f"{loc} vs {vis}")
+        if loc not in sedes and vis not in sedes and not mot and not baj:
+            return None
+        t_sede = t_vis = None
+        if loc in sedes and vis in sedes and partido.get("inicio") is not None:
+            if ps._CACHE["clima"] is None:
+                from golmodel.ingesta.proveedores.clima import Clima
+                ps._CACHE["clima"] = Clima()
+            t_sede = ps._CACHE["clima"].temperatura(sedes[loc]["lat"], sedes[loc]["lon"], partido["inicio"])
+            t_vis = ps._CACHE["clima"].media_dia(sedes[vis]["lat"], sedes[vis]["lon"], partido["inicio"])
+        f = fp.calcular(loc, vis, sedes, cf, temp_sede=t_sede, temp_casa_visitante=t_vis, motivacion=mot, bajas=baj)
+        k = float(cf.get("escala_clubes", 0.5))          # el Dixon-Coles del club ya absorbe parte (juega ahí cada 15 días)
+        f.mult_local, f.mult_visitante = 1 + (f.mult_local - 1) * k, 1 + (f.mult_visitante - 1) * k
+        return f if f.razones else None
+    except Exception:                                             # noqa: BLE001
+        return None
 
 
 def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, partido: dict,
@@ -188,8 +257,13 @@ def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, part
     gmax = cfg["modelo"]["goles_max"]
     aj_l, det_l = _ajuste_bajas(conn, partido, partido["local_id"], cfg)
     aj_v, det_v = _ajuste_bajas(conn, partido, partido["visitante_id"], cfg)
+    fac = _factores_club(cfg, partido)                     # altitud, clima, motivación y ambiente (si el club está en config/sedes.yaml)
+    # ajuste_* (bajas) se guarda tal cual (la base exige <= 0); los factores (pueden subir λ) solo entran a la matriz.
+    fl, fv = (fac.mult_local, fac.mult_visitante) if fac is not None else (1.0, 1.0)
+    if fac is not None:
+        det_l = {**det_l, "factores": fac.razones}
     base = modelo.matriz(kl, kv, gmax=gmax)
-    m = modelo.matriz(kl, kv, gmax=gmax, ajuste_local=aj_l, ajuste_visitante=aj_v)
+    m = modelo.matriz(kl, kv, gmax=gmax, ajuste_local=(1 + aj_l) * fl - 1, ajuste_visitante=(1 + aj_v) * fv - 1)
 
     cuotas = repo.cuotas_vigentes(conn, partido["id"])
     p_mk, sust, q_push = probs_mercado(cuotas, cfg)
@@ -211,11 +285,21 @@ def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, part
     modo = cfg["crs"]["ajuste_favorito"]["modo"]
     m_dec = m_crs if (m_crs is not None and modo == "activo") else m
 
+    # --- segundo modelo: Elo de clubes en ensamble con el Dixon-Coles para el 1X2 (solo ligas activadas en la calibración)
+    from golmodel.modelos import elo_clubes
+    p_ens = None
+    pe = elo_clubes.p_partido(hist, cfg, hp.get("elo") or {}, partido["liga"], kl, kv)
+    if pe is not None:
+        p_ens = elo_clubes.mezclar({x: probabilidad(m_dec, x) for x in elo_clubes.SEL_1X2}, pe, float(hp["elo"]["w"]))
+        det_l = {**det_l, "elo_ensamble": {"w_dc": hp["elo"]["w"], **{k: round(v, 4) for k, v in pe.items()}}}
+
     # --- probabilidades por selección
     sel: dict[str, dict] = {}
     for s in CONDICIONES:
         alpha, cal_a = alpha_para(hp, cfg, partido["liga"], grupo_alpha(s))
         pw, pp = probabilidad(m_dec, s), probabilidad_push(m_dec, s)
+        if p_ens is not None and s in p_ens:
+            pw = p_ens[s]
         fila = {"p_modelo": pw, "p_sin_ajuste": probabilidad(base, s), "p_push": pp,
                 "p_crs": probabilidad(m_crs, s) if m_crs is not None else None,
                 "alpha": alpha, "alpha_calibrado": cal_a, "p_mercado": None, "p_adj": None, "p_adj_pierde": None}
@@ -255,15 +339,7 @@ def construir(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, part
                f["alpha_calibrado"], f["p_adj"]) for s, f in sel.items()])
 
     # --- cuotas de ejecución: casa fija; la captura manual vigente la reemplaza
-    ejec: dict[str, dict] = {}
-    if not cuotas.empty:
-        for casa in (cfg["mercado"]["casa_ejecucion"], "manual"):
-            for r in cuotas[cuotas["casa"] == casa].itertuples():
-                vig = vigente(r.capturada_en, partido["inicio"], ahora, cfg)
-                if casa == "manual" and not vig:
-                    continue
-                ejec[r.seleccion] = {"cuota": float(r.cuota), "cuota_id": int(r.id), "casa_id": int(r.casa_id),
-                                     "capturada_en": r.capturada_en, "vigente": vig, "casa": casa}
+    ejec = cuotas_ejecucion(cuotas, partido, ahora, cfg)
     ctx = Contexto(partido, pid, m, m_dec, res, sel, ejec, p_mk, sust, mm)
     if res.veto:
         ctx.sugerencia_ah = {"base": crs_mod.sugerencia_handicap(m, fav),
@@ -301,24 +377,6 @@ def simples(ctx: Contexto, cfg: dict) -> list[dict]:
     return out
 
 
-def entrada_modulo2(conn, ctx: Contexto, cfg: dict, ahora: datetime) -> modulo2.EntradaPartido:
-    cuotas = {s: q["cuota"] for s, q in ctx.cuotas_ejec.items() if q["vigente"]}
-    vig_todas = bool(cuotas) and all(q["vigente"] for q in ctx.cuotas_ejec.values())
-    sgp = {}
-    for casa in (cfg["mercado"]["casa_ejecucion"], "manual"):
-        cid = repo.casa_id(conn, casa)
-        for k, (c, _id, capt) in repo.cuotas_sgp_vigentes(conn, ctx.partido["id"], cid).items():
-            if vigente(capt, ctx.partido["inicio"], ahora, cfg):
-                sgp[k] = c
-    a1, c1 = ctx.sel["1X2:1"]["alpha"], ctx.sel["1X2:1"]["alpha_calibrado"]
-    return modulo2.EntradaPartido(
-        ctx.partido["id"], ctx.partido["liga"], ctx.partido["inicio"], ctx.partido["local"], ctx.partido["visitante"],
-        ctx.matriz_decision, {s: p for s, p in ctx.p_mercado.items()}, cuotas, sgp, alpha=a1, alpha_calibrado=c1,
-        cuotas_vigentes=vig_todas, matriz_mercado=ctx.mm, crs=ctx.crs,
-        alpha_sel={s: (f["alpha"], f["alpha_calibrado"]) for s, f in ctx.sel.items()},
-        sustituta_sel=frozenset(ctx.sustitutas))
-
-
 # ------------------------------------------------------------------ orquestación
 
 def _picks_abiertos(conn, dia: date) -> list[dict]:
@@ -332,7 +390,12 @@ def _picks_abiertos(conn, dia: date) -> list[dict]:
 
 
 def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dias: list[date],
-               ahora: datetime) -> dict:
+               ahora: datetime, cfg_v3: dict | None = None) -> dict:
+    if cfg_v3 is None:                           # por defecto se usa la política V3 del repo; si no existe, sin ticket (con aviso)
+        try:
+            cfg_v3 = cargar_v3()
+        except FileNotFoundError:
+            cfg_v3 = None
     hist = repo.historial(conn, hasta=ahora)
     resumen = {"predicciones": 0, "omitidos": [], "picks_nuevos": 0, "valor_perdido": 0,
                "cuota_no_vigente": 0, "parlays_registrados": 0, "crs_alta": 0, "avisos": []}
@@ -398,10 +461,9 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
                 key = f"s:{pid}:{s['seleccion']}"
                 cand[key] = (c, s)
                 apuestas.append(Apuesta(key, "simple", frozenset({pid}), s["stake_u"], s["log_crec"]))
-        r2 = modulo2.generar([entrada_modulo2(conn, c, cfg, ahora) for c in ctxs], cfg)
-        if r2.parlays and parlay_dia is None:
-            apuestas.append(Apuesta("p:1", "parlay", frozenset(b_.partido_id for b_ in r2.parlays[0].bloques),
-                                    r2.parlays[0].stake_u, r2.parlays[0].log_crec))
+        # Los parlays YA NO se arman con modulo2.generar (producto de probabilidades = independencia): el ticket del día lo
+        # propone V3 (probabilidad conjunta real) más abajo y, bajo modo_experimental, NO es promovible a paper/real, así
+        # que no entra a la asignación de exposición.
         asign = asignar_exposicion(apuestas, max_diaria_u=max(b["exposicion_diaria_max_u"] - usado, 0.0),
                                    max_simples_por_partido=b["max_simples_con_stake_por_partido"])
         cierres = set()
@@ -419,13 +481,9 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
                       ch, c.crs.total, c.crs.alerta))
                 resumen["picks_nuevos"] += 1
                 cierres.add(c.partido["id"])
-        if any(a.id == "p:1" for a in asign.apuestas):
-            stake_final = next(a.stake_final_u for a in asign.apuestas if a.id == "p:1")
-            for rank, par in enumerate(r2.parlays, start=1):
-                st = stake_final if rank == 1 else par.stake_u        # alternativas: no suman a la exposición
-                _insertar_parlay(conn, par, rank, st, por_partido, version_id, dia, ch, cfg)
-                cierres |= {b_.partido_id for b_ in par.bloques}
-            resumen["parlays_registrados"] += len(r2.parlays)
+        _ticket_v3(conn, dia, ahora, cfg, resumen, cfg_v3, cierres)
+        if not cfg["cierre"].get("solo_partidos_con_picks", True):
+            cierres |= set(por_partido)                   # plan de pago: cuota de cierre de todos (CLV y α por liga)
         for pid in cierres:
             p = por_partido[pid].partido
             conn.execute("""INSERT INTO cierres_programados (partido_id, programado_para) VALUES (%s, %s)
@@ -436,28 +494,26 @@ def recalcular(conn, cfg: dict, modelo: ModeloDC, version_id: int, hp: dict, dia
     return resumen
 
 
-def _insertar_parlay(conn, par, rank, stake, por_partido, version_id, dia, ch, cfg):
-    pid = conn.execute("""
-        INSERT INTO parlays_sugeridos (origen, version_id, dia, ranking, n_bloques, p_parlay, cuota_combinada,
-            cuota_justa, ev, log_crecimiento, kelly_completo, stake_u, config_hash)
-        VALUES ('paper', %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id
-    """, (version_id, dia, rank, len(par.bloques), par.p, round(par.cuota, 3), round(par.cuota_justa, 3), par.ev,
-          par.log_crec, par.kelly, stake, ch)).fetchone()["id"]
-    for k, bl in enumerate(par.bloques, start=1):
-        c = por_partido[bl.partido_id]
-        cuota_id = sgp_id = None
-        if bl.tipo == "simple":
-            cuota_id = c.cuotas_ejec[bl.selecciones[0]]["cuota_id"]
-        else:
-            casa = repo.casa_id(conn, "manual")
-            sgp = repo.cuotas_sgp_vigentes(conn, bl.partido_id, casa) or repo.cuotas_sgp_vigentes(
-                conn, bl.partido_id, repo.casa_id(conn, cfg["mercado"]["casa_ejecucion"]))
-            sgp_id = sgp[tuple(bl.selecciones)][1]
-        conn.execute("""
-            INSERT INTO parlay_bloques (parlay_id, origen, orden, partido_id, prediccion_id, tipo, seleccion_a,
-                seleccion_b, p_modelo, p_mercado, p_adj, cuota, cuota_id, cuota_sgp_id, ev, crs_total, crs_alerta,
-                correlacion)
-            VALUES (%s,'paper',%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-        """, (pid, k, bl.partido_id, c.prediccion_id, bl.tipo, bl.selecciones[0],
-              bl.selecciones[1] if len(bl.selecciones) > 1 else None, bl.p_modelo, bl.p_mercado, bl.p_adj, bl.cuota,
-              cuota_id, sgp_id, bl.ev, c.crs.total, c.crs.alerta, bl.correlacion))
+def _ticket_v3(conn, dia: date, ahora: datetime, cfg: dict, resumen: dict, cfg_v3: dict | None, cierres: set) -> None:
+    """Ejecuta V3 (candidatas -> tickets.py + dependencia.py -> cerebro2) y guarda la decisión en `auditoria_decisiones`.
+    Corre en un SAVEPOINT: si algo falla (p. ej. la migración 004 sin aplicar) se registra un aviso y NO se cae a
+    independencia ni se pierden los picks simples. Sin `cfg_v3` (config V3 ausente) no se genera ticket, con aviso."""
+    from golmodel.integracion import benchmark
+    if cfg_v3 is None:
+        resumen["avisos"].append("V3: config/v3_umbrales.yaml no cargada; sin ticket V3 (no se usa independencia).")
+        return
+    try:
+        with conn.transaction():
+            d = benchmark.generar_decision_v3(conn, dia, ahora, cfg, cfg_v3)
+            if d.error is not None:
+                resumen["avisos"].append(f"V3: ABSTENCIÓN por error en tickets/dependencia ({d.error}); sin ticket.")
+            ids = benchmark.persistir(conn, d)
+    except Exception as e:                       # noqa: BLE001 — fail-closed: sin ticket, nunca independencia
+        resumen["avisos"].append(f"V3: no se pudo generar/guardar la decisión ({type(e).__name__}: {e}); sin ticket.")
+        resumen["tickets_v3"] = resumen.get("tickets_v3", []) + [{"dia": str(dia), "estado": "ABSTENCION", "error": type(e).__name__}]
+        return
+    resumen["tickets_v3"] = resumen.get("tickets_v3", []) + [
+        {"dia": str(dia), "estado": d.estado, "ticket": d.ticket is not None, "n_candidatas": len(d.candidatas.candidatas),
+         "motivo": None if d.salida is None else d.salida.auditoria.motivo_abstencion, "ids": ids}]
+    if d.ticket is not None:
+        cierres |= {pt.partido_id for pt in d.ticket.piernas}

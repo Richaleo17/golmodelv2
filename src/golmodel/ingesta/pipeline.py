@@ -16,7 +16,9 @@ from zoneinfo import ZoneInfo
 
 import pandas as pd
 
+from golmodel.ingesta.competiciones import elegir_competiciones
 from golmodel import db, repositorio as repo
+from golmodel.ingesta import estadisticas as est_partido
 from golmodel.ingesta import historico_api
 from golmodel.ingesta.normalizacion import ResolverEquipos
 from golmodel.ingesta.proveedores.cadena import Cadena
@@ -30,7 +32,9 @@ ETAPAS = {
     "actualizar_todo": ["resultados_xg", "liquidacion_clv", "reajuste_modelo", "lesiones", "alineaciones",
                         "cuotas", "recalculo_modulos"],
     "solo_cuotas": ["cuotas", "recalculo_modulos"],
-    "solo_alineaciones": ["alineaciones", "recalculo_modulos"],
+    # Sin recalcular: las alineaciones solo avisan en el panel (no cambian ninguna probabilidad) y el job las pide cada 10 min; recalcular
+    # cada vez llenaría `predicciones` (inmutables) de filas idénticas.
+    "solo_alineaciones": ["alineaciones"],
     "recalcular": ["recalculo_modulos"],          # con las cuotas ya guardadas: 0 consultas a APIs
 }
 
@@ -62,9 +66,19 @@ class Estado:
 
 class Pipeline:
     def __init__(self, cfg: dict, cadenas: dict[Capacidad, Cadena], *, dsn: str | None = None,
-                 reloj: Callable[[], datetime] = ahora_utc, registrador=None):
+                 reloj: Callable[[], datetime] = ahora_utc, registrador=None, espn=None, fotmob=None):
         self.cfg, self.cadenas, self.dsn, self.reloj = cfg, cadenas, dsn, reloj
         self.registrador = registrador
+        self.espn = espn                                          # FuenteESPN (None en pruebas: sin red)
+        self.fotmob = fotmob                                      # FuenteFotMob: lesiones y sanciones reales
+
+    def _http_football_data(self):
+        """Cliente HTTP de football-data.co.uk (el del proveedor de CSV de la cadena), o None si no está."""
+        for cad in self.cadenas.values():
+            for e in getattr(cad, "eslabones", []):
+                if getattr(e.proveedor, "nombre", "") == "football_data_csv":
+                    return e.proveedor.http
+        return None
 
     def _proveedor_mercado(self):
         """El proveedor de The Odds API (si la cadena lo trae) para las competiciones solo-mercado."""
@@ -106,7 +120,7 @@ class Pipeline:
                     sumar(Capacidad.CUOTAS, liga=l)
                 cm = self.cfg.get("competiciones_mercado") or {}
                 if cm.get("activo") and self._proveedor_mercado() is not None and tipo != "snapshot_cierre":
-                    total["odds_api"] += int(cm.get("max_creditos_por_actualizacion", 0))   # cota superior
+                    total["odds_api"] += int(cm.get("max_creditos_por_actualizacion", 0)) + int(cm.get("max_creditos_resultados", 0))   # cota superior
             return dict(total)
         finally:
             conn.close()
@@ -173,6 +187,11 @@ class Pipeline:
             if hist is not None:
                 res.setdefault("historico_api", {})[codigo] = hist["temporadas"]
                 res["avisos"] += hist["avisos"]
+            # Córners/tiros/árbitro (mercados nuevos): tabla aparte, no toca los partidos ni el modelo de goles.
+            stats = est_partido.autocargar(st.conn, self._http_football_data(), self.cfg, liga, hoy, st.ahora)
+            if stats is not None:
+                res.setdefault("estadisticas", {})[codigo] = {k: stats[k] for k in ("guardadas", "sin_partido", "archivos")}
+                res["avisos"] += stats["avisos"]
             for cap in (Capacidad.FIXTURES, Capacidad.RESULTADOS):
                 r = self._obtener(cap, Solicitud(cap, codigo, temporada=temporada, desde=hoy - timedelta(days=7),
                                                  hasta=hoy + timedelta(days=7)))
@@ -263,11 +282,13 @@ class Pipeline:
                     ON CONFLICT (understat_id) DO UPDATE SET equipo_id = EXCLUDED.equipo_id, nombre = EXCLUDED.nombre
                     RETURNING id""", (j.jugador, eid, j.id_externo)).fetchone()["id"]
                 st.conn.execute("""
-                    INSERT INTO jugador_produccion (jugador_id, equipo_id, temporada, fuente, minutos, xg, xa)
-                    VALUES (%s, %s, %s, 'understat', %s, %s, %s)
+                    INSERT INTO jugador_produccion (jugador_id, equipo_id, temporada, fuente, minutos, xg, xa, partidos, tiros)
+                    VALUES (%s, %s, %s, 'understat', %s, %s, %s, %s, %s)
                     ON CONFLICT (jugador_id, equipo_id, temporada, fuente)
-                    DO UPDATE SET minutos = EXCLUDED.minutos, xg = EXCLUDED.xg, xa = EXCLUDED.xa""",
-                                (jid, eid, temporada, j.minutos, j.xg, j.xa))
+                    DO UPDATE SET minutos = EXCLUDED.minutos, xg = EXCLUDED.xg, xa = EXCLUDED.xa,
+                                  partidos = COALESCE(EXCLUDED.partidos, jugador_produccion.partidos),
+                                  tiros = COALESCE(EXCLUDED.tiros, jugador_produccion.tiros)""",
+                                (jid, eid, temporada, j.minutos, j.xg, j.xa, getattr(j, "partidos", None), getattr(j, "tiros", None)))
                 prod.setdefault((eid, temporada), []).append((j.jugador, j.minutos, j.xg, j.xa))
                 res["produccion_jugadores"] += 1
         c = self.cfg["contexto"]
@@ -319,7 +340,26 @@ class Pipeline:
                                    fuente, capturada_en) VALUES (%s,%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
                                 (p["id"], eid, a.jugador, a.titular, a.confirmada, r.proveedor, st.ahora))
                 res["jugadores"] += 1
-        res["nota"] = "las alineaciones se guardan y muestran; aún no modifican λ (fase posterior)"
+        res["nota"] = "las alineaciones se guardan y avisan en el panel (titulares habituales ausentes); no modifican las probabilidades"
+        a = (self.cfg.get("alineaciones") or {}).get("espn") or {}
+        if self.espn is not None and a.get("activo", True):
+            from golmodel.servicios import alineaciones as _al
+            try:
+                with st.conn.transaction():
+                    res["espn"] = _al.sincronizar(st.conn, self.espn, st.ahora, ventana_min=float(a.get("ventana_min", 100)),
+                                                  horizonte_h=float(a.get("horizonte_h", 36)))
+            except Exception as e:                                # noqa: BLE001 — ESPN es opcional: no tumba la etapa
+                res["espn"] = {"error": f"{type(e).__name__}: {e}"[:200]}
+        f = (self.cfg.get("alineaciones") or {}).get("fotmob") or {}
+        if self.fotmob is not None and f.get("activo", True):
+            from golmodel.servicios import alineaciones as _al
+            try:
+                with st.conn.transaction():
+                    res["fotmob"] = _al.sincronizar_fotmob(st.conn, self.fotmob, st.ahora, horizonte_h=float(f.get("horizonte_h", 48)),
+                                                           refresco_min=float(f.get("refresco_min", 180)),
+                                                           refresco_cerca_min=float(f.get("refresco_cerca_min", 30)))
+            except Exception as e:                                # noqa: BLE001 — FotMob es opcional
+                res["fotmob"] = {"error": f"{type(e).__name__}: {e}"[:200]}
         return res
 
     def _etapa_cuotas(self, st: Estado, *, tipo: str = "actual", cap: Capacidad = Capacidad.CUOTAS,
@@ -352,6 +392,10 @@ class Pipeline:
                     p = repo.buscar_partido(st.conn, liga["id"], lid, vid, q.inicio or st.ahora) if lid and vid else None
                 if p is None:
                     res["sin_partido"] += 1
+                    detalle = res.setdefault("sin_partido_detalle", [])
+                    resumen = f"{codigo}: {q.local} vs {q.visitante}"
+                    if len(detalle) < 30 and resumen not in detalle:
+                        detalle.append(resumen)                         # visible en el resumen de la etapa: qué eventos no encontraron su partido
                     continue
                 if q.id_partido_externo and r.proveedor == "odds_api" and not p["odds_api_id"]:
                     st.conn.execute("""UPDATE partidos SET odds_api_id = %s WHERE id = %s
@@ -379,12 +423,7 @@ class Pipeline:
             res["avisos"].append(f"Competiciones extra: no se pudo listar deportes ({type(e).__name__}).")
             return res
         modeladas = {v for v in getattr(prov, "ligas_claves", {}).values()}   # tras listar: incluye las descubiertas
-        pats = [x.lower() for x in cm.get("patrones", [])]
-        excl = [x.lower() for x in cm.get("excluir", [])]
-        elegidos = [d for d in deportes if d["key"] not in modeladas
-                    and any(x in d["key"].lower() for x in pats) and not any(x in d["key"].lower() for x in excl)]
-        # Orden de prioridad = orden de los patrones (Champions primero)
-        elegidos.sort(key=lambda d: min((i for i, x in enumerate(pats) if x in d["key"].lower()), default=99))
+        elegidos = elegir_competiciones(deportes, modeladas, cm)          # orden de prioridad = orden de los patrones (Champions primero)
         hasta = st.hoy() + timedelta(days=max(self.cfg["recalculo"]["dias"]))
         costo_por = len(getattr(prov, "regiones", [1])) * len(getattr(prov, "mercados", [1, 2]))
         tope = int(cm.get("max_creditos_por_actualizacion", 16))
@@ -418,7 +457,68 @@ class Pipeline:
             for (pid, casa, capt), filas in grupos.items():
                 repo.insertar_cuotas(st.conn, pid, repo.casa_id(st.conn, casa), filas, "actual", "odds_api", capt)
                 res["cuotas"] += len(filas)
+        res["resultados"] = self._resultados_selecciones(st, prov, deportes, cm, cache)
         return res
+
+    def _resultados_selecciones(self, st: Estado, prov, deportes: list[dict], cm: dict, cache: dict) -> int:
+        """Resultados de los últimos 3 días de las competiciones de SELECCIONES (2 créditos c/u, con su propio tope):
+        sin esto los partidos quedaban «programado» para siempre y el modelo de selecciones no veía un 7-0 o un 5-0."""
+        from golmodel.servicios.pronostico_selecciones import PATRONES_SELECCIONES
+        tope = int(cm.get("max_creditos_resultados", 16))
+        gastado, n = 0, 0
+        # TODAS las competiciones solo-mercado con partidos de los últimos 3 días que siguen sin resultado (Serie B, Segunda,
+        # Copa del Rey, selecciones…): sin esto nunca se cerraban y el Dashboard solo evaluaba una parte del Diario.
+        try:
+            with st.conn.transaction():
+                pendientes = {r["clave"] for r in st.conn.execute("""
+                    SELECT DISTINCT l.odds_api_sport_key AS clave FROM partidos p JOIN ligas l ON l.id = p.liga_id
+                    WHERE l.activa AND l.solo_mercado AND l.odds_api_sport_key IS NOT NULL AND p.estado = 'programado'
+                      AND p.inicio < now() - interval '2 hours' AND p.inicio > now() - interval '3 days'""").fetchall()}
+        except Exception:                                         # noqa: BLE001
+            pendientes = set()
+        orden = sorted(deportes, key=lambda d: (d["key"] not in pendientes,
+                                                not any(x in str(d["key"]).lower() for x in PATRONES_SELECCIONES)))
+        for d in orden:
+            k = str(d["key"]).lower()
+            relevante = d["key"] in pendientes or any(x in k for x in PATRONES_SELECCIONES)
+            if not relevante or ("women" in k and d["key"] not in pendientes) or gastado + 2 > tope:
+                continue
+            try:
+                partidos = prov.resultados_deporte(d["key"], 3)
+            except Exception:                                     # noqa: BLE001 — opcional
+                continue
+            gastado += 2
+            if not partidos:
+                continue
+            liga = repo.asegurar_liga_mercado(st.conn, d["key"], d.get("title") or d["key"])
+            for p in partidos:
+                lid = repo.equipo_mercado(st.conn, liga["id"], p.local, cache)
+                vid = repo.equipo_mercado(st.conn, liga["id"], p.visitante, cache)
+                _, accion = repo.upsert_partido(st.conn, liga, p, lid, vid)
+                n += accion in ("resultado", "nuevo")
+        return n
+
+    def _cierre_dashboard(self, st: Estado) -> int | str:
+        """Guarda lo que mostró la app y si se cumplió (dashboard_registro), desde dashboard.desde (arranque de la app).
+        Idempotente; un error aquí no tumba el recálculo (savepoint)."""
+        from datetime import date as _date
+
+        from golmodel.servicios import aciertos
+        cd = self.cfg.get("dashboard") or {}
+        hoy = st.hoy()
+        desde = _date.fromisoformat(str(cd["desde"])) if cd.get("desde") else hoy - timedelta(days=int(cd.get("dias", 60)))
+        try:
+            with st.conn.transaction():
+                n = aciertos.registrar(st.conn, desde, hoy)
+        except Exception as e:                                    # noqa: BLE001
+            return f"error: {type(e).__name__}"
+        try:                                                      # laboratorio por KPI: re-ajusta cada subrama con el histórico nuevo
+            from golmodel.servicios import calibracion_kpi
+            with st.conn.transaction():
+                calibracion_kpi.correr(st.conn, self.cfg)
+        except Exception:                                         # noqa: BLE001
+            pass
+        return n
 
     def _etapa_recalculo_modulos(self, st: Estado) -> dict:
         if st.modelo is None:
@@ -429,6 +529,7 @@ class Pipeline:
         vid, modelo, hp = st.modelo
         edad = st.ahora - modelo.datos_hasta
         r = prediccion.recalcular(st.conn, self.cfg, modelo, vid, hp, st.dias(), st.ahora)
+        r["dashboard_registrados"] = self._cierre_dashboard(st)
         if edad > timedelta(days=self.cfg["frescura"]["modelo_max_dias"]):
             r["avisos"].append(f"Modelo con {edad.days} días sin reajuste")
         return r

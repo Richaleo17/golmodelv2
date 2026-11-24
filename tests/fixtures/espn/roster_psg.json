@@ -1,0 +1,1334 @@
+{
+ "athletes": [
+  {
+   "id": "248699",
+   "displayName": "Matvei Safonov",
+   "position": {
+    "abbreviation": "G"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 0.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 4.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 10.0
+        },
+        {
+         "name": "subIns",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 0.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 0.0
+        },
+        {
+         "name": "totalShots",
+         "value": 0.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 32.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 10.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "345581",
+   "displayName": "Warren Zaïre-Emery",
+   "position": {
+    "abbreviation": "M"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 2.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 5.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 10.0
+        },
+        {
+         "name": "subIns",
+         "value": 1.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 1.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 1.0
+        },
+        {
+         "name": "totalShots",
+         "value": 7.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 8.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "265869",
+   "displayName": "Ferran Torres",
+   "position": {
+    "abbreviation": "F"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 2.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 11.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 10.0
+        },
+        {
+         "name": "subIns",
+         "value": 3.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 1.0
+        },
+        {
+         "name": "offsides",
+         "value": 3.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 15.0
+        },
+        {
+         "name": "totalShots",
+         "value": 23.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 4.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 6.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "288897",
+   "displayName": "Vitinha",
+   "position": {
+    "abbreviation": "M"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 4.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 3.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 2.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 9.0
+        },
+        {
+         "name": "subIns",
+         "value": 2.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 1.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 4.0
+        },
+        {
+         "name": "totalShots",
+         "value": 14.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 1.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 7.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "329690",
+   "displayName": "Maghnes Akliouche",
+   "position": {
+    "abbreviation": "M"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 11.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 4.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 1.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 9.0
+        },
+        {
+         "name": "subIns",
+         "value": 3.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 0.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 6.0
+        },
+        {
+         "name": "totalShots",
+         "value": 10.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 1.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 6.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "336388",
+   "displayName": "Désiré Doué",
+   "position": {
+    "abbreviation": "F"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 9.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 11.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 9.0
+        },
+        {
+         "name": "subIns",
+         "value": 3.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 1.0
+        },
+        {
+         "name": "offsides",
+         "value": 7.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 8.0
+        },
+        {
+         "name": "totalShots",
+         "value": 27.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 1.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 5.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "353363",
+   "displayName": "Mika Godts",
+   "position": {
+    "abbreviation": "F"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 3.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 9.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 9.0
+        },
+        {
+         "name": "subIns",
+         "value": 6.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 2.0
+        },
+        {
+         "name": "offsides",
+         "value": 1.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 3.0
+        },
+        {
+         "name": "totalShots",
+         "value": 8.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 2.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 4.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "240233",
+   "displayName": "Achraf Hakimi",
+   "position": {
+    "abbreviation": "D"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 2.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 9.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 1.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 8.0
+        },
+        {
+         "name": "subIns",
+         "value": 1.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 2.0
+        },
+        {
+         "name": "offsides",
+         "value": 1.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 7.0
+        },
+        {
+         "name": "totalShots",
+         "value": 19.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 3.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 8.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "316128",
+   "displayName": "Lucas Beraldo",
+   "position": {
+    "abbreviation": "D"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 1.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 1.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 8.0
+        },
+        {
+         "name": "subIns",
+         "value": 5.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 0.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 1.0
+        },
+        {
+         "name": "totalShots",
+         "value": 3.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 1.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 3.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "214596",
+   "displayName": "Fabián Ruiz",
+   "position": {
+    "abbreviation": "M"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 2.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 3.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 1.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 8.0
+        },
+        {
+         "name": "subIns",
+         "value": 3.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 2.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 4.0
+        },
+        {
+         "name": "totalShots",
+         "value": 11.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 3.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "355061",
+   "displayName": "João Neves",
+   "position": {
+    "abbreviation": "M"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 8.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 5.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 8.0
+        },
+        {
+         "name": "subIns",
+         "value": 1.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 0.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 4.0
+        },
+        {
+         "name": "totalShots",
+         "value": 12.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 7.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "196200",
+   "displayName": "Lucas Hernández",
+   "position": {
+    "abbreviation": "D"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 1.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 8.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 1.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 7.0
+        },
+        {
+         "name": "subIns",
+         "value": 2.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 0.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 0.0
+        },
+        {
+         "name": "totalShots",
+         "value": 1.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 6.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "287005",
+   "displayName": "Willian Pacho",
+   "position": {
+    "abbreviation": "D"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 2.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 1.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 0.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 7.0
+        },
+        {
+         "name": "subIns",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 0.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 0.0
+        },
+        {
+         "name": "totalShots",
+         "value": 1.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 7.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  },
+  {
+   "id": "403578",
+   "displayName": "Dro Fernández",
+   "position": {
+    "abbreviation": "M"
+   },
+   "injuries": [],
+   "status": {
+    "id": "1",
+    "name": "Active",
+    "type": "active",
+    "abbreviation": "Active"
+   },
+   "statistics": {
+    "splits": {
+     "categories": [
+      {
+       "name": "general",
+       "stats": [
+        {
+         "name": "foulsCommitted",
+         "value": 3.0
+        },
+        {
+         "name": "foulsSuffered",
+         "value": 5.0
+        },
+        {
+         "name": "redCards",
+         "value": 0.0
+        },
+        {
+         "name": "yellowCards",
+         "value": 1.0
+        },
+        {
+         "name": "ownGoals",
+         "value": 0.0
+        },
+        {
+         "name": "appearances",
+         "value": 7.0
+        },
+        {
+         "name": "subIns",
+         "value": 4.0
+        }
+       ]
+      },
+      {
+       "name": "offensive",
+       "stats": [
+        {
+         "name": "goalAssists",
+         "value": 0.0
+        },
+        {
+         "name": "offsides",
+         "value": 0.0
+        },
+        {
+         "name": "shotsOnTarget",
+         "value": 2.0
+        },
+        {
+         "name": "totalShots",
+         "value": 2.0
+        },
+        {
+         "name": "totalGoals",
+         "value": 0.0
+        }
+       ]
+      },
+      {
+       "name": "goalKeeping",
+       "stats": [
+        {
+         "name": "saves",
+         "value": 0.0
+        },
+        {
+         "name": "shotsFaced",
+         "value": 0.0
+        },
+        {
+         "name": "goalsConceded",
+         "value": 4.0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  }
+ ]
+}

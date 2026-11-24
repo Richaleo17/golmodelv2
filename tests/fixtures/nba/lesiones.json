@@ -1,0 +1,106 @@
+{
+ "injuries": [
+  {
+   "id": "1",
+   "displayName": "Atlanta Hawks",
+   "injuries": [
+    {
+     "status": "Out",
+     "date": "2026-11-20T22:15Z",
+     "shortComment": "Flemings (back) is out for Friday's game against the Hornets, Brad Rowland of the Locked On Podcast Network reports.",
+     "athlete": {
+      "id": "5149077",
+      "displayName": "Kingston Flemings"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-11-19T22:07Z",
+     "shortComment": "Landale (hip) won't play in Friday's game against the Hornets, Brad Rowland of the Locked On Podcast Network reports.",
+     "athlete": {
+      "id": "3146557",
+      "displayName": "Jock Landale"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-11-17T21:16Z",
+     "shortComment": "Newell underwent surgery Tuesday for a plantar plate tear in his left great toe, and he will be re-evaluated in approximately four months, Brad Rowland of the L",
+     "athlete": {
+      "id": "4873201",
+      "displayName": "Asa Newell"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-11-17T21:08Z",
+     "shortComment": "McCollum (calf) will miss at least four weeks, per Brad Rowland of the Locked On Podcast Network.",
+     "athlete": {
+      "id": "2490149",
+      "displayName": "CJ McCollum"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-11-13T00:06Z",
+     "shortComment": "Gueye (foot) is ready to begin on-court activities and will be re-evaluated in four weeks, Brad Rowland of the Locked On Podcast Network reports.",
+     "athlete": {
+      "id": "4712863",
+      "displayName": "Mouhamed Gueye"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-09-21T19:50Z",
+     "shortComment": "Veesaar was diagnosed with a torn right ACL and is expected to miss the 2026-27 season, the Hawks announced Monday.",
+     "athlete": {
+      "id": "5105571",
+      "displayName": "Henri Veesaar"
+     }
+    }
+   ]
+  },
+  {
+   "id": "30",
+   "displayName": "Charlotte Hornets",
+   "injuries": [
+    {
+     "status": "Out",
+     "date": "2026-11-19T22:21Z",
+     "shortComment": "Williams (hamstring) is listed as out for Friday's game versus the Hawks.",
+     "athlete": {
+      "id": "4066218",
+      "displayName": "Grant Williams"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-11-19T22:02Z",
+     "shortComment": "Allen (concussion) has been ruled out for Friday's game against Atlanta.",
+     "athlete": {
+      "id": "3135045",
+      "displayName": "Grayson Allen"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-11-08T22:31Z",
+     "shortComment": "Knueppel (hamstring) was diagnosed with a left hamstring strain Sunday and will be re-evaluated in four weeks.",
+     "athlete": {
+      "id": "5061575",
+      "displayName": "Kon Knueppel"
+     }
+    },
+    {
+     "status": "Out",
+     "date": "2026-11-08T22:26Z",
+     "shortComment": "Schroder has been diagnosed with a left hamstring strain and will be reevaluated in two weeks, Michael Scotto of HoopsHype.com reports.",
+     "athlete": {
+      "id": "3032979",
+      "displayName": "Dennis Schroder"
+     }
+    }
+   ]
+  }
+ ]
+}

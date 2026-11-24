@@ -1,7 +1,7 @@
 # Cerebro 2 — auditor independiente (`cerebro2/`) · Diseño V3
 
 - Estado: borrador
-- Versión: v0.4
+- Versión: v0.5
 - Fecha: 2026-11-09
 - Autor(es): equipo V3
 - Depende de: `v3_tickets_objetivo_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_dependencia_diseno.md`
@@ -126,6 +126,20 @@ por selección y por ticket, uno de cinco estados, registrando el porqué.
    pasar los tests pre-registrados. Durante la validación el sistema corre en sombra: decide y registra
    (para la calibración del punto 7), pero nada queda APROBADO ni pasa a paper/real.
 
+10. **Implementación (v0.5; todo lo numérico está en el pre-registro §2.9).** (a) Se añade el resultado `NO_APLICABLE`
+    (neutro para el estado, siempre con razón) para gates que dependen de una entrada que otro gate ya declaró no
+    auditable (p. ej. `d_mm` y `JS` sin consenso de mercado): marcarlos `NO_EVALUABLE` los volvería `PENDIENTE` y subiría el
+    estado por encima de `CON_RESERVAS`, contradiciendo la regla de que un AVISO de mercado nunca produce rechazo.
+    (b) Fail-closed en TRES capas: cada gate protegido (un fallo → `NO_EVALUABLE` requerido con su razón, sin tumbar al
+    resto), `evaluar` que atrapa todo y devuelve `ABSTENCION`, y plazo cooperativo. (c) `modo_experimental` es UN gate (único
+    mecanismo del tope) y la bandera apagada sin `calibrado_con="oos_real"` es `RECHAZADO` (candado heredado de tickets).
+    (d) `ticket_id` determinista (hash del contenido) une la fila de tickets con la de Cerebro 2; la marca temporal es la del
+    ticket de entrada, nunca `now()`. (e) La persistencia (`persistencia.py`) escribe en la migración 004; lo desconocido
+    se guarda con centinelas explícitos y valores conservadores (`modo_experimental=True`, techo `CON_RESERVAS`). (f) La
+    metacalibración es un job ex-post con `aceptados = APROBADO ∪ CON_RESERVAS` (bajo `modo_experimental` nada es
+    `APROBADO`) y excluye `ABSTENCION` / `rechazo_por_falta_de_auditoria`. (g) La migración 004 se enmendó (aún no estaba
+    aplicada en ninguna BD): `NO_APLICABLE` en `severidad` y la columna `ticket_id`.
+
 ## 3. Alternativas descartadas
 
 - **Estado como juicio difuso / score continuo sin umbrales:** no falsable, no reproducible.
@@ -173,3 +187,4 @@ por selección y por ticket, uno de cinco estados, registrando el porqué.
 | v0.2 | 2026-11-09 | Frontera de independencia cerrada (consume reclamos / recomputa referencias / nunca re-estima); escalera de estados MECE con pipeline de 5 etapas y precedencia por severidad (máximo sobre orden total); umbral duro de falsos rechazos por yield de rechazados (alarma → revisión versionada, no gatillo). |
 | v0.3 | 2026-11-09 | Benchmark de mercado con fuente+método de devig distintos a C1 (consenso ≥3 + Power vs Pinnacle + Shin) y degradación a AVISO sin fuente alterna (anti-circularidad); registro del rechazo con campos (a)-(e) consultables en UI; metacalibración añade tasa de rechazos correctos/incorrectos además del yield; confirmación del tope CON_RESERVAS en modo_experimental. |
 | v0.4 | 2026-11-09 | Gate de mercado AVISO = techo CON_RESERVAS (no se ignora; `gate_mercado: no_auditable`), nunca RECHAZADO; definición pre-registrada del consenso (casas elegibles versionadas, Power por casa, mediana renormalizada, ≥3 casas mismo lote); tasas de precisión excluyen rechazos no auditables (categoría `rechazo_por_falta_de_auditoria`). |
+| v0.5 | 2026-11-09 | Dec. 10 (implementación): resultado `NO_APLICABLE`, fail-closed en tres capas, `modo_experimental` como único gate-mecanismo con candado `oos_real`, `ticket_id` determinista y marca temporal del ticket, persistencia con centinelas explícitos, metacalibración ex-post con `aceptados = APROBADO ∪ CON_RESERVAS`, y enmienda de la migración 004 (no aplicada). Ver pre-registro §2.9. |

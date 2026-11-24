@@ -20,15 +20,15 @@ Dos categorías de "aprobado", explícitamente distintas:
 | Documento | Módulo / tema | Estado | Depende de | Últ. act. |
 |---|---|---|---|---|
 | `v3_dependencia_diseno.md` | `motor/dependencia.py` · probabilidad conjunta real de tickets 5-8 | aprobado · cerrada | — | 2026-11-09 |
-| `v3_incertidumbre_diseno.md` | Muestreador τ/σ + calibración en `backtest/calibracion_tickets.py` | aprobado · cerrada (v0.3) | `v3_dependencia_diseno.md` | 2026-11-09 |
-| `v3_tickets_objetivo_diseno.md` | `motor/tickets.py` · función objetivo del ticket 5-8 | aprobado · cerrada (v0.5) | `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md` | 2026-11-09 |
-| `v3_cerebro2_diseno.md` | `cerebro2/` · auditor independiente y estados de decisión | aprobado · cerrada (v0.4) | `v3_tickets_objetivo_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_dependencia_diseno.md` | 2026-11-09 |
+| `v3_incertidumbre_diseno.md` | Muestreador τ/σ + calibración en `backtest/calibracion_tickets.py` | aprobado · cerrada (v0.5) | `v3_dependencia_diseno.md` | 2026-11-09 |
+| `v3_tickets_objetivo_diseno.md` | `motor/tickets.py` · función objetivo del ticket 5-8 | aprobado · cerrada (v0.9) | `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md` | 2026-11-09 |
+| `v3_cerebro2_diseno.md` | `cerebro2/` · auditor independiente y estados de decisión | aprobado · cerrada (v0.5) | `v3_tickets_objetivo_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_dependencia_diseno.md` | 2026-11-09 |
 
 ### 1.2 Aprobado · política provisional (pendiente de validación OOS)
 
 | Documento | Módulo / tema | Estado | Depende de | Últ. act. |
 |---|---|---|---|---|
-| `v3_umbrales_prerregistro.md` | Pre-registro consolidado de umbrales + árbol de ajuste | aprobado · PROVISIONAL (pend. validación OOS) | todos los de 1.1 | 2026-11-09 |
+| `v3_umbrales_prerregistro.md` | Pre-registro consolidado de umbrales + árbol de ajuste (v0.9) | aprobado · PROVISIONAL (pend. validación OOS) | todos los de 1.1 | 2026-11-09 |
 
 ### 1.3 Tratado como implementación (sin documento de diseño gateado)
 
@@ -36,6 +36,7 @@ Dos categorías de "aprobado", explícitamente distintas:
 |---|---|---|
 | Mapa de migración / arquitectura Fase 1 | `docs/README_implementacion.md` | Referencia de implementación, no decisión gateada |
 | `modelos/calibracion_mercado.py` (nivel de p) | Implementación bajo disciplinas ya aprobadas | Reusa walk-forward, pooling jerárquico, versionado, cobertura |
+| `integracion/` (adaptadores BD ↔ V3) | `docs/README_implementacion.md` §6 | Sin lógica de modelo; las decisiones de negocio viven en cada módulo. Verificado con sintéticos |
 
 Estados posibles: **borrador** → **aprobado (cerrada | provisional)** → **implementado** → **obsoleto**.
 

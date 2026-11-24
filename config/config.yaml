@@ -5,7 +5,14 @@ zona_horaria: America/Mexico_City
 
 # Cada liga activa gasta ~2 créditos de The Odds API por actualización, pero SOLO si ese día tiene partidos.
 # Si te quedas corto de créditos (plan gratis: 500 al mes), quita ligas de esta lista.
-ligas_activas: [EPL, LL, SA, BUN, L1, MX1, MXF, MLS, BR1, ERE, BEL, POR]
+ligas_activas: [EPL, LL, SA, L1, MX1, MXF, MLS, BR1, POR]
+# Ligas FUERA del sistema (2026-11-20, decisión del responsable: precisión sobre cobertura). Se aplican a `ligas.activa` al arrancar la API
+# (repositorio.sincronizar_ligas): no salen en panel, sugerencias, parlays, Dashboard ni calibración y no gastan créditos. Las filas
+# históricas NO se borran (cuotas, predicciones y picks son inmutables = auditoría). Quitar un código de aquí la reactiva.
+ligas_excluidas: [BUN, ERE, BEL, "MK:soccer_japan_j_league"]
+# Competiciones solo-mercado MENORES fuera (2026-11-20): se desactivan las que ya existen cuyo `odds_api_sport_key` contenga cualquiera de
+# estos textos. Quedan: Champions, Europa, Conference, selecciones, copas (Copa del Rey…), Libertadores, Sudamericana y Concacaf.
+ligas_excluidas_patrones: [efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan]
 historico:
   temporadas: 5            # + la temporada en curso
   # EPL y SA: xG de Understat (goles + xG). MX1, MLS, BR1: solo goles.
@@ -18,8 +25,8 @@ fuentes:
     reserva_diaria: 10     # nunca gastar las últimas N
   odds_api:
     plan: free
-    creditos_mensuales: 500   # VERIFICAR EN DOCUMENTACIÓN
-    reserva_cierres: 150      # créditos apartados para snapshots de cierre
+    creditos_mensuales: 20000 # plan 20K (≈ $30 USD/mes) desde 18-11-2026; el gratis era 500
+    reserva_cierres: 1500     # créditos apartados para snapshots de cierre
     regiones: [eu]            # costo = mercados × regiones
     mercados: [h2h, totals]   # BTTS / equipo anota: captura manual en el MVP
   understat:
@@ -52,7 +59,34 @@ frescura:
 
 cierre:
   minutos_antes: 5
-  solo_partidos_con_picks: true   # ahorra créditos del plan gratis
+  solo_partidos_con_picks: false  # plan 20K: cierre de TODOS los partidos (CLV y calibración de α por liga); antes solo con picks
+# Segundo modelo de fútbol (modelos/elo_clubes.py): Elo de clubes en ensamble con Dixon-Coles para el 1X2. Se decide en la
+# calibración semanal: w elegido en el primer 60% de la ventana walk-forward y validado en el último 40%; se activa solo si
+# mejora el log loss y solo en las ligas donde mejora. Experimento 8 ligas europeas (2024/25): DC 0.9773 → ensamble 0.9731.
+elo_clubes:
+  activo: true
+  min_partidos: 300
+  min_partidos_liga: 60
+  frac_validacion: 0.4
+  mejora_min: 0.002
+  parametros: {k: 20, hfa_inicial: 60, hfa_memoria: 300, inicial: 1500, regresion_temporada: 0.2}
+
+# Actualizaciones automáticas (jobs/automatico.py; solo en Render o con GOLMODEL_AUTO=1). Presupuesto estimado del plan 20K:
+# ≈ 8-10 «solo_cuotas»/día × ~40 créditos + «actualizar_todo» diario ~70 + cierres ~80/día ≈ 13K/mes. El presupuesto de la app
+# (creditos_mensuales) frena todo si se acerca al límite.
+auto:
+  activo: true
+  todo_hora: "07:10"               # hora CDMX de la actualización completa diaria (resultados, modelo, cuotas, Dashboard)
+  hora_inicio: "07:00"
+  hora_fin: "23:30"
+  cuotas_cada_min: 360             # cuotas cada 6 h…
+  cuotas_cerca_min: 120            # …o cada 2 h si algún partido empieza en las próximas `horas_cerca` horas. Con 60 min corría
+                                   # cada hora todo el día (siempre hay algún partido cerca en alguna liga): ~640 créditos/día
+  horas_cerca: 3
+  otros_deportes: true             # tras la diaria: NFL y tenis
+  alineaciones: true               # «solo_alineaciones» antes de cada partido (ESPN: alineación oficial ~1 h antes)
+  alineaciones_cada_min: 10
+  alineaciones_ventana_min: 100
   reintentos: 2
 
 modelo:
@@ -61,6 +95,10 @@ modelo:
   calibracion_semanal_dias: 7
   decaimiento_xi_inicial: 0.0019    # por día (vida media ≈ 365 d); se recalibra
   w_xg_inicial: 0.5                 # se recalibra en EPL/SA; 0 donde no hay xG
+  xg_tiros:                         # respaldo de xG cuando Understat no da (bloquea a Render): xG ≈ a·tiros a puerta + b·tiros fuera
+    activo: true
+    coef_arco: 0.33                 # ajustado con 35,806 partidos de 8 ligas (2016-2023); los tiros fuera no aportan (b ≈ −0.01 → 0)
+    coef_fuera: 0.0
   l2_lambda_inicial: 1.0
   prior_ascendidos: ninguno         # 'promedio_historico' solo si backtest/validar_prior.py lo respalda con datos reales
   l2_ascendidos: 8.0                # fuerza con la que un ascendido se jala a su prior (se elige con la validación)
@@ -85,7 +123,7 @@ mercado:
   # cuota entre muchas casas sesga el EV hacia arriba (se elige el error más favorable).
   # Una cuota capturada a mano para 'manual' reemplaza a esta si está vigente.
   casa_ejecucion: pinnacle
-  casa_manual_nombre: Draftea       # cómo se llama en pantalla la casa donde capturas cuotas a mano
+  casa_manual_nombre: Caliente      # cómo se llama en pantalla la casa donde capturas cuotas a mano (antes Draftea)
   alpha_por_defecto: 0.25           # si no hay ni α propio ni agrupado: el mercado manda (suele ser más preciso)
   factor_alpha_no_calibrado: 0.5    # α_no_cal = factor × α(1X2 de la liga)
   umbral_extra_no_calibrado: 0.02
@@ -146,34 +184,157 @@ sugerencias:
     empate_alto: 0.30
     confianza_max: 3.5
     peso_bajo: 12.0                 # historial efectivo mínimo para culpar al favorito de una discrepancia
-  top_piernas: 14
-  perfiles:                         # el parlay MÁS probable que paga lo objetivo
-    seguro:      {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.70, p_max_pierna: 0.84}
-    equilibrado: {piernas_min: 3, piernas_max: 5, cuota_min: 3.5, cuota_max: 7.0, p_min_pierna: 0.50, p_max_pierna: 0.80}
-    ambicioso:   {piernas_min: 4, piernas_max: 5, cuota_min: 8.0, cuota_max: 25.0, p_min_pierna: 0.30, p_max_pierna: 0.65}
-  mas_seguros:                      # listas de parlays de alta probabilidad (se muestra la tasa real de acierto)
-    muy_seguro: {piernas_min: 2, piernas_max: 3, cuota_min: 1.35, cuota_max: 2.2, p_min_pierna: 0.78, p_max_pierna: 0.93, cuantos: 4}
-    seguro:     {piernas_min: 3, piernas_max: 4, cuota_min: 1.8, cuota_max: 3.5, p_min_pierna: 0.68, p_max_pierna: 0.88, cuantos: 5}
-  ticket:                           # estilo «5 equipos ≈ 15-25x»: las combinaciones más probables de ese pago
-    piernas_min: 5
-    piernas_max: 5
-    cuota_min: 14.0
-    cuota_max: 30.0
-    p_min_pierna: 0.40
-    p_max_pierna: 0.88
-    top_piernas: 16
-    cuantos: 3
+  # RETIRADOS (2026-11-09): `perfiles`, `mas_seguros`, `ticket` y `top_piernas` configuraban parlays por producto de probabilidades
+  # (independencia). Se rediseñarán sobre tickets.py tras validar V3 con datos reales (están en el historial de git).
 
 # Competiciones SIN histórico ni modelo propio (Champions, Europa League, selecciones, ligas menores…).
 # La probabilidad es la del mercado sin margen (Pinnacle o consenso); el panel las marca «SOLO MERCADO».
 # Se descubren en The Odds API con GET /v4/sports (gratis) y solo se consultan las que tienen partidos en la ventana.
 competiciones_mercado:
   activo: true
-  max_creditos_por_actualizacion: 16     # tope de créditos (2 por competición con partidos)
+  max_creditos_por_actualizacion: 60     # tope de créditos (2 por competición con partidos); era 16 con el plan gratis
+  max_creditos_resultados: 40            # resultados (/scores, 2 créditos c/u) de TODAS las competiciones solo-mercado con partidos pendientes de cerrar + selecciones
   patrones: [uefa_champs, uefa_europa, uefa_conf, nations_league, friendl, qualif, world_cup, euro,
-             efl_champ, bundesliga2, ligue_two, serie_b, segunda, spl, turkey, argentina, saudi, japan,
              libertadores, sudamericana, concacaf, copa]
-  excluir: [winner, outright, women, womens]
+  excluir: [winner, outright, women, womens, japan]
+  # Femeniles INCLUIDAS por decisión del responsable (2026-11-10) aunque `excluir` tenga women/womens. Reglas de TOKENS sobre la clave del deporte de
+  # The Odds API (cada grupo = alternativas; deben aparecer los 3 grupos/2 grupos). Las claves exactas NO están verificadas (sin acceso a GET /v4/sports):
+  # si la API no ofrece la competición, no aparece. Sin histórico ni modelo: solo mercado, sin picks ni tickets V3, fuera de la calibración.
+  # Liga MX Femenil salió de aquí (2026-11-11): tiene modelo propio (ligas_activas: MXF) y The Odds API no la ofrece.
+  femeniles:
+    - {nombre: "UEFA Women's Champions League", todos: [[uefa], [champs], [women, womens]]}
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Mercados NUEVOS (2026-11-11). Modelos PARALELOS: no cambian Dixon-Coles, la matriz de goles ni los tickets V3.
+# Valores de diseño, PROVISIONALES hasta medirlos en walk-forward con datos reales.
+corners:
+  ligas: [EPL, LL, SA, L1, POR]   # las que traen córners en los CSV de football-data (HC/AC). Árbitro: solo EPL.
+  decaimiento_xi: 0.002            # mismo orden que el modelo de goles (vida media ≈ 1 año)
+  l2: 2.0                          # encogimiento de ataque/concede hacia el promedio
+  l2_arbitro: 20.0                 # el efecto árbitro se encoge mucho (es pequeño y ruidoso)
+  min_partidos_arbitro: 15
+  min_partidos_liga: 200           # con menos, la liga no ofrece córners
+  lineas_total: [7.5, 8.5, 9.5, 10.5, 11.5]
+  lineas_equipo: [3.5, 4.5, 5.5]
+
+tarjetas:                          # amarillas por equipo (mismo modelo NB que córners; HY/AY de football-data)
+  activo: true
+  ligas: [EPL, LL, SA, L1, POR]
+  decaimiento_xi: 0.002
+  l2: 3.0
+  l2_arbitro: 5.0                  # en tarjetas el árbitro pesa mucho más que en córners: se encoge menos
+  min_partidos_arbitro: 15
+  min_partidos_liga: 200
+  lineas_total: [2.5, 3.5, 4.5, 5.5]
+
+props:
+  ligas: [EPL, SA, LL, L1]    # las que tienen xG por jugador (Understat)
+  minutos_min_temporada: 450       # menos minutos = sin prop (muestra chica)
+  minutos_titular: 85
+  minutos_suplente: 15
+  tasa_al_arco: 0.33               # Understat da tiros totales; ≈ 1/3 van al arco (promedio de ligas top). PROVISIONAL
+  factor_rival_limites: [0.6, 1.6]
+  max_jugadores_por_equipo: 4      # los de mayor xG/90
+  tiros_minimos: [1, 2, 3]
+
+mercados_extendidos:               # probabilidad conjunta con córners y props (motor/dependencia_mercados.py)
+  sorteos_parametros: 400          # sorteos de parámetros (incertidumbre)
+  sorteos_partido: 300             # partidos simulados por sorteo
+  spearman_goles_corners: 0.0      # se SOBREESCRIBE con la correlación medida en el histórico al calcular (0 = sin dato)
+  rho_tiros_goles: 0.30            # tiros al arco del jugador vs goles de su equipo (cópula). PROVISIONAL: sin dato por jugador y partido
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# NFL (motor_nfl/): paquete separado, no usa nada del modelo de fútbol.
+nfl:
+  activo: true
+  temporadas_historico: 20         # + la actual. Solo calendario/marcadores (un CSV): el Elo necesita años para converger
+  peso_modelo: 0.15                # p_final = 0.15·modelo + 0.85·mercado (walk-forward 2020-25: Las Vegas 0.2096 vs Elo 0.2218 de Brier)
+  dias: 8                          # juegos de los próximos N días
+  umbral_edge: 0.04
+  casas_preferidas: [pinnacle, draftkings, fanduel, betmgm]   # una sola casa por mercado (la mejor cuota entre casas infla el EV)
+  aviso: "NFL v2: Elo (calibrado walk-forward 2002-25, ventaja de local aprendida) + EPA, Normal. Las Vegas sigue siendo más precisa (Brier 0.210 vs 0.222): el «valor» se mide con la mezcla 15/85. Números clave (3 y 7) sin modelar."
+  cuotas:
+    sport_key: americanfootball_nfl
+    regiones: [us]                 # costo = mercados × regiones = 3 créditos por consulta (mismo presupuesto que el fútbol)
+    mercados: [h2h, spreads, totals]
+  epa:
+    activo: true                   # descarga el play-by-play de nflverse (≈ 25 MB por temporada, una vez; la actual se refresca)
+    temporadas: 4                  # EPA solo de las últimas N (+ la actual)
+  simulacion:                      # Monte Carlo del resto de la temporada y playoffs (pestaña NFL)
+    activo: true
+    simulaciones: 4000
+    ruido_puntos: 1.5              # incertidumbre de la fuerza de cada equipo por simulación
+  modelo:
+    elo_inicial: 1505
+    elo_media: 1505
+    k_elo: 24                      # walk-forward: 20 → 24 mejora ajuste (2002-19) y prueba (2020-25)
+    mov: true                      # multiplicador por margen de victoria (sin él, Brier de prueba 0.2243: parámetros de nfl_probability_engine)
+    k_playoffs_mult: 1.0
+    hfa_elo: 48                    # ventaja de local INICIAL en puntos Elo; con hfa_adaptativa se aprende de los resultados
+    hfa_adaptativa: true           # la ventaja local bajó de ~57% (2010-19) a ~53% (2020-25): se aprende con promedio exponencial
+    hfa_memoria_juegos: 400        # ≈ 1.5 temporadas de memoria
+    hfa_puntos: 1.5
+    elo_por_punto: 25
+    regresion_temporada: 0.333
+    epa_n0_jugadas: 300            # encogimiento de la EPA hacia 0
+    jugadas_por_partido: 62
+    peso_epa: 0.5                  # μ = (1 − w)·Elo + w·EPA (cuando hay EPA)
+    puntos_n0: 4                   # encogimiento de puntos a favor/en contra hacia la media de la liga
+    decaimiento_por_juego: 0.94
+    sigma_margen: 13.5             # respaldo; con ≥ min_juegos_sigma se estiman con los residuos
+    sigma_total: 10.0
+    min_juegos_sigma: 400
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# Tenis (motor_tenis/): Elo por superficie, calibrado walk-forward con ATP/WTA 2005-2026 (docs/decisiones.md 2026-11-18).
+tenis:
+  activo: true
+  circuitos: [atp, wta]
+  temporadas_historico: 6          # + la actual
+  fuente_historico: sackmann       # espejo de Jeff Sackmann en GitHub (congelado al 25-may-2026; tennis-data.co.uk responde 403 a Render)
+  espn: true                       # ESPN: resultados desde el corte del histórico + partidos próximos sin momio (salen «solo modelo»)
+  espn_reprocesar_dias: 10         # cada carga vuelve a pedir los últimos días (torneos en curso)
+  challenger:                      # ATP Challenger (lo que ofrece Caliente además del circuito principal). Medido 2025-26: meterlos al
+    activo: true                   # Elo SUBE el acierto del circuito principal 64.0% → 65.2% (log loss 0.626 → 0.618); en Challenger 62.7%
+    temporadas: 3                  # + la actual (Sackmann, ~11 mil partidos por año)
+    livescore: true                # calendario y resultados recientes de Challenger (ni ESPN ni The Odds API los traen)
+    competencias: ["ATP Challenger", "WTA Challenger", "Davis Cup", "Billie Jean King Cup"]   # si ESPN ya trae el partido, se queda el de ESPN. ITF (M15/M25, W15-W75) y UTR: ninguna fuente gratuita
+  dias: 3                          # próximos partidos a mostrar
+  peso_modelo: 0.3                 # p_final = 0.3·Elo + 0.7·mercado (PROVISIONAL: se mide en el Dashboard contra el cierre de Pinnacle)
+  min_partidos_modelo: 15          # con menos partidos en el histórico, el jugador va «solo mercado»
+  aviso: "Tenis v1: Elo por superficie calibrado con 2005-2026 (acierto de prueba ATP 64%, WTA 65%). Los momios de Pinnacle suelen ser más precisos: la probabilidad final mezcla 30% modelo y 70% mercado. Los partidos sin momio (WTA 125, torneos chicos) salen del calendario de ESPN con solo el Elo."
+  cuotas:
+    regiones: [eu]                 # 1 crédito por torneo activo y región
+    casas_preferidas: [pinnacle, betfair_ex_eu, marathonbet, williamhill]
+    max_torneos: 8
+  superficies:                     # palabra del nombre del torneo (The Odds API) -> superficie (lo demás se infiere del histórico)
+    french open: Clay
+    roland garros: Clay
+    wimbledon: Grass
+    monte carlo: Clay
+    madrid: Clay
+    italian open: Clay
+    rome: Clay
+    queen: Grass
+    halle: Grass
+    birmingham: Grass
+    eastbourne: Grass
+    mallorca: Grass
+    hertogenbosch: Grass
+    bad homburg: Grass
+    nottingham: Grass
+    newport: Grass
+    australian open: Hard
+    us open: Hard
+    finals: Hard
+  modelo:
+    elo_inicial: 1500
+    k0: 150                        # K = k0 / (partidos + k_offset)^k_shape
+    k_offset: 15
+    k_shape: 0.3
+    w_superficie: {atp: 0.5, wta: 0.3}
+    escala: 0.85                   # el Elo puro se pasaba de confiado (decía 80% y acertaba 79%... 75%)
+    ajuste_cinco_sets: true
 
 valor:
   umbral_edge: 0.04
@@ -216,3 +377,117 @@ normalizacion:
 operacion:
   picks_min_paper: 300
   criterio_go: cota_inferior_95_clv_ev_mayor_a_0
+
+# ---------------------------------------------------------------------------------------------------------------------------------
+# SELECCIONES NACIONALES con modelo PROPIO (2026-11-13). Antes eran «solo mercado» (α = 0) y no aprendían de sus resultados.
+# Histórico: martj42/international_results (incluye AMISTOSOS). Los resultados que el CSV aún no trae se agregan desde
+# config/selecciones_resultados_extra.csv (y desde The Odds API /scores en la etapa de cuotas). PROVISIONAL hasta el walk-forward.
+selecciones_modelo:
+  activo: true
+  url_historico: https://raw.githubusercontent.com/martj42/international_results/master/results.csv
+  anos_historial: 16               # CALIBRADO 2026-11-13 (walk-forward 2022-2024, validado 2024-07→2026-10)
+  decaimiento_xi: 0.0006           # CALIBRADO: vida media ≈ 3.2 años
+  tope_goles: 6                    # CALIBRADO: un 7-0 cuenta como 6-0 al ajustar
+  l2: 0.1                          # CALIBRADO: pooling suave (las selecciones tienen mucho historial)
+  rho: -0.05
+  pesos_torneo:                    # patrón en el nombre del torneo → peso (el primero que coincide)
+    friendly: 1.0                  # CALIBRADO: los amistosos informan tanto como los oficiales (0.4/0.6/0.8 daban peor log-loss)
+    world cup: 1.2
+    euro: 1.1
+    copa am: 1.1
+    nations league: 1.0
+    qualification: 1.0
+    otro: 0.9
+  alpha: 0.35                      # peso del modelo propio frente al mercado (sin calibrar: el mercado sigue mandando)
+  peso_min: 3.0                    # peso efectivo mínimo de cada selección para usar el modelo (si no: solo mercado)
+
+# FACTORES DE PARTIDO (modelos/factores_partido.py): altitud, clima, motivación, ambiente y sede neutral.
+# Sedes en config/sedes.yaml; motivación manual por partido en config/motivacion.yaml. Clima: Open-Meteo (gratis, sin llave).
+factores_partido:
+  activo: true
+  aplicar_sobre_mercado: 0.5       # fracción del ajuste que también se aplica a la λ del MERCADO (la casa ya descuenta parte)
+  escala_clubes: 0.5               # en clubes se aplica la mitad: su modelo ya absorbe parte del efecto de su estadio
+  aplicar_clubes: true             # también a clubes que estén en config/sedes.yaml (Liga MX: altitud de Toluca, CDMX, Pachuca…). PROVISIONAL: coeficientes calibrados con selecciones
+  tope_total: 0.30                 # ningún λ se mueve más de ±30% por factores
+  altitud:
+    umbral_m: 800                  # debajo de esta diferencia no hay efecto medible (McSharry: el efecto se nota desde ≈ 1000 m)
+    por_1000m_propio: 0.20         # CALIBRADO: el que sube mete 20% menos por cada 1000 m sobre el umbral
+    por_1000m_rival: 0.0           # CALIBRADO: no se vio efecto en los goles del local
+    tope: 0.30
+  clima:
+    umbral_delta_c: 8              # diferencia de temperatura con su ciudad ese día a partir de la cual pesa
+    por_grado: 0.01
+    tope: 0.10
+    calor_c: 28
+    calor_ambos: 0.04
+    frio_c: 0
+    frio_ambos: 0.03
+  motivacion:                      # cambio relativo de λ: propio (sus goles) y rival (los del rival)
+    necesita_ganar:  {propio: 0.06, rival: 0.04}
+    le_sirve_empate: {propio: -0.08, rival: -0.05}
+    nada_en_juego:   {propio: -0.05, rival: 0.02}
+    amistoso:        {propio: 0.04, rival: 0.0}    # CALIBRADO: en amistosos hay algo MÁS de goles (defensas mezcladas)
+  bajas:                           # bajas confirmadas por partido en config/bajas.yaml. PROVISIONAL (diseño, sin calibrar)
+    tope: 0.15                     # ningún equipo pierde más de 15% de goles ni le suma más de 15% al rival por bajas
+    peso: {estrella: 1.6, titular: 1.0, rotacion: 0.4}
+    roles:                         # cambio relativo por cada baja: propio (sus goles) y rival (goles que le meten)
+      delantero: {propio: -0.06, rival: 0.0}
+      extremo:   {propio: -0.04, rival: 0.0}
+      medio:     {propio: -0.025, rival: 0.015}
+      lateral:   {propio: -0.01, rival: 0.025}
+      defensa:   {propio: 0.0, rival: 0.035}
+      portero:   {propio: 0.0, rival: 0.05}
+  ambiente:                        # por cada 0.5 de desviación sobre el promedio del estadio
+    local: 0.06                    # CALIBRADO
+    visitante: 0.15                # CALIBRADO: un estadio hostil pesa sobre todo en los goles del visitante
+
+# Parlays pedidos por el responsable (2026-11-13) para «Qué meter» y «Soñadoras» (servicios/parlays_usuario.py).
+# Piernas: «Gana» o «PA(1)» (anota el primer gol), la más probable de cada partido; hasta 3 días; sin repetir partidos entre opciones.
+parlays_usuario:
+  dias: 3
+  que_meter: [3, 4, 5]             # 3 opciones: 3, 4 y 5 partidos
+  sonadoras: [6, 8, 10]            # 3 opciones: 6, 8 y 10 partidos
+  p_min: 0.55                      # pierna mínima
+  confianza_min: 3.5               # confianza de datos mínima (0-10)
+  incluir_nfl: true                # suma juegos NFL («Gana» moneyline, p ≥ p_min) a Qué meter y Soñadoras
+  incluir_tenis: true              # suma partidos de tenis («Gana <jugador>», con momio) a Qué meter y Soñadoras
+  incluir_nba: true                # suma juegos NBA (moneyline y spread/total alternativos ≈ 85%) a Qué meter, Soñadoras y Boletos
+
+# Dashboard de aprendizaje (servicios/aciertos.py, /dashboard). Línea base = walk-forward de selecciones 2024-07→2026-10 (2,420 partidos):
+# el punto de partida contra el que se mide si la app va mejorando. PA(1) no tiene línea base (el CSV no trae el minuto de los goles).
+dashboard:
+  dias: 60
+  desde: "2026-11-06"              # arranque de la app: el histórico del dashboard se rellena desde aquí
+  linea_base:
+    Ganador: 0.605
+    Ambos anotan: 0.575
+    Más de 1.5: 0.728
+    Más de 2.5: 0.593
+    Menos de 3.5: 0.698
+
+# Laboratorio por KPI (servicios/calibracion_kpi.py): recalibración logística por KPI con corte temporal.
+calibracion_kpi:
+  min_n: 80                        # partidos mínimos por KPI para intentar un ajuste
+  frac_prueba: 0.3                 # último 30% de los días = prueba (nunca se usa para ajustar)
+  l2: 5.0                          # tirón hacia «sin ajuste» (a=0, b=1): con pocos datos casi no se mueve
+  mejora_min: 0.002                # mejora mínima del Brier en prueba para activarlo
+
+# Alineaciones oficiales y plantillas (ESPN, sin llave). ESPN NO publica lesiones de fútbol: una «ausencia» es un principal (≥ 60% de
+# titularidades) que no está en la convocatoria publicada o está en la banca. Avisa en el panel y baja la confianza; no mueve probabilidades.
+alineaciones:
+  espn:
+    activo: true
+    ventana_min: 100         # solo se piden las alineaciones de partidos que empiezan en menos de esto
+    horizonte_h: 36          # emparejamiento y plantillas de los partidos de las próximas horas
+  fotmob:                    # lesiones, sanciones y convocatorias con selección REALES (ESPN no las publica)
+    activo: true
+    horizonte_h: 48
+    refresco_min: 180        # cada 3 h; dentro de la ventana previa al partido, cada 30 min
+    refresco_cerca_min: 30
+
+# NBA «mercado primero» (motor_nba/): fuente ESPN (calendario con líneas de DraftKings, lesiones, promedios). El backtest de 3 temporadas
+# mostró que un modelo propio no mejora a la línea de cierre; la probabilidad sale de la línea con σ margen 13.3 y σ total 17.8.
+nba:
+  activo: true
+  dias: 3                    # ayer (descanso/resultados) … +2 días
+  max_jugadores: 80          # promedios de lesionados que se piden por actualización (una vez al día cada uno)
