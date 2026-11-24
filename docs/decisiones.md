@@ -411,3 +411,26 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
 * Su historial no se había borrado: 2,000 partidos en producción. Alineaciones y bajas: ESPN `eng.1` y FotMob 47.
 * Memoria: con la Serie A el servidor quedó en ~400 MB de 512. La Premier League agrega un modelo de liga más, así que hay que vigilar el
   uso tras el despliegue.
+
+### 2026-11-24 · NFL: ajuste por QB suplente (idea de nfl_probability_engine) y limpieza
+
+* **Origen.** Revisión del repo público `sebastianBP26/nfl_probability_engine` (sin licencia: se toma la IDEA, no el código). Casi todo lo que
+  trae (Elo con ventaja de local, regresión entre temporadas, Monte Carlo de temporada, comparación contra Las Vegas) ya estaba en `motor_nfl`,
+  que además usa EPA. Lo único nuevo y medido es su «Modelo 2 · ELO + ausencias»: el QB titular ausente vale ≈ 80 puntos Elo.
+* **Regla** (`modelo.qb_suplente`): QB habitual = el que inició ≥ 3 de los últimos 4 juegos del equipo (solo información previa). Si el
+  titular anunciado del juego es otro, ese equipo pierde `delta_elo` en la predicción. Es un overlay: no cambia cómo se actualiza el Elo.
+  Datos: `home_qb_id`/`away_qb_id` de nflverse `games.csv` (traen el titular anunciado de la semana siguiente); migración 020.
+* **Walk-forward** (Elo sin EPA, temporada regular): δ elegido en ajuste 2002-19 = 70 (rejilla 0-200). Prueba 2020-25 (1,615 juegos):
+  Brier 0.2219 → 0.2196, log loss 0.6367 → 0.6318, acierto 64.2% → 65.1%; bootstrap pareado: la mejora del Brier tiene IC95 que excluye 0
+  (mejora en 99.7% de remuestreos). Reserva 2026 (163 juegos): 0.2152 → 0.2140. Las Vegas sigue mejor (0.210).
+  La primera definición probada («habitual» = el más frecuente de 4 con ≥ 2 juegos) marcaba 35% de los juegos como suplente, no era
+  significativa y empeoraba 2026; se descartó y se probó UNA sola definición más estricta, fijada antes de ver su resultado.
+* **Efecto en la app:** la probabilidad final sigue siendo 0.15·modelo + 0.85·mercado, así que el cambio en las piernas NFL es pequeño
+  (el mercado ya descuenta la noticia del QB); donde más pesa es cuando no hay cuota y en el Monte Carlo de temporada.
+* **Aciertos del favorito NFL por rango (p de la app, 2020-26, temporada regular):** 70-75% → 77.3% (229 juegos, esperado 72.5%);
+  75-80% → 76.2% (189); 80-85% → 83.1% (89); ≥ 85% → 91.7% (72). La franja del 70% está bien calibrada: las derrotas de CIN (71%) y
+  JAX (69%) en la semana 11 son varianza, no un sesgo a castigar (ver `docs/bitacora_resultados.yaml`).
+* **Limpieza:** se borran `backtest/clv.py`, `motor/modulo1.py` y `tiempo.py` (solo tenían la línea de docstring «[Fase 3]» desde el primer
+  commit; el CLV vive en `servicios/liquidacion.py`, el desglose diario en `servicios/vistas.py`/`sugerencias.py` y «el día» en `dia_mx()` del
+  esquema + `ZoneInfo(cfg["zona_horaria"])`) y `motor/modulo2.py` con sus pruebas: el armador de
+  parlays por producto de probabilidades que el ticket V3 (`motor/dependencia.py`) reemplazó y que ya no llama ningún código de producción.

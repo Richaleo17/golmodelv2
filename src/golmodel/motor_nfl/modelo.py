@@ -13,15 +13,21 @@ Total
   · Puntos a favor/en contra por equipo (promedio exponencial encogido a la media de la liga):
     μ_total = (PF_L + PC_V)/2 + (PF_V + PC_L)/2.
 σ del margen y del total: config, o `ajustar_sigmas` con los residuos del histórico.
+QB suplente (opcional, `modelo.qb_suplente`)
+  · QB habitual = el que inició al menos `min_habitual` de los últimos `ventana` juegos del equipo (solo información previa).
+  · Si el titular anunciado del juego no es el habitual, el equipo pierde `delta_elo` puntos Elo en la predicción (overlay: no
+    toca la actualización del Elo). Idea de nfl_probability_engine («Modelo 2 · ELO + ausencias», QB ≈ 80); δ = 70 calibrado aquí
+    en walk-forward (docs/decisiones.md 2026-11-24).
 """
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass, field
 
 import numpy as np
 
-VERSION = "nfl-elo-epa-v2"
+VERSION = "nfl-elo-epa-qb-v3"
 
 
 @dataclass(frozen=True)
@@ -35,6 +41,8 @@ class Juego:
     puntos_visitante: int | None = None
     neutral: bool = False
     tipo: str = "REG"                     # REG | WC | DIV | CON | SB (los de playoffs usan K × k_playoffs_mult)
+    qb_local: str | None = None           # id nflverse del QB titular (anunciado antes del juego)
+    qb_visitante: str | None = None
 
     @property
     def jugado(self) -> bool:
@@ -54,6 +62,7 @@ class EstadoNFL:
     residuos_margen: list = field(default_factory=list)
     residuos_total: list = field(default_factory=list)
     hfa_puntos_est: float | None = None   # ventaja de local APRENDIDA (puntos de margen), si `hfa_adaptativa`
+    qb_hist: dict = field(default_factory=dict)   # equipo -> ids de los QB titulares de sus últimos juegos (el más reciente al final)
 
 
 def hfa_elo(est: EstadoNFL, cfg: dict) -> float:
@@ -83,7 +92,20 @@ def _acum(d: dict, k: str, x: float, decae: float, peso: float = 1.0) -> None:
     d[k] = (s * decae + x * peso, w * decae + peso)
 
 
-def prediccion(est: EstadoNFL, local: str, visitante: str, cfg: dict, neutral: bool = False) -> dict:
+def qb_suplente(est: EstadoNFL, equipo: str, qb: str | None, cfg: dict) -> bool:
+    """True si el titular anunciado NO es el QB habitual del equipo. Sin config, sin titular o sin historia: False."""
+    q = _p(cfg).get("qb_suplente") or {}
+    if not q.get("activo") or not qb:
+        return False
+    hist = est.qb_hist.get(equipo, [])
+    if len(hist) < int(q["ventana"]):
+        return False
+    habitual, n = Counter(hist[-int(q["ventana"]):]).most_common(1)[0]
+    return n >= int(q["min_habitual"]) and habitual != qb
+
+
+def prediccion(est: EstadoNFL, local: str, visitante: str, cfg: dict, neutral: bool = False,
+               qb_local: str | None = None, qb_visitante: str | None = None) -> dict:
     """μ del margen (local − visitante) y del total, y de dónde sale cada parte."""
     p = _p(cfg)
     hfa = 0.0 if neutral else hfa_elo(est, cfg)
@@ -100,13 +122,19 @@ def prediccion(est: EstadoNFL, local: str, visitante: str, cfg: dict, neutral: b
         mu = (1 - w) * m_elo + w * m_epa
     else:
         m_epa, mu = None, m_elo
+    sup_l, sup_v = qb_suplente(est, local, qb_local, cfg), qb_suplente(est, visitante, qb_visitante, cfg)
+    ajuste_qb = 0.0
+    if sup_l or sup_v:
+        ajuste_qb = float(p["qb_suplente"]["delta_elo"]) * (int(sup_v) - int(sup_l)) / float(p["elo_por_punto"])
+        mu += ajuste_qb
     n0p = float(p["puntos_n0"])
     pf_l, pf_v = _media(est.pf.get(local), n0p, est.media_puntos), _media(est.pf.get(visitante), n0p, est.media_puntos)
     pc_l, pc_v = _media(est.pc.get(local), n0p, est.media_puntos), _media(est.pc.get(visitante), n0p, est.media_puntos)
     total = (pf_l + pc_v) / 2 + (pf_v + pc_l) / 2
     return {"mu_margen": float(mu), "mu_total": float(total), "margen_elo": float(m_elo),
             "margen_epa": None if m_epa is None else float(m_epa), "elo_local": r_l, "elo_visitante": r_v,
-            "sigma_margen": float(p["sigma_margen"]), "sigma_total": float(p["sigma_total"]), "usa_epa": tiene_epa}
+            "sigma_margen": float(p["sigma_margen"]), "sigma_total": float(p["sigma_total"]), "usa_epa": tiene_epa,
+            "qb_suplente_local": sup_l, "qb_suplente_visitante": sup_v, "ajuste_qb_puntos": float(ajuste_qb)}
 
 
 def actualizar(est: EstadoNFL, j: Juego, cfg: dict, epa: dict | None = None) -> dict:
@@ -117,7 +145,7 @@ def actualizar(est: EstadoNFL, j: Juego, cfg: dict, epa: dict | None = None) -> 
         reg = float(p["regresion_temporada"])
         est.elo = {k: v - (v - float(p["elo_media"])) * reg for k, v in est.elo.items()}
     est.temporada = j.temporada
-    pred = prediccion(est, j.local, j.visitante, cfg, j.neutral)
+    pred = prediccion(est, j.local, j.visitante, cfg, j.neutral, j.qb_local, j.qb_visitante)
     real_m = j.puntos_local - j.puntos_visitante
     est.residuos_margen.append(real_m - pred["mu_margen"])
     est.residuos_total.append(j.puntos_local + j.puntos_visitante - pred["mu_total"])
@@ -145,6 +173,10 @@ def actualizar(est: EstadoNFL, j: Juego, cfg: dict, epa: dict | None = None) -> 
     _acum(est.pf, j.visitante, j.puntos_visitante, dec)
     _acum(est.pc, j.visitante, j.puntos_local, dec)
     est.n_juegos += 1
+    ventana = int((p.get("qb_suplente") or {}).get("ventana", 4))
+    for eq, qb in ((j.local, j.qb_local), (j.visitante, j.qb_visitante)):
+        if qb:
+            est.qb_hist[eq] = (est.qb_hist.get(eq, []) + [qb])[-ventana:]
     est.media_puntos += ((j.puntos_local + j.puntos_visitante) / 2 - est.media_puntos) * 0.01
     if epa:
         for eq in (j.local, j.visitante):

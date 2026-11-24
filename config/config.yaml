@@ -252,7 +252,7 @@ nfl:
   dias: 8                          # juegos de los próximos N días
   umbral_edge: 0.04
   casas_preferidas: [pinnacle, draftkings, fanduel, betmgm]   # una sola casa por mercado (la mejor cuota entre casas infla el EV)
-  aviso: "NFL v2: Elo (calibrado walk-forward 2002-25, ventaja de local aprendida) + EPA, Normal. Las Vegas sigue siendo más precisa (Brier 0.210 vs 0.222): el «valor» se mide con la mezcla 15/85. Números clave (3 y 7) sin modelar."
+  aviso: "NFL v3: Elo (calibrado walk-forward 2002-25, ventaja de local aprendida) + EPA + ajuste por QB suplente, Normal. Las Vegas sigue siendo más precisa (Brier 0.210 vs 0.222): el «valor» se mide con la mezcla 15/85. Números clave (3 y 7) sin modelar."
   cuotas:
     sport_key: americanfootball_nfl
     regiones: [us]                 # costo = mercados × regiones = 3 créditos por consulta (mismo presupuesto que el fútbol)
@@ -284,6 +284,11 @@ nfl:
     sigma_margen: 13.5             # respaldo; con ≥ min_juegos_sigma se estiman con los residuos
     sigma_total: 10.0
     min_juegos_sigma: 400
+    qb_suplente:                   # titular anunciado ≠ QB habitual → −delta_elo al equipo (idea de nfl_probability_engine, «Modelo 2»)
+      activo: true
+      delta_elo: 70                # walk-forward Elo (sin EPA): elegido en 2002-19; prueba 2020-25 Brier 0.2225 → 0.2202 (IC95 de la mejora excluye 0); 2026 0.2166 → 0.2154
+      ventana: 4                   # últimos juegos del equipo que definen al habitual
+      min_habitual: 3              # el habitual debe haber iniciado ≥ 3 de esos 4 (si no, no hay titular establecido y no se ajusta)
 
 # ---------------------------------------------------------------------------------------------------------------------------------
 # Tenis (motor_tenis/): Elo por superficie, calibrado walk-forward con ATP/WTA 2005-2026 (docs/decisiones.md 2026-11-18).

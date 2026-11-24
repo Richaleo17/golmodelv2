@@ -1,5 +1,4 @@
-"""Fase 4: CRS, bankroll y Módulo 2."""
-import math
+"""Fase 4: CRS y bankroll (el Módulo 2 se eliminó: los parlays son el ticket V3, tests/test_tickets.py)."""
 from datetime import datetime, timedelta, timezone
 
 import numpy as np
@@ -10,10 +9,8 @@ from scipy.optimize import minimize_scalar
 from golmodel.config import cargar
 from golmodel.modelos import crs as crs_mod
 from golmodel.modelos.matriz import matriz_marcadores
-from golmodel.modelos.mercados import probabilidad, probabilidad_push, todos
-from golmodel.modelos.sgp import evaluar
+from golmodel.modelos.mercados import probabilidad, probabilidad_push
 from golmodel.motor import bankroll as bk
-from golmodel.motor.modulo2 import EntradaPartido, candidatos, generar
 
 CFG = cargar()
 T = datetime(2026, 11, 8, 20, 0, tzinfo=timezone.utc)
@@ -182,130 +179,6 @@ def test_exposicion_diaria():
     final = {a.id: a.stake_final_u for a in r.apuestas}
     assert final == {"a": 2.0, "c": 0.5, "d": 2.0, "e": 0.5}            # b: misma partida; e recortada
     assert r.exposicion_u == 5.0 and [a.id for a in r.excluidas] == ["b"]
-
-
-# ============================== Módulo 2 ==============================
-
-def _partido(pid, lh, la, cuotas, *, rho=-0.05, crs=None, vigentes=True, cuotas_sgp=None, desajuste=0.0):
-    m = matriz_marcadores(lh, la, rho)
-    pm = {s: p for s, p in todos(m).items()}
-    if desajuste:  # mercado algo más pesimista que el modelo en el local
-        pm = {**pm, "1X2:1": pm["1X2:1"] - desajuste, "1X2:X": pm["1X2:X"] + desajuste}
-    return EntradaPartido(pid, "EPL", T, f"L{pid}", f"V{pid}", m, pm, cuotas, cuotas_sgp or {},
-                          alpha=0.5, alpha_calibrado=True, cuotas_vigentes=vigentes, matriz_mercado=m, crs=crs)
-
-
-def _crs_alto(fav="local"):
-    sels = crs_mod.selecciones_del_favorito(fav, CFG["crs"]["veto"]["selecciones"])
-    return crs_mod.ResultadoCRS(version="crs_v1", favorito=fav, p_favorito_referencia=0.7, puntos_brutos=75,
-                                maximo_disponible=100, total=75, completo=True, alerta="ALTA", veto=True,
-                                selecciones_vetadas=sels)
-
-
-def _cuota_con_ev(m, s, ev):
-    return round((1 + ev) / probabilidad(m, s), 2)
-
-
-def test_candidatos_filtros():
-    m = matriz_marcadores(2.0, 0.8, -0.05)
-    cuotas = {"1X2:1": _cuota_con_ev(m, "1X2:1", 0.06),       # pasa
-              "1X2:2": _cuota_con_ev(m, "1X2:2", 0.30),       # p < 0.60
-              "OU:1.5:over": _cuota_con_ev(m, "OU:1.5:over", 0.02),   # EV < umbral
-              "AH:visitante:+1.0": 2.5}                       # push: no apta para parlay
-    e = _partido(1, 2.0, 0.8, cuotas)
-    b, d = candidatos(e, CFG)
-    assert [x.selecciones for x in b] == [("1X2:1",)]
-    motivos = " | ".join(x.motivo for x in d)
-    assert "p_adj" in motivos and "EV" in motivos
-
-
-def test_crs_veta_al_favorito_y_busca_alternativa():
-    m = matriz_marcadores(1.7, 1.0, -0.05)
-    cuotas = {"1X2:1": _cuota_con_ev(m, "1X2:1", 0.10), "DC:1X": _cuota_con_ev(m, "DC:1X", 0.10),
-              "AH:visitante:+1.5": _cuota_con_ev(m, "AH:visitante:+1.5", 0.06)}
-    assert probabilidad(m, "AH:visitante:+1.5") >= 0.6 and 1.30 <= cuotas["AH:visitante:+1.5"] <= 2.50
-    sin_crs, _ = candidatos(_partido(1, 1.7, 1.0, cuotas), CFG)
-    assert ("DC:1X",) in [x.selecciones for x in sin_crs]           # sin CRS, el favorito sí entraba
-    b, d = candidatos(_partido(1, 1.7, 1.0, cuotas, crs=_crs_alto()), CFG)
-    assert [x.selecciones for x in b] == [("AH:visitante:+1.5",)]
-    assert b[0].crs_total == 75 and b[0].crs_alerta == "ALTA"
-    assert any("CRS" in x.motivo and x.selecciones == ("DC:1X",) for x in d)
-    assert any("CRS" in x.motivo and x.selecciones == ("1X2:1",) for x in d)
-
-
-def test_crs_veta_sgp_con_favorito():
-    m = matriz_marcadores(2.6, 0.6, -0.05)
-    sels = ("1X2:1", "OU:1.5:over")
-    p = evaluar(m, sels).p_conjunta
-    assert p >= 0.6
-    b, d = candidatos(_partido(1, 2.6, 0.6, {}, crs=_crs_alto(), cuotas_sgp={sels: round(1.15 / p, 2)}), CFG)
-    assert not b and "SGP con selección del favorito" in d[0].motivo
-
-
-def test_cuotas_vencidas_excluyen_partido():
-    m = matriz_marcadores(2.0, 0.8, -0.05)
-    b, d = candidatos(_partido(1, 2.0, 0.8, {"1X2:1": _cuota_con_ev(m, "1X2:1", 0.1)}, vigentes=False), CFG)
-    assert not b and "no vigentes" in d[0].motivo
-
-
-def test_sgp_usa_probabilidad_conjunta_y_umbral_sgp():
-    m = matriz_marcadores(2.6, 0.6, -0.05)
-    sels = ("1X2:1", "OU:1.5:over")
-    ev_ = evaluar(m, sels)
-    e = _partido(1, 2.6, 0.6, {}, cuotas_sgp={sels: round(1.10 / ev_.p_conjunta, 2)})
-    b, _ = candidatos(e, CFG)
-    assert b and b[0].tipo == "sgp" and b[0].p_modelo == pytest.approx(ev_.p_conjunta)
-    assert b[0].p_modelo != pytest.approx(ev_.p_si_independientes, abs=1e-3) and b[0].umbral == 0.08
-    e2 = _partido(1, 2.6, 0.6, {}, cuotas_sgp={sels: round(1.06 / ev_.p_conjunta, 2)})   # EV 6% < 8%
-    assert not candidatos(e2, CFG)[0]
-
-
-def _dia(n=6, ev=0.06):
-    partidos = []
-    for k in range(n):
-        lh, la = 2.0 + 0.05 * k, 0.8
-        m = matriz_marcadores(lh, la, -0.05)
-        partidos.append(_partido(k + 1, lh, la, {"1X2:1": _cuota_con_ev(m, "1X2:1", ev + 0.005 * k)}))
-    return partidos
-
-
-def test_modulo2_combinatoria_y_formulas():
-    r = generar(_dia(6), CFG)
-    assert r.combinaciones_evaluadas == math.comb(6, 3) + math.comb(6, 4) + math.comb(6, 5)
-    assert 1 <= len(r.parlays) <= 3
-    for p in r.parlays:
-        assert 3 <= len(p.bloques) <= 5 and len({b.partido_id for b in p.bloques}) == len(p.bloques)
-        assert p.p == pytest.approx(math.prod(b.p_adj for b in p.bloques))
-        assert p.cuota == pytest.approx(math.prod(b.cuota for b in p.bloques))
-        assert p.ev == pytest.approx(p.p * p.cuota - 1) and p.p >= 0.15
-        assert 0 < p.stake_u <= 0.5
-    assert [p.log_crec for p in r.parlays] == sorted([p.log_crec for p in r.parlays], reverse=True)
-
-
-def test_modulo2_kelly_no_premia_parlays_largos_por_ev():
-    """El de 5 bloques tiene más EV bruto, pero Kelly le asigna menos stake y crece menos."""
-    r = generar(_dia(5), CFG)
-    todos_ = r.parlays
-    assert todos_[0].ev <= max(p.ev for p in todos_)
-    from itertools import combinations
-    mejores = list(r.mejores_bloques.values())
-    cinco = [c for c in combinations(mejores, 5)][0]
-    p5 = math.prod(b.p_adj for b in cinco)
-    if p5 >= 0.15:
-        ev5 = p5 * math.prod(b.cuota for b in cinco) - 1
-        assert ev5 > todos_[0].ev
-    assert len(todos_[0].bloques) < 5
-
-
-def test_modulo2_sin_suficientes_partidos():
-    r = generar(_dia(2), CFG)
-    assert r.parlays == [] and r.combinaciones_evaluadas == 0
-
-
-def test_modulo2_partido_duplicado():
-    d = _dia(3)
-    with pytest.raises(ValueError):
-        generar(d + [d[0]], CFG)
 
 
 # ============================== Activación del ajuste CRS ==============================

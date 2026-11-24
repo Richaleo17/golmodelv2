@@ -13,14 +13,14 @@ Aplicación analítica para apuestas de fútbol (12 ligas: Premier, La Liga, Ser
 | Mercado | Margen quitado con Shin (1993) o potencia; p_adj = α·p_modelo + (1−α)·p_mercado, con α calibrado en walk-forward |
 | Diario y Qué meter | Tarjeta por partido (gana, primer gol, el otro anota, forma) y jugadas del día con **cuota mínima**, partidos que rompen parlays y parlays por perfil |
 | Módulo 1 | 1X2, doble oportunidad, BTTS, O/U 1.5/2.5/3.5, equipo anota y hándicap asiático ±1.0/±1.5 (con push), todos desde la matriz |
-| Módulo 2 | Parlays de 3 a 5 bloques; los SGP se calculan sumando celdas de la matriz (nunca multiplicando) y se ordenan por crecimiento logarítmico (Kelly) |
+| Tickets V3 | Parlays con probabilidad conjunta REAL (Monte Carlo con factores compartidos, `motor/dependencia.py`; nunca el producto), cota conservadora y auditoría del Cerebro 2; los SGP suman celdas de la matriz |
 | Tickets 5 equipos | Las combinaciones más probables que pagan ≈15-30x, con razones por pierna (modelo vs mercado, CRS) y «1 de cada N» |
 | CRS | Casinazo Risk Score: veto a las selecciones del favorito en riesgo; el ajuste de probabilidad queda en modo sombra hasta validarlo |
 | Banca | Kelly fraccional (0.25 en simples, 0.10 en parlays), topes de 2u / 0.5u y exposición diaria de 5u |
 | Córners y jugadores | Córners con Binomial Negativa (estilo de equipo, rival y árbitro); anota y tiros al arco desde xG/90, titularidad y rival |
 | SGP correlacionado | Simulación conjunta goles + córners + jugadores con cópula y reparto estructural de goles (`dependencia_mercados.py`) |
 | Soñadoras analíticas | El ticket más probable dentro de un rango de cuota, etiquetado «De Valor (+EV)» o «Entretenimiento» |
-| NFL | Paquete aparte (`motor_nfl/`): Elo + EPA con Normal; moneyline, spread y totales con push |
+| NFL | Paquete aparte (`motor_nfl/`): Elo + EPA con Normal y ajuste por QB suplente; moneyline, spread y totales con push |
 | Validación | Walk-forward estricto, log-loss, Brier, calibración, CLV y regla de 300 partidos antes de usar dinero real |
 
 ![Módulo 2 · Parlays](docs/capturas/m2.png)

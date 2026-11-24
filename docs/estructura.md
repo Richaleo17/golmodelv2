@@ -8,7 +8,7 @@ golmodelv2/
 ├── docker-compose.yml           postgres + api + worker (cierre) + ui
 ├── src/golmodel/
 │   ├── config.py                carga, validación y hash de la config
-│   ├── db.py · tiempo.py
+│   ├── db.py
 │   ├── ingesta/
 │   │   ├── tipos.py             tipos normalizados (PartidoExterno, CuotaExterna, ...)
 │   │   ├── proveedores/
@@ -23,8 +23,8 @@ golmodelv2/
 │   │   ├── normalizacion.py     alias de equipos
 │   │   └── pipeline.py          botones de actualización por etapas
 │   ├── modelos/                 dixon_coles · matriz · mercados · sgp · devig · combinacion · contexto · calibracion
-│   ├── motor/                   valor · modulo1 · modulo2 · bankroll
-│   ├── backtest/                walkforward · metricas · clv
+│   ├── motor/                   valor · bankroll · dependencia · tickets · sonadoras
+│   ├── backtest/                walkforward · metricas · calibracion_tickets
 │   ├── api/main.py + rutas/     modulo1 · modulo2 · actualizar · estado
 │   └── jobs/cierre.py           único job automático
 ├── ui/app.py                    Streamlit

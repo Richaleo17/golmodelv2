@@ -1,3 +1,6 @@
+> **Histórico.** `motor/modulo2.py` se eliminó el 2026-11-24: los parlays entre partidos los arma el ticket V3
+> (`motor/dependencia.py` + `motor/tickets.py`, probabilidad conjunta real). Este documento queda como registro del diseño original.
+
 # Fase 4: motor con CRS y Módulo 2
 
 Implementación: `motor/modulo2.py`, `modelos/crs.py`, `motor/bankroll.py`. Pruebas: `tests/test_fase4.py` y `db/tests/test_schema.sql`.
