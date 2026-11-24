@@ -1,0 +1,53 @@
+# Bitácora de resultados reportados a mano (memoria persistente del proyecto).
+#
+# Regla: aquí se ANOTA, no se castiga. Ningún equipo recibe una penalización manual por un
+# resultado suelto; eso rompería la calibración (un favorito al 70% pierde 3 de cada 10 veces
+# y el modelo puede estar bien). Los ajustes salen solo de:
+#   * fútbol: el reajuste de Dixon-Coles con el resultado confirmado (decaimiento exp(-xi*t)),
+#     y la calibración/CLV medidos en walk-forward con muestra suficiente (regla de 300 partidos);
+#   * revisión de patrones: si un mismo equipo o segmento acumula fallos aquí, se abre una
+#     revisión con datos (calibración del segmento), no un ajuste a ojo.
+#
+# Campos: fecha (America/Mexico_City), deporte, liga, equipo, rival, mercado, p_modelo,
+# resultado, en_modelo (si golmodelv2 cubre ese partido), nota.
+
+- fecha: 2026-11-24
+  deporte: futbol_americano
+  liga: NFL
+  equipo: Cincinnati Bengals
+  rival: pendiente
+  mercado: gana
+  p_modelo: pendiente
+  resultado: perdió
+  en_modelo: false
+  nota: >
+    golmodelv2 no modela NFL. Queda anotado para cuando exista un modelo de americano;
+    hoy no hay parámetros que reajustar.
+
+- fecha: 2026-11-24
+  deporte: futbol_americano
+  liga: NFL
+  equipo: pendiente (otro equipo de americano)
+  rival: pendiente
+  mercado: gana
+  p_modelo: 0.70
+  resultado: perdió
+  en_modelo: false
+  nota: >
+    Favorito al 70% que perdió. Pasa en ~30% de los casos; un solo fallo no prueba
+    que el 70% estuviera mal. Falta saber qué equipo era.
+
+- fecha: 2026-11-23
+  deporte: futbol
+  liga: MLS
+  equipo: Nashville SC
+  rival: pendiente
+  mercado: goles del equipo (solo anotó 1)
+  p_modelo: pendiente
+  resultado: Nashville anotó 1 gol
+  en_modelo: true
+  nota: >
+    El resultado entra solo con la ingesta (resultado confirmado) y el siguiente ajuste de
+    Dixon-Coles baja un poco el ataque de Nashville, con el peso que le toca por recencia.
+    No se aplica castigo extra. Revisar si Nashville se queda corto de goles varias veces
+    seguidas en esta bitácora.
