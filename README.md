@@ -16,6 +16,7 @@ Aplicación analítica para apuestas de fútbol (12 ligas: Premier, La Liga, Ser
 | Módulo 2 | Parlays de 3 a 5 bloques; los SGP se calculan sumando celdas de la matriz (nunca multiplicando) y se ordenan por crecimiento logarítmico (Kelly) |
 | Tickets 5 equipos | Las combinaciones más probables que pagan ≈15-30x, con razones por pierna (modelo vs mercado, CRS) y «1 de cada N» |
 | CRS | Casinazo Risk Score: veto a las selecciones del favorito en riesgo; el ajuste de probabilidad queda en modo sombra hasta validarlo |
+| Cerebro 2 | Auditor independiente (`src/golmodel/cerebro2/`): gates deterministas contra consenso de mercado (≥3 casas + Power) y calibración realizada; 5 estados con fallo seguro a ABSTENCIÓN, techo CON_RESERVAS en modo experimental y registro inmutable de cada decisión |
 | Banca | Kelly fraccional (0.25 en simples, 0.10 en parlays), topes de 2u / 0.5u y exposición diaria de 5u |
 | Validación | Walk-forward estricto, log-loss, Brier, calibración, CLV y regla de 300 partidos antes de usar dinero real |
 
@@ -41,7 +42,7 @@ Guía completa: [`docs/operacion.md`](docs/operacion.md). Decisiones de diseño:
 ```bash
 pytest
 ```
-Corre 170 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
+Corre 200 pruebas. Las de integración contra PostgreSQL se omiten si no está disponible.
 
 ```bash
 psql -f db/tests/test_schema.sql

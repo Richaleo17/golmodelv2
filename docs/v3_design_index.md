@@ -4,7 +4,7 @@
 > `golmodelv2 → V3`. Ningún diseño se considera válido si no está listado aquí y
 > no sigue la plantilla fija de abajo.
 
-Última actualización del índice: **2026-11-09**
+Última actualización del índice: **2026-11-24**
 
 ---
 
@@ -22,7 +22,7 @@ Dos categorías de "aprobado", explícitamente distintas:
 | `v3_dependencia_diseno.md` | `motor/dependencia.py` · probabilidad conjunta real de tickets 5-8 | aprobado · cerrada | — | 2026-11-09 |
 | `v3_incertidumbre_diseno.md` | Muestreador τ/σ + calibración en `backtest/calibracion_tickets.py` | aprobado · cerrada (v0.3) | `v3_dependencia_diseno.md` | 2026-11-09 |
 | `v3_tickets_objetivo_diseno.md` | `motor/tickets.py` · función objetivo del ticket 5-8 | aprobado · cerrada (v0.5) | `v3_dependencia_diseno.md`, `v3_incertidumbre_diseno.md` | 2026-11-09 |
-| `v3_cerebro2_diseno.md` | `cerebro2/` · auditor independiente y estados de decisión | aprobado · cerrada (v0.4) | `v3_tickets_objetivo_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_dependencia_diseno.md` | 2026-11-09 |
+| `v3_cerebro2_diseno.md` | `cerebro2/` · auditor independiente y estados de decisión | implementado · núcleo (v0.5); falta integración y panel | `v3_tickets_objetivo_diseno.md`, `v3_incertidumbre_diseno.md`, `v3_dependencia_diseno.md` | 2026-11-24 |
 
 ### 1.2 Aprobado · política provisional (pendiente de validación OOS)
 
