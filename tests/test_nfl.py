@@ -343,3 +343,62 @@ def test_filtro_de_semanas(bd):
     s12 = nfl.semana(bd, CFG, ahora, 12)
     assert s12["semana_sel"] == 12 and {x["juego_id"] for x in s12["juegos"]} == {"2026_12_LA_SF"}
     assert nfl.semana(bd, CFG, ahora, 99)["semana_sel"] == 11                           # una semana que no existe → la más próxima
+
+
+# ------------------------------------------------------------------ QB suplente (idea de nfl_probability_engine, «Modelo 2»)
+
+def _con_qb(est, eq, qbs, rival="NE", semana0=1):
+    for i, q in enumerate(qbs):
+        md.actualizar(est, md.Juego(f"q{eq}{i}", 2025, semana0 + i, eq, rival, 20, 20, qb_local=q, qb_visitante="NE1"), CFG)
+
+
+def test_qb_suplente_resta_delta_al_equipo_y_solo_con_titular_establecido():
+    q = CFG["nfl"]["modelo"]["qb_suplente"]
+    est = md.EstadoNFL()
+    _con_qb(est, "CIN", ["burrow"] * 4)
+    base = md.prediccion(est, "CIN", "NE", CFG, qb_local="burrow", qb_visitante="NE1")
+    sup = md.prediccion(est, "CIN", "NE", CFG, qb_local="browning", qb_visitante="NE1")
+    assert not base["qb_suplente_local"] and sup["qb_suplente_local"] and not sup["qb_suplente_visitante"]
+    esperado = -q["delta_elo"] / CFG["nfl"]["modelo"]["elo_por_punto"]
+    assert sup["ajuste_qb_puntos"] == pytest.approx(esperado)
+    assert sup["mu_margen"] - base["mu_margen"] == pytest.approx(esperado)
+    # Suplente del VISITANTE favorece al local
+    vis = md.prediccion(est, "NE", "CIN", CFG, qb_local="NE1", qb_visitante="browning")
+    assert vis["ajuste_qb_puntos"] == pytest.approx(-esperado)
+    # Sin titular establecido (2 de 4) o con poca historia: no se ajusta
+    rot = md.EstadoNFL()
+    _con_qb(rot, "NYJ", ["a", "b", "a", "b"])
+    assert md.prediccion(rot, "NYJ", "NE", CFG, qb_local="c")["ajuste_qb_puntos"] == 0.0
+    corto = md.EstadoNFL()
+    _con_qb(corto, "NYJ", ["a", "a"])
+    assert md.prediccion(corto, "NYJ", "NE", CFG, qb_local="c")["ajuste_qb_puntos"] == 0.0
+
+
+def test_qb_suplente_es_overlay_y_se_apaga_con_la_config():
+    import copy
+    est = md.EstadoNFL()
+    _con_qb(est, "CIN", ["burrow"] * 4)
+    elo_antes = dict(est.elo)
+    md.prediccion(est, "CIN", "NE", CFG, qb_local="browning")
+    assert est.elo == elo_antes                                  # predecir no mueve el Elo
+    apagado = copy.deepcopy(CFG)
+    apagado["nfl"]["modelo"]["qb_suplente"]["activo"] = False
+    assert md.prediccion(est, "CIN", "NE", apagado, qb_local="browning")["ajuste_qb_puntos"] == 0.0
+    sin_clave = copy.deepcopy(CFG)
+    del sin_clave["nfl"]["modelo"]["qb_suplente"]
+    assert md.prediccion(est, "CIN", "NE", sin_clave, qb_local="browning")["ajuste_qb_puntos"] == 0.0
+    # El nuevo titular se vuelve habitual cuando acumula 3 de los últimos 4
+    _con_qb(est, "CIN", ["browning"] * 3, semana0=10)
+    assert md.prediccion(est, "CIN", "NE", CFG, qb_local="browning")["ajuste_qb_puntos"] == 0.0
+
+
+def test_parse_games_lee_el_qb_titular():
+    csv = ("game_id,season,game_type,week,gameday,gametime,away_team,home_team,away_score,home_score,location,"
+           "away_qb_id,home_qb_id\n"
+           "2026_11_CIN_WAS,2026,REG,11,2026-11-22,13:00,CIN,WAS,20,22,Home,00-0036442,00-0039910\n"
+           "2026_12_CIN_PIT,2026,REG,12,2026-11-29,13:00,CIN,PIT,,,Home,,\n")
+    f = {x["juego_id"]: x for x in nd.parse_games(csv, [2026])}
+    assert f["2026_11_CIN_WAS"]["qb_visitante"] == "00-0036442" and f["2026_11_CIN_WAS"]["qb_local"] == "00-0039910"
+    assert f["2026_12_CIN_PIT"]["qb_local"] is None
+    j = nd.juegos_de_filas([f["2026_11_CIN_WAS"]])[0]
+    assert j.qb_visitante == "00-0036442"

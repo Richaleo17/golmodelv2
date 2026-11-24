@@ -1,0 +1,54 @@
+# Bitácora de resultados reportados a mano (memoria persistente del proyecto).
+#
+# Regla: aquí se ANOTA, no se castiga. Ningún equipo recibe una penalización manual por un
+# resultado suelto; eso rompería la calibración (un favorito al 70% pierde 3 de cada 10 veces
+# y el modelo puede estar bien). Los ajustes salen solo de:
+#   * fútbol: el reajuste de Dixon-Coles con el resultado confirmado (decaimiento exp(-xi*t)),
+#     y la calibración/CLV medidos en walk-forward con muestra suficiente (regla de 300 partidos);
+#   * revisión de patrones: si un mismo equipo o segmento acumula fallos aquí, se abre una
+#     revisión con datos (calibración del segmento), no un ajuste a ojo.
+#
+# Campos: fecha (America/Mexico_City), deporte, liga, equipo, rival, mercado, p_modelo,
+# resultado, en_modelo (si golmodelv2 cubre ese partido), nota.
+
+- fecha: 2026-11-24
+  deporte: futbol_americano
+  liga: NFL
+  equipo: Cincinnati Bengals
+  rival: Washington Commanders (CIN de visitante, semana 11)
+  mercado: gana
+  p_modelo: 0.71            # p de la app: 0.15·Elo + 0.85·Las Vegas sin margen (v3, motor_nfl)
+  resultado: perdió 20-22
+  en_modelo: true           # en v3 sí hay motor NFL (main no lo tiene)
+  nota: >
+    Reconstruido con nflverse. Los favoritos de 70-75% ganaron el 77.3% en 2020-26
+    (229 juegos; esperado 72.5%): la franja está bien calibrada y esta derrota es varianza.
+    El Elo ya bajó a CIN con el resultado; no se aplica castigo extra.
+
+- fecha: 2026-11-24
+  deporte: futbol_americano
+  liga: NFL
+  equipo: Jacksonville Jaguars (probable; confirmar)
+  rival: New York Giants (JAX de visitante, semana 11)
+  mercado: gana
+  p_modelo: 0.69
+  resultado: perdió 18-23
+  en_modelo: true
+  nota: >
+    Único otro favorito cercano al 70% que perdió en la semana 11. Pasa en ~30% de los
+    casos; un solo fallo no prueba que el 70% estuviera mal.
+
+- fecha: 2026-11-23
+  deporte: futbol
+  liga: MLS
+  equipo: Nashville SC
+  rival: pendiente
+  mercado: goles del equipo (solo anotó 1)
+  p_modelo: pendiente
+  resultado: Nashville anotó 1 gol
+  en_modelo: true
+  nota: >
+    El resultado entra solo con la ingesta (resultado confirmado) y el siguiente ajuste de
+    Dixon-Coles baja un poco el ataque de Nashville, con el peso que le toca por recencia.
+    No se aplica castigo extra. Revisar si Nashville se queda corto de goles varias veces
+    seguidas en esta bitácora.

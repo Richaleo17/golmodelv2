@@ -264,8 +264,8 @@ def get_admin_accesos(limite: int = 100, usuario_id: int | None = None, conn=Dep
     return {"accesos": usuarios.recientes(conn, limite, usuario_id)}
 
 
-# Los parlays que hoy genera el motor (motor/modulo2.py) multiplican probabilidades asumiendo independencia entre
-# partidos. Hasta integrar V3 (probabilidad conjunta con dependencia) se avisa en cada respuesta. NO cambia la lógica.
+# Los parlays LEGADOS de V2 (los generaba motor/modulo2.py, eliminado el 2026-11-24) multiplicaban probabilidades asumiendo
+# independencia entre partidos. Los que sigan guardados en parlays_sugeridos se sirven con este aviso. NO cambia la lógica.
 ADVERTENCIA_INDEPENDENCIA = ("parlays generados bajo independencia; probabilidad conjunta sobreestimada. "
                              "Pendiente integración de V3.")   # solo para los parlays LEGADOS de V2 guardados en parlays_sugeridos
 

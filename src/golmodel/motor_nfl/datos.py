@@ -44,6 +44,11 @@ def _num(x):
     return None if pd.isna(x) else x
 
 
+def _texto(x) -> str | None:
+    """Id de QB de nflverse (o None si viene vacío/NaN)."""
+    return x.strip() if isinstance(x, str) and x.strip() else None
+
+
 def parse_games(texto: str, temporadas: list[int]) -> list[dict]:
     df = pd.read_csv(io.StringIO(texto))
     df = df[df["season"].isin(temporadas)]
@@ -61,6 +66,7 @@ def parse_games(texto: str, temporadas: list[int]) -> list[dict]:
             "neutral": str(getattr(r, "location", "Home")) == "Neutral",
             "spread_cierre": _num(getattr(r, "spread_line", None)), "total_cierre": _num(getattr(r, "total_line", None)),
             "ml_local": _num(getattr(r, "home_moneyline", None)), "ml_visitante": _num(getattr(r, "away_moneyline", None)),
+            "qb_local": _texto(getattr(r, "home_qb_id", None)), "qb_visitante": _texto(getattr(r, "away_qb_id", None)),
         })
     return filas
 
@@ -89,7 +95,8 @@ def leer_pbp(contenido: bytes) -> pd.DataFrame:
 
 def juegos_de_filas(filas) -> list[Juego]:
     return [Juego(f["juego_id"], int(f["temporada"]), int(f["semana"]), f["local"], f["visitante"],
-                  f["puntos_local"], f["puntos_visitante"], bool(f.get("neutral", False)), f.get("tipo", "REG")) for f in filas]
+                  f["puntos_local"], f["puntos_visitante"], bool(f.get("neutral", False)), f.get("tipo", "REG"),
+                  f.get("qb_local"), f.get("qb_visitante")) for f in filas]
 
 
 def parse_cuotas(cuerpo, capturada: datetime) -> list[dict]:

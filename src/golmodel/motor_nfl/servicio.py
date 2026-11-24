@@ -35,15 +35,18 @@ def actualizar(conn, fuente: FuenteNFL, cfg: dict, ahora: datetime) -> dict:
     filas = fuente.games(temporadas)
     for f in filas:
         conn.execute("""INSERT INTO nfl_juegos (juego_id, temporada, tipo, semana, inicio, local, visitante, puntos_local,
-                            puntos_visitante, neutral, spread_cierre, total_cierre, ml_local, ml_visitante)
+                            puntos_visitante, neutral, spread_cierre, total_cierre, ml_local, ml_visitante, qb_local, qb_visitante)
                         VALUES (%(juego_id)s, %(temporada)s, %(tipo)s, %(semana)s, %(inicio)s, %(local)s, %(visitante)s,
                                 %(puntos_local)s, %(puntos_visitante)s, %(neutral)s, %(spread_cierre)s, %(total_cierre)s,
-                                %(ml_local)s, %(ml_visitante)s)
+                                %(ml_local)s, %(ml_visitante)s, %(qb_local)s, %(qb_visitante)s)
                         ON CONFLICT (juego_id) DO UPDATE SET inicio = EXCLUDED.inicio, puntos_local = EXCLUDED.puntos_local,
                             puntos_visitante = EXCLUDED.puntos_visitante, spread_cierre = EXCLUDED.spread_cierre,
                             total_cierre = EXCLUDED.total_cierre, ml_local = EXCLUDED.ml_local,
-                            ml_visitante = EXCLUDED.ml_visitante, actualizado_en = now()""",
-                     {**f, "ml_local": _entero(f.get("ml_local")), "ml_visitante": _entero(f.get("ml_visitante"))})
+                            ml_visitante = EXCLUDED.ml_visitante,
+                            qb_local = COALESCE(EXCLUDED.qb_local, nfl_juegos.qb_local),
+                            qb_visitante = COALESCE(EXCLUDED.qb_visitante, nfl_juegos.qb_visitante), actualizado_en = now()""",
+                     {**f, "ml_local": _entero(f.get("ml_local")), "ml_visitante": _entero(f.get("ml_visitante")),
+                      "qb_local": f.get("qb_local"), "qb_visitante": f.get("qb_visitante")})
     res["juegos"] = len(filas)
     conn.commit()
     if n.get("epa", {}).get("activo", True):
@@ -111,7 +114,7 @@ def _estado(conn, cfg: dict, desde_temporada: int | None = None) -> tuple[md.Est
 
 def _estado_sin_cache(conn, cfg: dict, desde_temporada: int | None) -> tuple[md.EstadoNFL, list[dict]]:
     juegos = [md.Juego(r["juego_id"], r["temporada"], r["semana"], r["local"], r["visitante"], r["puntos_local"],
-                       r["puntos_visitante"], r["neutral"], r["tipo"])
+                       r["puntos_visitante"], r["neutral"], r["tipo"], r.get("qb_local"), r.get("qb_visitante"))
               for r in conn.execute("SELECT * FROM nfl_juegos WHERE puntos_local IS NOT NULL")]
     epa: dict = defaultdict(dict)
     for r in conn.execute("SELECT juego_id, equipo, epa_of, epa_def, jugadas FROM nfl_epa_juego"):
@@ -168,7 +171,7 @@ def semana(conn, cfg: dict, ahora: datetime, semana_sel: int | None = None) -> d
     alfa = float(n.get("peso_modelo", 1.0))
     juegos = []
     for j in proximos:
-        pr = md.prediccion(est, j["local"], j["visitante"], cfg, j["neutral"])
+        pr = md.prediccion(est, j["local"], j["visitante"], cfg, j["neutral"], j.get("qb_local"), j.get("qb_visitante"))
         mu_m, mu_t = pr["mu_margen"], pr["mu_total"]
         cuotas = _ultimas_cuotas(conn, j["juego_id"])
         ml = mk.moneyline(mu_m, sig_m)
@@ -334,7 +337,7 @@ def piernas_parlay(conn, cfg: dict, ahora: datetime, hasta: datetime, p_min: flo
     salida = []
     for j in conn.execute("""SELECT * FROM nfl_juegos WHERE puntos_local IS NULL AND inicio > %s AND inicio < %s
                              ORDER BY inicio""", (ahora, hasta)):
-        pr = md.prediccion(est, j["local"], j["visitante"], cfg, j["neutral"])
+        pr = md.prediccion(est, j["local"], j["visitante"], cfg, j["neutral"], j.get("qb_local"), j.get("qb_visitante"))
         ml = mk.moneyline(pr["mu_margen"], sig)
         h2h = _mercado(_ultimas_cuotas(conn, j["juego_id"]), "h2h", casas)
         p_loc = alfa * ml["local"] + (1 - alfa) * h2h["p_mercado"]["local"] if h2h else ml["local"]

@@ -36,6 +36,9 @@ ETAPAS = {
     # cada vez llenaría `predicciones` (inmutables) de filas idénticas.
     "solo_alineaciones": ["alineaciones"],
     "recalcular": ["recalculo_modulos"],          # con las cuotas ya guardadas: 0 consultas a APIs
+    # Previa (job, ~50 min antes de cada horario): alineaciones ya publicadas → cuotas SOLO de los partidos que empiezan pronto (el mercado
+    # ya descuenta la alineación) → recálculo. Es la que deja «Qué meter», Boletos y el Diario con la información más fresca.
+    "previa_partido": ["alineaciones", "cuotas", "recalculo_modulos"],
 }
 
 
@@ -52,6 +55,7 @@ class Estado:
     ligas: dict
     modelo: tuple | None = None
     resumen: dict = field(default_factory=dict)
+    tipo: str | None = None                       # tipo de la ejecución en curso (la previa limita las cuotas a los partidos próximos)
 
     @property
     def zona(self) -> ZoneInfo:
@@ -116,10 +120,13 @@ class Pipeline:
             if "alineaciones" in etapas:
                 sumar(Capacidad.ALINEACIONES, cerca)
             if "cuotas" in etapas:
+                if tipo == "previa_partido":
+                    partidos = self._partidos_previa(partidos, ahora)
                 for l in sorted({p["liga"] for p in partidos if not p.get("solo_mercado")}):   # solo ligas con partidos próximos
                     sumar(Capacidad.CUOTAS, liga=l)
                 cm = self.cfg.get("competiciones_mercado") or {}
-                if cm.get("activo") and self._proveedor_mercado() is not None and tipo != "snapshot_cierre":
+                con_mercado = tipo != "previa_partido" or any(p.get("solo_mercado") for p in partidos)
+                if cm.get("activo") and self._proveedor_mercado() is not None and tipo != "snapshot_cierre" and con_mercado:
                     total["odds_api"] += int(cm.get("max_creditos_por_actualizacion", 0)) + int(cm.get("max_creditos_resultados", 0))   # cota superior
             return dict(total)
         finally:
@@ -139,6 +146,7 @@ class Pipeline:
                 st = Estado(conn, self.cfg, self.reloj(), ResolverEquipos(
                     conn, similitud_min=self.cfg["normalizacion"]["similitud_min"],
                     margen_min=self.cfg["normalizacion"]["margen_min"]), repo.ligas(conn))
+                st.tipo = tipo
                 for nombre in etapas:
                     repo.etapa(conn, ejecucion_id, nombre, "en_curso")
                     conn.commit()
@@ -362,13 +370,26 @@ class Pipeline:
                 res["fotmob"] = {"error": f"{type(e).__name__}: {e}"[:200]}
         return res
 
+    def _partidos_previa(self, partidos: list[dict], ahora: datetime) -> list[dict]:
+        """Partidos que empiezan dentro de `auto.previa.horizonte_cuotas_min` (los únicos cuyas cuotas pide la previa)."""
+        pv = (self.cfg.get("auto") or {}).get("previa") or {}
+        hasta = ahora + timedelta(minutes=float(pv.get("horizonte_cuotas_min", 120)))
+        return [p for p in partidos if ahora < p["inicio"] <= hasta]
+
     def _etapa_cuotas(self, st: Estado, *, tipo: str = "actual", cap: Capacidad = Capacidad.CUOTAS,
                       partidos: list[dict] | None = None) -> dict:
+        if partidos is None and st.tipo == "previa_partido" and cap is Capacidad.CUOTAS and tipo == "actual":
+            proximos = self._partidos_previa(repo.partidos_de_dias(st.conn, st.dias()), st.ahora)
+            res = self._etapa_cuotas(st, partidos=[p for p in proximos if not p.get("solo_mercado")])
+            if any(p.get("solo_mercado") for p in proximos):     # Champions y demás competiciones solo-mercado
+                res["mercado"] = self._competiciones_mercado(st)
+            res["partidos_previa"] = len(proximos)
+            return res
         res = {"cuotas": 0, "sin_partido": 0, "avisos": [], "calidad": {}}
         hoy = st.hoy()
         ligas_obj = {p["liga"] for p in (partidos if partidos is not None else repo.partidos_de_dias(st.conn, st.dias()))
                      if not p.get("solo_mercado")}
-        if not ligas_obj:
+        if not ligas_obj and partidos is None:
             res["avisos"].append("Sin partidos programados en los próximos días: no se consultaron cuotas "
                                  "(así no se gastan créditos).")
         for codigo in sorted(ligas_obj):
