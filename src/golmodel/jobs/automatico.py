@@ -66,6 +66,22 @@ def _toca_previa(conn, pv: dict, ahora: datetime) -> bool:
         LIMIT 1""", (ahora + minimo, ahora + antes, antes + agrupar)).fetchone() is not None
 
 
+def ultima_general_cuotas(conn) -> datetime | None:
+    """Última consulta GENERAL de cuotas (todas las ligas): solo_cuotas, actualizar_todo o una previa que hizo la general."""
+    return conn.execute("""
+        SELECT max(e.iniciada_en) AS t FROM ejecuciones e
+        WHERE e.estado IN ('ok','parcial') AND (e.tipo IN ('solo_cuotas','actualizar_todo') OR (e.tipo = 'previa_partido' AND EXISTS (
+              SELECT 1 FROM ejecucion_etapas s WHERE s.ejecucion_id = e.id AND s.etapa = 'cuotas'
+                AND coalesce((s.resumen ->> 'completa')::boolean, false))))""").fetchone()["t"]
+
+
+def cadencia_cuotas(conn, a: dict, ahora: datetime) -> timedelta:
+    """Cada cuánto toca la consulta general: `cuotas_cerca_min` si algún partido empieza en `horas_cerca` horas, si no `cuotas_cada_min`."""
+    cerca = conn.execute("""SELECT 1 FROM partidos WHERE estado = 'programado' AND inicio > %s AND inicio < %s LIMIT 1""",
+                         (ahora, ahora + timedelta(hours=float(a.get("horas_cerca", 3))))).fetchone()
+    return timedelta(minutes=float(a.get("cuotas_cerca_min" if cerca else "cuotas_cada_min", 120)))
+
+
 def decidir(conn, cfg: dict, ahora: datetime) -> str | None:
     """Qué actualización toca ahora (o None). Pura respecto a la BD: no lanza nada."""
     a = cfg.get("auto") or {}
@@ -90,12 +106,8 @@ def decidir(conn, cfg: dict, ahora: datetime) -> str | None:
             return "actualizar_todo"
     if a.get("alineaciones", True) and _toca_alineaciones(conn, a, ahora):
         return "solo_alineaciones"
-    ultima = conn.execute("""SELECT max(iniciada_en) AS t FROM ejecuciones
-                             WHERE tipo IN ('solo_cuotas','actualizar_todo') AND estado IN ('ok','parcial')""").fetchone()["t"]
-    cerca = conn.execute("""SELECT 1 FROM partidos WHERE estado = 'programado' AND inicio > %s AND inicio < %s LIMIT 1""",
-                         (ahora, ahora + timedelta(hours=float(a.get("horas_cerca", 3))))).fetchone()
-    cada = float(a.get("cuotas_cerca_min" if cerca else "cuotas_cada_min", 120))
-    if ultima is None or ahora - ultima >= timedelta(minutes=cada):
+    ultima = ultima_general_cuotas(conn)
+    if ultima is None or ahora - ultima >= cadencia_cuotas(conn, a, ahora):
         return "solo_cuotas"
     return None
 
@@ -165,6 +177,22 @@ def _nba(s, cfg: dict) -> None:
         c.close()
 
 
+def _registrar_parlays(s, tipo: str) -> None:
+    """Guarda lo que muestra hoy la sección de parlays (después de la completa y de cada previa) para medir su efectividad."""
+    from golmodel import db
+    from golmodel.servicios import parlays_usuario
+    c = db.conectar(s.dsn)
+    try:
+        ahora = s.reloj()
+        parlays_usuario.registrar(c, s.cfg, ahora.astimezone(ZoneInfo(s.cfg["zona_horaria"])).date(), ahora, tipo)
+        c.commit()
+    except Exception:                                       # noqa: BLE001 — el registro nunca tumba la actualización
+        c.rollback()
+        log.exception("auto: registro de parlays falló")
+    finally:
+        c.close()
+
+
 def un_paso(s) -> str | None:
     """Revisa y, si toca, corre UNA actualización (bloqueante). Devuelve el tipo corrido."""
     from golmodel import db, repositorio as repo
@@ -191,6 +219,8 @@ def un_paso(s) -> str | None:
         c.close()
     if tipo == "actualizar_todo" and (s.cfg.get("auto") or {}).get("otros_deportes", True):
         _otros_deportes(s, s.cfg, s.reloj())
+    if tipo in ("actualizar_todo", "previa_partido"):
+        _registrar_parlays(s, tipo)
     if tipo in ("actualizar_todo", "solo_cuotas") and (s.cfg.get("auto") or {}).get("otros_deportes", True):
         _nba(s, s.cfg)
     if tipo == "solo_cuotas" and (s.cfg.get("auto") or {}).get("otros_deportes", True):

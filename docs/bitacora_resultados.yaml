@@ -52,3 +52,45 @@
     Dixon-Coles baja un poco el ataque de Nashville, con el peso que le toca por recencia.
     No se aplica castigo extra. Revisar si Nashville se queda corto de goles varias veces
     seguidas en esta bitácora.
+
+# ---------------- Champions 24-nov 11:45 (previa 10:55; probabilidades de la predicción de las 11:11) ----------------
+- fecha: 2026-11-24
+  deporte: futbol
+  liga: UEFA Champions League (solo mercado)
+  equipo: Galatasaray vs Aston Villa
+  resultado: 1-0 al 90+4' (ESPN; PROVISIONAL, confirmar final en la revisión diaria)
+  piernas:
+    - {seleccion: "Más de 1.5 goles", p: 0.82, acierto: false}
+    - {seleccion: "Aston Villa anota", p: 0.84, acierto: false}
+    - {seleccion: "Ambos anotan", p: 0.62, acierto: false}
+    - {seleccion: "Aston Villa más de 1.5 (goles del equipo)", p: 0.54, acierto: false}
+    - {seleccion: "Gana Aston Villa (favorito del mercado)", p: 0.466, acierto: false}
+    - {seleccion: "Gana Galatasaray", p: 0.283, acierto: true}
+  nota: >
+    Partido de pocos goles contra un mercado que esperaba ~3.1. Nada previo lo marcaba: la cuota de
+    más de 1.5 apenas bajó de 84.5% a 82% tras la alineación. Un análisis externo daba valor a
+    Galatasaray (+55% de EV); un resultado no lo valida, pero se deja anotado.
+
+- fecha: 2026-11-24
+  deporte: futbol
+  liga: UEFA Champions League (solo mercado)
+  equipo: Bodø/Glimt vs LASK
+  resultado: 1-0 final (ESPN)
+  piernas:
+    - {seleccion: "Más de 1.5 goles", p: 0.92, acierto: false}
+    - {seleccion: "Bodø anota 2+", p: 0.79, acierto: false}
+    - {seleccion: "Ambos anotan", p: 0.66, acierto: false}
+    - {seleccion: "Gana Bodø", p: 0.726, acierto: true}
+    - {seleccion: "Gana Bodø + ambos anotan (SGP)", p: 0.44, acierto: false}
+  nota: >
+    Más de 1.5 al 92% falló (pasa ~1 de cada 12). Junto con Galatasaray-Villa, los dos 0-0 al minuto
+    55 tenían ~1.5% de probabilidad conjunta. Revisar en el Dashboard si «Más de 1.5» en Champions
+    (solo mercado) queda por debajo de lo prometido con más muestra antes de tocar algo.
+
+- fecha: 2026-11-24
+  deporte: futbol
+  liga: UEFA Champions League
+  equipo: Boleto del usuario en Draftea (SGP 4 piernas, momio 4.54, $200)
+  resultado: perdido (1 de 4 piernas acertada)
+  p_modelo: 0.175           # conjunta real por matriz; momio justo 5.72 → EV −21% antes de jugar
+  nota: Gana Bodø acertó; ambos anotan (x2) y Villa más de 1.5 fallaron.

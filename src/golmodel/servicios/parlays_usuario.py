@@ -16,6 +16,11 @@ from zoneinfo import ZoneInfo
 DIAS_SEMANA = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 
+def _escudos(p: dict) -> dict:
+    """Escudo (id de ESPN) o bandera de cada equipo, para pintar la pierna como un boleto de Draftea."""
+    return {k: p.get(k) for k in ("escudo_local", "escudo_visitante", "bandera_local", "bandera_visitante")}
+
+
 def piernas_de_panel(pan: dict, dia: date, ahora: datetime, cfg: dict) -> list[dict]:
     cp = cfg.get("parlays_usuario") or {}
     p_min, conf_min = float(cp.get("p_min", 0.55)), float(cp.get("confianza_min", 3.5))
@@ -42,7 +47,7 @@ def piernas_de_panel(pan: dict, dia: date, ahora: datetime, cfg: dict) -> list[d
                     "hora": p["hora"], "inicio": inicio.isoformat(), "liga": p.get("liga_nombre") or p["liga"],
                     "partido": f"{p['local']} vs {p['visitante']}", "tipo": tipo, "jugada": jugada, "detalle": detalle,
                     "p": prob, "cuota_justa": 1 / prob, "cuota_min": (1 + u) / prob, "confianza": p.get("confianza"),
-                    "fuente": p.get("fuente")})
+                    "fuente": p.get("fuente"), **_escudos(p)})
     return out
 
 
@@ -79,7 +84,8 @@ def candidatos_de_panel(pan: dict, dia: date, ahora: datetime, cfg: dict) -> lis
             out.append({"partido_id": p["partido_id"], "dia": str(dia), "dia_texto": f"{DIAS_SEMANA[dia.weekday()]} {dia.day:02d}/{dia.month:02d}",
                         "hora": p["hora"], "inicio": inicio.isoformat(), "liga": p.get("liga_nombre") or p["liga"],
                         "partido": f"{p['local']} vs {p['visitante']}", "tipo": tipo, "jugada": jugada, "detalle": detalle,
-                        "p": prob, "cuota_justa": 1 / prob, "cuota_min": (1 + u) / prob, "confianza": p.get("confianza"), "fuente": p.get("fuente")})
+                        "p": prob, "cuota_justa": 1 / prob, "cuota_min": (1 + u) / prob, "confianza": p.get("confianza"), "fuente": p.get("fuente"),
+                        **_escudos(p)})
     return out
 
 
@@ -223,3 +229,24 @@ def armar(conn, cfg: dict, dia: date, ahora: datetime) -> dict:
             "nota": "Fútbol: cada pierna es «Gana» o «PA(1)» (anota el primer gol), la más probable de su partido. NFL y tenis: «Gana» "
                     "(moneyline). NBA: moneyline o spread/total alternativo ≈ 85% de la línea de DraftKings. Probabilidad del parlay = "
                     "producto de sus piernas (partidos distintos). Ninguna combinada es segura."}
+
+
+CAMPOS_PIERNA = ("partido_id", "liga", "partido", "inicio", "tipo", "jugada", "p")
+
+
+def registrar(conn, cfg: dict, dia: date, ahora: datetime, disparado_por: str, *, armado: dict | None = None) -> int:
+    """Guarda lo que muestra la sección (parlays_registro) para medir su efectividad real. Mismas piernas el mismo día = una fila."""
+    import hashlib
+    import json
+    r = armado if armado is not None else armar(conn, cfg, dia, ahora)
+    n = 0
+    for seccion in ("que_meter", "sonadoras", "boletos"):
+        for x in r.get(seccion) or []:
+            piernas = [{k: pi.get(k) for k in CAMPOS_PIERNA} for pi in x["piernas"]]
+            firma = hashlib.sha1(json.dumps(sorted((str(pi["partido_id"]), pi["jugada"]) for pi in piernas)).encode()).hexdigest()[:16]
+            cur = conn.execute("""INSERT INTO parlays_registro (dia, capturado_en, disparado_por, seccion, titulo, n, p, piernas, firma)
+                                  VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb, %s) ON CONFLICT (dia, seccion, firma) DO NOTHING""",
+                               (dia, ahora, disparado_por, seccion, x.get("titulo") or seccion, x["n"], float(x["p"]),
+                                json.dumps(piernas, default=str), firma))
+            n += cur.rowcount
+    return n

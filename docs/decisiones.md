@@ -452,3 +452,30 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
 * **Parlays (`parlays_usuario.p_min` 0.55 → 0.65):** con 0.55, tres piernas salían ~1 de cada 6. Registro del Dashboard (6-23 nov,
   pick de la app): Ganador 75-85% → 95.0% (20); PA(1) 65-75% → 90.9% (11); Más de 1.5 75-85% → 81.0% (63); Menos de 3.5 75-85% →
   79.5% (39); El otro anota 65-75% → 62.7% (51, esperado 69.4%: algo sobreconfiado). Muestras chicas: se revisa con el Dashboard.
+
+### 2026-11-24 (c) · Efectividad de la sección de parlays (semana 15-21 nov) y registro diario
+
+* **Reconstrucción** (la sección no se guardaba): con `dashboard_registro` (pierna de la app por partido, p previa y acierto) y las mismas
+  reglas de `parlays_usuario` (ventana día + 2, una pierna por partido, orden por p, opciones sin repetir partidos). Solo fútbol con modelo:
+  sin NFL/NBA/tenis, sin los filtros de confianza ni «rompe parlays». Ventanas de 3 días solapadas: los días no son independientes.
+  PA(1) no tiene resultado en ~40% de sus piernas (sin minuto del gol), por eso se mide también la variante «solo Gana».
+
+  | Parlay | Ganados (solo Gana, p_min 0.55) | Esperado | Con PA(1) (evaluables) |
+  |---|---|---|---|
+  | Qué meter A · 3 | **7/7** | 57% | 5/5 |
+  | Qué meter B · 4 | 3/7 | 27% | 1/4 |
+  | Qué meter C · 5 | 2/6 | 13% | 0/3 |
+  | Soñadora 1 · 6 | 4/7 | 22% | 2/4 |
+  | Soñadora 2 · 8 | 1/6 | 4% | 0/4 |
+  | Soñadora 3 · 10 | 0/2 | 1% | 0/3 |
+  | Boleto seguro · 7 (75-92%) | 3/7 (4 días cayó por UNA pierna) | 42% | 2/6 |
+  | Boleto balanceado · 7 (66-85%) | 1/7 | 26% | 1/7 |
+  | Boleto que paga más · 7 (58-75%) | 0/7 (2.3 piernas falladas de media) | 12% | 0/7 |
+
+  Lectura: las opciones que usan las piernas MÁS probables (Qué meter A, Soñadora 1, Boleto seguro) rinden igual o mejor que lo esperado;
+  las que se arman con las piernas sobrantes (B, C, Soñadoras 2-3, Boletos balanceado y «paga más») se caen. Muestra de una semana: es
+  señal, no prueba.
+* **Registro (`parlays_registro`, migración 022):** el job guarda lo que muestra la sección tras la completa y cada previa (sin duplicar
+  las mismas piernas en el día). Con eso la revisión diaria mide exactamente lo que se vio, incluidas NFL/NBA/tenis.
+* **Previa + consulta general (`auto.previa.adelantar_general_min: 60`):** si a la consulta general de cuotas le falta < 60 min, la previa
+  la hace (todas las ligas) y cuenta como general. El 24-nov corrió una general 3 min después de la previa de las 13:10 (28 créditos de más).
