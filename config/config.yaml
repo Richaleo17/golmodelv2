@@ -455,13 +455,23 @@ factores_partido:
     visitante: 0.15                # CALIBRADO: un estadio hostil pesa sobre todo en los goles del visitante
 
 # Parlays pedidos por el responsable (2026-11-13) para «Qué meter» y «Soñadoras» (servicios/parlays_usuario.py).
-# Piernas: «Gana» o «PA(1)» (anota el primer gol), la más probable de cada partido; hasta 3 días; sin repetir partidos entre opciones.
+# Piernas: la jugada más segura de cada partido del menú `jugadas` (antes solo «Gana» o «PA(1)»); hasta 3 días; sin repetir partidos entre opciones.
 parlays_usuario:
   dias: 3
   que_meter: [3, 4, 5]             # 3 opciones: 3, 4 y 5 partidos
   sonadoras: [6, 8, 10]            # 3 opciones: 6, 8 y 10 partidos
   p_min: 0.65                      # pierna mínima. Era 0.55; subida el 2026-11-24 (precisión): en el registro del Dashboard (6-23 nov) las piernas
                                    # Ganador de 55-65% acertaron 67.6% (37) contra 95.0% (20) las de 75-85%; con 0.55, 3 piernas salían ~1 de cada 6
+  p_max: 0.93                      # pierna máxima (momio justo ≥ 1.08): más arriba la pierna casi no paga y solo suma margen de la casa
+  # Menú abierto (2026-11-27, pedido del responsable). Por partido se toma la jugada más segura de estas. Producción 8-26 nov (237 partidos):
+  # solo Gana/PA(1) daba 75.9% por pierna (83 piernas); el menú abierto 83.5% (237), calibrado (esperado 83.2%). Córners y tarjetas
+  # NO entran aquí (sin mercado ni calibración medida); siguen en los Boletos de 7.
+  jugadas: [ganador, dc, primer_gol, mas15, mas25, menos35, ambos, otro]
+  cerebro2:                        # auditoría de cada pierna de fútbol (cerebro2/parlays.py): consenso de ≥3 casas reales con Power
+    activo: true
+    aviso_pp: 0.04                 # la app por encima del consenso más de 4 pts → «con reservas» (provisional, no es un umbral de valor)
+    veto_pp: 0.08                  # más de 8 pts → la pierna no entra (con α≈0 la app no debería separarse tanto del mercado)
+    frescura_aviso_h: 12           # cuotas más viejas → «con reservas»
   confianza_min: 3.5               # confianza de datos mínima (0-10)
   incluir_nfl: true                # suma juegos NFL («Gana» moneyline, p ≥ p_min) a Qué meter y Soñadoras
   incluir_tenis: true              # suma partidos de tenis («Gana <jugador>», con momio) a Qué meter y Soñadoras

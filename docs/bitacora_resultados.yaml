@@ -111,3 +111,19 @@
     mismo hueco de datos, los favoritos Challenger de 70%+ aciertan 76.9% (823 partidos, esperado 75.7%), no se degradan con los meses
     y NI agregar ITF NI filtrar por pocos partidos recientes mejora. 3 de 8 con ~6 esperados pasa ~1-2% de las veces: día malo, no
     falla del modelo. No se cambia nada (ver decisiones.md 2026-11-27).
+
+# ---------------- Parlays de la app 25-26 nov (parlays_registro; el usuario metió uno y lo perdió, no dijo cuál) ----------------
+- fecha: 2026-11-26
+  deporte: futbol
+  liga: UEFA Europa League / Conference League (solo mercado)
+  equipo: Parlays de «Qué meter», «Soñadoras» y «Boletos» del 25 y 26-nov (75 registrados)
+  resultado: >
+    25-nov: Qué meter A, B y C de la mañana y Soñadora 1 completos; NBA (spreads alternos y mitades) y NFL (DAL más de 18.5 y 1.ª mitad
+    +4.5) acertaron todas. 26-nov: cayeron Lyon (Gana 82%, 0-0), Copenhague (Gana 76%, perdió 2-0 en Andorra), Sunderland (78%, 1-1),
+    St. Gilloise (72%, 2-2), Ferencváros (71%, 0-0) y PA(1) fue 2 de 8.
+  p_modelo: calibrada        # producción nov: PA(1) 60.7% esperado vs 60.6% real (236); Gana 70-80% 74.3% vs 72.7%
+  en_modelo: true
+  nota: >
+    Día malo, no falla de cálculo. Cambio de diseño (decisiones.md 2026-11-27 b): menú abierto por partido (doble oportunidad, goles…),
+    Cerebro 2 por pierna con el consenso de varias casas y fuera los partidos sin cuotas ni confirmación (el «Cruz Azul-León» del 27-nov
+    no existía).

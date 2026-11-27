@@ -54,10 +54,12 @@ const ESTADO = { llaves: { API_FOOTBALL_KEY: true, ODDS_API_KEY: true, FOOTBALL_
   consumo_api: { odds_api: { periodo: "mes", limite: 500, usado: 120, restante_reportado: null } }, alias_pendientes: 3, conflictos_abiertos: 0, modelo: { version_id: 7, tipo: "semanal", creado: "09/11 10:00", calibrado: true },
   cobertura_ligas: [{ codigo: "EPL", finalizados: 2000, proximos: 0, pendientes: 1, problema: "Hay partidos sin guardar porque 1 nombres esperan revisión." }], ultima_ejecucion: { tipo: "recalcular", estado: "ok", etapas: [{ etapa: "recalculo_modulos", estado: "ok", error: null }] } };
 const PIERNA = (id, dia, hora, partido, jugada, p) => ({ partido_id: id, dia: "2026-11-14", dia_texto: dia, hora, inicio: "2026-11-14T" + hora, liga: "Premier League",
-  partido, tipo: String(jugada).startsWith("PA(1)") ? "pa1" : "gana", jugada, detalle: "gana el partido (sin empate)", p, cuota_justa: 1 / p, cuota_min: 1.06 / p, confianza: 8 });
+  partido, tipo: String(jugada).startsWith("PA(1)") ? "primer_gol" : "ganador", jugada, detalle: "gana el partido (sin empate)", p, cuota_justa: 1 / p, cuota_min: 1.06 / p, confianza: 8,
+  c2: String(jugada).startsWith("PA(1)") ? { estado: "con_reservas", p: p - 0.05, casas: 6, nota: "la app ve 5 pts más que el mercado" } : { estado: "confirmada", p, casas: 7, nota: "confirmada" },
+  alternativas: [{ jugada: "Doble oportunidad: <b>X</b> o empate", p: 0.9 }] });
 const PU = { dias: ["2026-11-14", "2026-11-15", "2026-11-16"], piernas_disponibles: 9, nota: "Cada pierna es «Gana» o «PA(1)».",
   repiten_partidos: { que_meter: false, sonadoras: true },
-  que_meter: [{ titulo: "Opción A · la más probable", n: 3, p: 0.42, cuota_justa: 2.38, uno_de_cada: 2.38, dias: ["2026-11-14"],
+  que_meter: [{ titulo: "Opción A · la más probable", n: 3, p: 0.42, cuota_justa: 2.38, uno_de_cada: 2.38, dias: ["2026-11-14"], c2_confirmadas: 2,
     piernas: [PIERNA(1, "sáb 14/11", "10:30", "<b>Arsenal</b> vs Chelsea", "Gana <b>Arsenal</b>", 0.8), PIERNA(2, "dom 15/11", "12:00", "Lyon vs Nice", "PA(1) Lyon", 0.75), PIERNA(3, "lun 16/11", "13:00", "A vs B", "Gana A", 0.7)] }],
   sonadoras: [{ titulo: "Soñadora 1", n: 6, p: 0.12, cuota_justa: 8.3, uno_de_cada: 8.3, dias: ["2026-11-14"],
     piernas: [1, 2, 3, 4, 5, 6].map((k) => PIERNA(k, "sáb 14/11", "10:30", "E" + k + " vs F" + k, "Gana E" + k, 0.7)) }],
@@ -393,6 +395,10 @@ async function simular(page) {
   if (MODO === "mock") {
     const chipsPa1 = await page.$$eval("#vista .dtk-mer", (ms) => ms.filter((m) => /PA\(1\)/.test(m.textContent)).map((m) => m.querySelector(".dtk-sel").textContent));
     ok(/Opción A/.test(meter) && /3 piernas/.test(meter) && /sáb 14\/11/.test(meter) && chipsPa1.includes("Lyon"), "Qué meter: parlay con día, hora y PA(1) (chip PA(1) + selección Lyon)");
+    const c2 = await page.$$eval("#vista .dtk-c2", (xs) => xs.map((x) => x.className + "|" + x.textContent));
+    ok(c2.some((t) => /ok\|✓ Cerebro 2 80% · 7 casas/.test(t)) && c2.some((t) => /res\|⚠ Cerebro 2 70% · 6 casas · la app ve 5 pts/.test(t)) && /Cerebro 2 confirmó 2 de 3/.test(meter),
+      "Qué meter: veredicto del Cerebro 2 por pierna (confirmada / con reservas) y resumen del parlay");
+    ok(/Si no la encuentras: Doble oportunidad: <b>X<\/b> o empate 90%/.test(meter), "Qué meter: alternativas del mismo partido (escapadas)");
     ok(!(await page.$("#vista b b")), "Qué meter: el HTML de los nombres se escapa");
     ok(/Entrada/.test(meter) && /Momio/.test(meter) && /2\.38x/.test(meter) && /Ganancia/.test(meter), "Qué meter: boleto estilo Draftea (entrada, momio, ganancia)");
     await page.fill("#vista .dtk-monto", "100");

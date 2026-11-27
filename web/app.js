@@ -467,7 +467,8 @@ async function vDiario() {
 // ------------------------------------------------------------------ Qué meter
 
 
-/* Parlays del responsable (2026-11-13): piernas «Gana» o «PA(1)», hasta 3 días, sin repetir partidos entre opciones. */
+/* Parlays del responsable (2026-11-13; menú abierto y Cerebro 2 el 2026-11-27): la jugada más segura de cada partido, auditada por
+   Cerebro 2 con el consenso de varias casas, hasta 3 días, sin repetir partidos entre opciones. */
 async function parlaysUsuario() {
   const k = "pu:" + S.dia;
   if (!S.cache[k]) {
@@ -493,15 +494,27 @@ function mercadoDe(p) {
   return i > 0 ? { m: j.slice(0, i).toUpperCase(), chips: ["90'"], sel: j.slice(i + 2) } : { m: String(p.detalle || "").toUpperCase(), chips: [], sel: j };
 }
 
+/* Veredicto de Cerebro 2 por pierna: confirmada (✓), con reservas (⚠) o sin auditar (NBA/NFL/tenis: una sola fuente de líneas). */
+const C2_TXT = { confirmada: "✓ Cerebro 2", con_reservas: "⚠ Cerebro 2", sin_auditar: "Cerebro 2: sin auditar" };
+function c2Pierna(p) {
+  const c = p.c2;
+  if (!c) return "";
+  const cls = c.estado === "confirmada" ? "ok" : c.estado === "con_reservas" ? "res" : "sin";
+  const det = c.p != null ? ` ${pct(c.p)}${c.casas ? ` · ${esc(c.casas)} casas` : ""}` : "";
+  return `<div class="dtk-c2 ${cls}">${esc(C2_TXT[c.estado] || "Cerebro 2")}${det}${c.estado !== "confirmada" && c.nota ? ` · ${esc(c.nota)}` : ""}</div>`;
+}
+
 function htmlPiernaDraftea(p) {
   const { m, chips, sel } = mercadoDe(p);
+  const alts = (p.alternativas || []).length
+    ? `<div class="dtk-alt">Si no la encuentras: ${p.alternativas.map((a) => `${esc(a.jugada)} ${pct(a.p)}`).join(" · ")}</div>` : "";
   const [loc, vis] = String(p.partido || "").split(" vs ");
   const eq = (nombre, lado) => `<div class="dtk-eq">${escudoFut(p, lado)}<span>${esc(nombre || "")}</span></div>`;
   return `<div class="dtk-p"><div class="dtk-est">${esc(p.dia_texto)} · ${esc(p.hora)} · ${esc(p.liga)}</div>` +
     `<div class="dtk-mer"><span class="dtk-m">${esc(m)}</span>${chips.map((c) => `<span class="dtk-chip">${esc(c)}</span>`).join("")}` +
     `<b class="dtk-sel">${esc(sel)}</b><span class="dtk-x">${num(p.cuota_justa)}x</span></div>` +
     (vis ? eq(loc, "local") + eq(vis, "visitante") : eq(p.partido, "local")) +
-    `<div class="meta">${pct(p.p)} · mete si paga ≥ ${cuotaAm(p.cuota_min)}</div></div>`;
+    `<div class="meta">${pct(p.p)} · mete si paga ≥ ${cuotaAm(p.cuota_min)}</div>` + c2Pierna(p) + alts + `</div>`;
 }
 
 function htmlParlay(x) {
@@ -511,7 +524,8 @@ function htmlParlay(x) {
     `<div class="dtk-cab"><label><span>Entrada</span><input class="dtk-monto" type="number" min="1" step="1" inputmode="decimal" value="${monto}" aria-label="Monto de la entrada"></label>` +
     `<div><span>Momio</span><b>${num(x.cuota_justa)}x</b></div><div><span>Ganancia</span><b class="dtk-gan">${pesos(monto * x.cuota_justa)}</b></div></div>` +
     piernas.map(htmlPiernaDraftea).join("") +
-    `<div class="dtk-pie">${esc(x.n)} piernas · sale ${pct(x.p, 1)} · 1 de cada ${n1} · momio justo (Draftea paga menos: compara antes de meter)</div></div>`;
+    `<div class="dtk-pie">${esc(x.n)} piernas · sale ${pct(x.p, 1)} · 1 de cada ${n1} · momio justo (Draftea paga menos: compara antes de meter)` +
+    (x.c2_confirmadas != null ? ` · Cerebro 2 confirmó ${esc(x.c2_confirmadas)} de ${esc(x.n)}` : "") + `</div></div>`;
 }
 
 function htmlSeccionParlays(d, clave, vacio) {
@@ -525,8 +539,10 @@ function htmlSeccionParlays(d, clave, vacio) {
 async function vMeter() {
   const { d, error } = await parlaysUsuario();
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">03</b> Qué meter</h2>` +
-    `<p class="lead">2 a 3 parlays de 3 a 5 partidos. Cada pierna es <b>Gana</b> o <b>PA(1)</b> (anota el primer gol), la más probable de su partido; ` +
-    `se mezclan ligas y hasta 3 días. Si hay juegos de <b>NFL</b> o partidos de <b>tenis</b> también entran (pierna «Gana»). Las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
+    `<p class="lead">2 a 3 parlays de 3 a 5 partidos. De cada partido sale la jugada más segura de todo el menú: <b>Gana</b>, <b>doble oportunidad</b>, ` +
+    `<b>PA(1)</b> (anota el primer gol), goles, ambos anotan o el otro anota, y que pague al menos 1.08. <b>Dos cerebros</b>: la app propone y el ` +
+    `<b>Cerebro 2</b> la recalcula con el consenso de varias casas; si no la respalda, no entra. También NFL, NBA y tenis. Se mezclan ligas y hasta 3 días; ` +
+    `las opciones no comparten partidos: si se cae una, no tumba a las otras.</p>`;
   if (error) return fallo("Qué meter", "No se pudieron armar los parlays: " + error);
   return { html: cab + htmlSeccionParlays(d, "que_meter", "Todavía no hay suficientes partidos para armar parlays") };
 }
@@ -969,7 +985,8 @@ async function vBoletos() {
 async function vSonadoras() {
   const { d, error } = await parlaysUsuario();
   const cab = `<h2><b class="mono" style="font-size:13px;color:var(--accent)">04</b> Soñadoras</h2>` +
-    `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas: <b>Gana</b> o <b>PA(1)</b> (y <b>Gana</b> en NFL y tenis si hay), hasta 3 días, sin repetir partidos entre opciones. ` +
+    `<p class="lead">2 a 3 parlays de 6 a 10 partidos para pagar más. Mismas reglas que «Qué meter»: la jugada más segura de cada partido de todo el menú, ` +
+    `auditada por el Cerebro 2, hasta 3 días y sin repetir partidos entre opciones. ` +
     `Son de alto riesgo: juega montos chicos.</p>`;
   if (error) return fallo("Soñadoras", "No se pudieron armar las soñadoras: " + error);
   return { html: cab + htmlSeccionParlays(d, "sonadoras", "Todavía no hay suficientes partidos para una soñadora de 6+") };
