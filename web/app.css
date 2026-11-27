@@ -250,3 +250,7 @@ nav button{font-size:10px}
 .dtk-eq{display:flex;align-items:center;gap:7px;font-size:15px;padding:2px 0}
 .dtk-eq .escudo{width:22px;height:22px}
 .dtk-pie{font-size:11px;color:var(--muted);padding-top:8px;border-top:1px dashed var(--line-3);margin-top:4px}
+.dtk-c2{font-size:11px;margin-top:3px;color:var(--muted)}
+.dtk-c2.ok{color:var(--hi)}
+.dtk-c2.res{color:var(--mid)}
+.dtk-alt{font-size:11px;color:var(--muted);margin-top:2px}

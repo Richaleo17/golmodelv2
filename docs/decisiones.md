@@ -496,3 +496,60 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
     contra 76.0% con ≥ 5).
 * **Decisión:** no se cambia el modelo ni la pantalla de tenis. El 26-nov fue varianza (~1-2% de probabilidad con 6 esperados). Si
   aparece una fuente de ITF posterior a mayo, repetir la medición con datos completos (ahí sí mejoraba).
+
+### 2026-11-27 (b) · Parlays: menú abierto, Cerebro 2 por pierna y partidos sin confirmar fuera
+
+* **Motivo:** el usuario metió un parlay de la sección y lo perdió («revisa con precisión… déjalo abierto a todo… usa los dos cerebros»).
+  Se liquidaron los 75 parlays registrados del 25 y 26-nov (resultados de la base, ESPN para el orden de goles y las mitades de NBA/NFL).
+  El miércoles 25 salieron los tres «Qué meter» de la mañana y la Soñadora 1; las piernas de NBA y NFL acertaron todas. El jueves 26 cayó
+  casi todo por cinco favoritos de Europa/Conference League (Lyon 0-0 Lillestrom 82%, Escaldes 2-0 Copenhague 76%, Sunderland 1-1 78%,
+  St. Gilloise 2-2 72%, Ferencváros 0-0 71%) y por PA(1): 2 de 8 (Getafe, Benfica, Monaco, Atalanta, Juventus y Copenhague fallaron).
+* **¿Está mal calibrado PA(1)?** No. Producción 8-26 nov, 236 partidos (los 123 en que anotaron los dos se resolvieron con el orden de
+  goles de ESPN): esperado 60.7%, real 60.6%; franja 65%+ 73.1% esperado contra 68.4% real (IC 95% 57-78%). Gana y Más de 1.5 también
+  calibrados (70-80%: 74.3% → 72.7%; 85%+: 89.1% → 90.9%). Lo que tumba los parlays es multiplicar piernas, no las probabilidades.
+* **Cambio 1 · menú abierto** (`parlays_usuario.jugadas`): Qué meter y Soñadoras toman de cada partido la jugada más segura de Gana, doble
+  oportunidad, PA(1), Más de 1.5/2.5, Menos de 3.5, ambos anotan y el otro anota, entre `p_min` 0.65 y `p_max` 0.93 (momio ≥ 1.08).
+  Con las predicciones de producción de noviembre (mismas fechas, sin reajustar nada):
+
+  | Regla por partido | Piernas | Acierto por pierna | 3 piernas/día: esperado · real | 5 piernas/día: esperado · real |
+  |---|---|---|---|---|
+  | Antes: solo Gana o PA(1) | 83 | 75.9% | 50% · 9/12 días | 29% · 5/8 días |
+  | Menú abierto (≤ 0.93) | 237 | 83.5% (esperado 83.2%) | 71% · 13/16 días | 53% · 11/16 días |
+
+  Paga menos por pierna (lo dominan doble oportunidad y Más de 1.5); a cambio el parlay sale bastante más. Córners y tarjetas NO entran a
+  Qué meter/Soñadoras (sin mercado ni calibración medida); siguen en los Boletos de 7.
+* **Cambio 2 · Cerebro 2 por pierna** (`cerebro2/parlays.py`): recalcula cada pierna de fútbol con la mediana de ≥ 3 casas reales y devig
+  Power (las λ de ese consenso dan PA(1), ambos anotan y el otro anota). Si la app queda más de `veto_pp` (8 pts) por encima, la pierna
+  no entra; entre 4 y 8 pts, o con cuotas de más de 12 h, entra «con reservas». Se ordena por min(p_app, p_C2); el parlay se calcula
+  con p_app (la calibrada). NBA/NFL/tenis quedan «sin auditar» (una sola fuente de líneas). Umbrales provisionales: son de seguridad, no
+  de valor.
+* **Cambio 3 · calendario dudoso:** un partido de fútbol sin cuotas y sin id de ESPN ni FotMob ya no entra. Caso real: «PA(1) Cruz Azul»
+  salió en parlays para un Cruz Azul-León el viernes 27 a las 18:00 que no existe (ESPN: León 0-4 Cruz Azul fue el jueves 26 a las 21:10;
+  la vuelta es el domingo 29 a las 21:00).
+* **Cada pierna trae alternativas** (otras 2 jugadas del mismo partido) para cambiarla si la casa no la ofrece.
+* **Liguilla:** partidos duplicados, fechas tentativas y sin resultados → resuelto en 2026-11-27 (c).
+
+### 2026-11-27 (c) · Calendario y resultados con ESPN (Liguilla de Liga MX)
+
+* **Motivo:** el usuario vio mal los partidos de mañana. La Liguilla tenía:
+  - duplicados con fechas tentativas de The Odds API: publica el cruce con una fecha provisional y luego con la real; a más de 36 h se
+    creaba otro partido. León-Cruz Azul y Pachuca-Chivas el 24-nov y el 26-nov; Cruz Azul-León el 27 y el 29;
+  - Chivas-Pachuca el viernes 27 a las 18:00 cuando es el domingo 29 a las 19:07;
+  - ningún resultado: football-data no trae la Liguilla. Toluca 2-0 Atlas y Monterrey 0-0 América del 25-nov seguían «programados».
+* **Causa extra:** ningún partido de Liga MX tenía id de ESPN. Las alineaciones pedían el scoreboard de ESPN por día UTC, y ESPN agrupa
+  por día de Nueva York. Un partido de las 19:00 CDMX ya es «mañana» en UTC y no se encontraba. Pasaba igual con MLS y Brasileirão.
+* **Cambio:** `servicios/calendario_espn.py`.
+  - Por liga cubierta por ESPN, revisa 5 días atrás y 7 adelante (día de Nueva York).
+  - Empareja uno a uno cada evento con nuestro partido del mismo local y visitante a ≤ 10 días: primero el que ya tiene ese espn_id; si
+    no, el más cercano en hora.
+  - Al emparejado le pone el espn_id, la hora, el estado y el marcador. Nunca pisa un resultado distinto: lo registra como conflicto.
+  - Un partido no emparejado del mismo cruce, sin evento de ESPN a ±6 h en un día que ESPN sí respondió, queda 'cancelado'.
+  - Un aplazado que ESPN conserva con su fecha vieja no regresa un partido ya reprogramado.
+  - Corre en la actualización completa y, como máximo cada 3 h, en el job de alineaciones de cada 10 min (`calendario_espn` en config).
+  - Las alineaciones de ESPN ahora piden el día de Nueva York.
+* **Simulación sobre producción (22-nov → 4-dic, 99 partidos sin terminar de 8 ligas):**
+  - Liga MX: los 4 resultados de la ida (Toluca 2-0 Atlas, Monterrey 0-0 América, Pachuca 2-1 Chivas, León 0-4 Cruz Azul).
+  - Liga MX: Chivas-Pachuca al domingo 29 a las 19:07; 3 duplicados cancelados.
+  - Dos resultados que también faltaban: San Jose 2-1 Houston (MLS, 25-nov) y São Paulo 3-1 Remo (26-nov).
+  - Premier, LaLiga, Serie A, Ligue 1 y Portugal: ningún cambio; ningún partido real se cancela.
+* **No hace:** no crea partidos que falten ni cambia probabilidades; deja el calendario real para cuotas, predicciones y parlays.

@@ -11,7 +11,7 @@ Aplicación analítica para apuestas de fútbol (12 ligas: Premier, La Liga, Ser
 |---|---|
 | Marcadores | Dixon-Coles (1997) con decaimiento exp(−ξt), xG como insumo (w_xG), pooling parcial por liga y prior suave sobre ρ |
 | Mercado | Margen quitado con Shin (1993) o potencia; p_adj = α·p_modelo + (1−α)·p_mercado, con α calibrado en walk-forward |
-| Diario y Qué meter | Tarjeta por partido (gana, primer gol, el otro anota, forma) y jugadas del día con **cuota mínima**, partidos que rompen parlays y parlays por perfil |
+| Diario y Qué meter | Tarjeta por partido (gana, primer gol, el otro anota, forma) y jugadas del día con **cuota mínima**, partidos que rompen parlays y parlays de 3-5 / 6-10 / 7 piernas: la jugada más segura de cada partido de todo el menú, **auditada por Cerebro 2** (consenso de ≥3 casas) |
 | Módulo 1 | 1X2, doble oportunidad, BTTS, O/U 1.5/2.5/3.5, equipo anota y hándicap asiático ±1.0/±1.5 (con push), todos desde la matriz |
 | Tickets V3 | Parlays con probabilidad conjunta REAL (Monte Carlo con factores compartidos, `motor/dependencia.py`; nunca el producto), cota conservadora y auditoría del Cerebro 2; los SGP suman celdas de la matriz |
 | Tickets 5 equipos | Las combinaciones más probables que pagan ≈15-30x, con razones por pierna (modelo vs mercado, CRS) y «1 de cada N» |

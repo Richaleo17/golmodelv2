@@ -10,10 +10,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from golmodel.ingesta.proveedores.http import ClienteHTTP
 
 BASE = "https://site.api.espn.com"
+ET = ZoneInfo("America/New_York")          # `dates=AAAAMMDD` del scoreboard es día de Nueva York (medido 2026-11-27 con la Liga MX)
 RUTA = "/apis/site/v2/sports"
 
 # Nuestras ligas con modelo → liga de ESPN.

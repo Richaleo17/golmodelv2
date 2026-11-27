@@ -20,6 +20,7 @@ referencias (consenso de mercado, EV, frescura) y **nunca re-estima** modelos.
 | `auditoria.py` | `ticket_id` determinista y filas para `auditoria_decisiones` / `evaluaciones_riesgo` |
 | `persistencia.py` | INSERT en las tablas de la migración 004 (inmutables) |
 | `metacalibracion.py` | job **ex-post** (no runtime): precisión y yield de los rechazos, con Wilson y bootstrap |
+| `parlays.py` | auditoría de cada pierna de los parlays del responsable (Qué meter, Soñadoras, Boletos): consenso multicasa, veto y calendario dudoso |
 
 ## Garantías (cada una tiene tests y mutantes que las vigilan)
 

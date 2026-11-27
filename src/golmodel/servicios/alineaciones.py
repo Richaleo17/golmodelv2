@@ -55,13 +55,13 @@ def sincronizar(conn, fuente, ahora: datetime, *, ventana_min: float = 100, hori
     grupos: dict[tuple[str, str], list[dict]] = defaultdict(list)
     for p in cands:
         liga = E.liga_espn(p["codigo"], p["odds_api_sport_key"])
-        if liga:
-            grupos[(liga, p["inicio"].strftime("%Y%m%d"))].append(p)
+        if liga:                                                   # ESPN agrupa su scoreboard por día de Nueva York, no UTC: un Liga MX
+            grupos[(liga, p["inicio"].astimezone(E.ET).strftime("%Y%m%d"))].append(p)   # de las 19:00 CDMX ya es «mañana» en UTC
     equipos_espn: dict[int, tuple[str, str]] = {}                       # equipo_id nuestro → (liga espn, id de equipo en espn)
     emparejados: list[tuple[dict, E.EventoESPN, str]] = []
     for (liga, dia), partidos in grupos.items():
         try:
-            eventos = fuente.eventos(liga, partidos[0]["inicio"])
+            eventos = fuente.eventos(liga, partidos[0]["inicio"].astimezone(E.ET))
         except Exception:                                                # noqa: BLE001
             res["errores"] += 1
             continue

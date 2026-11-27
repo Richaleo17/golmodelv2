@@ -1,0 +1,272 @@
+{
+ "20261124": {
+  "events": []
+ },
+ "20261125": {
+  "events": [
+   {
+    "id": "401931986",
+    "date": "2026-11-26T01:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_FULL_TIME"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "2",
+        "team": {
+         "id": "223",
+         "displayName": "Toluca"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "0",
+        "team": {
+         "id": "216",
+         "displayName": "Atlas"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401931998",
+    "date": "2026-11-26T03:10Z",
+    "status": {
+     "type": {
+      "name": "STATUS_FULL_TIME"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "0",
+        "team": {
+         "id": "220",
+         "displayName": "Monterrey"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "0",
+        "team": {
+         "id": "227",
+         "displayName": "América"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "20261126": {
+  "events": [
+   {
+    "id": "401931982",
+    "date": "2026-11-27T01:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_FULL_TIME"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "2",
+        "team": {
+         "id": "234",
+         "displayName": "Pachuca"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "1",
+        "team": {
+         "id": "219",
+         "displayName": "Guadalajara"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401931995",
+    "date": "2026-11-27T03:10Z",
+    "status": {
+     "type": {
+      "name": "STATUS_FULL_TIME"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "0",
+        "team": {
+         "id": "228",
+         "displayName": "León"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "4",
+        "team": {
+         "id": "218",
+         "displayName": "Cruz Azul"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "20261127": {
+  "events": []
+ },
+ "20261128": {
+  "events": [
+   {
+    "id": "401931997",
+    "date": "2026-11-29T01:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "0",
+        "team": {
+         "id": "216",
+         "displayName": "Atlas"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "0",
+        "team": {
+         "id": "223",
+         "displayName": "Toluca"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401931996",
+    "date": "2026-11-29T03:10Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "0",
+        "team": {
+         "id": "227",
+         "displayName": "América"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "0",
+        "team": {
+         "id": "220",
+         "displayName": "Monterrey"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ },
+ "20261129": {
+  "events": [
+   {
+    "id": "401931983",
+    "date": "2026-11-30T01:07Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "0",
+        "team": {
+         "id": "219",
+         "displayName": "Guadalajara"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "0",
+        "team": {
+         "id": "234",
+         "displayName": "Pachuca"
+        }
+       }
+      ]
+     }
+    ]
+   },
+   {
+    "id": "401932000",
+    "date": "2026-11-30T03:00Z",
+    "status": {
+     "type": {
+      "name": "STATUS_SCHEDULED"
+     }
+    },
+    "competitions": [
+     {
+      "competitors": [
+       {
+        "homeAway": "home",
+        "score": "0",
+        "team": {
+         "id": "218",
+         "displayName": "Cruz Azul"
+        }
+       },
+       {
+        "homeAway": "away",
+        "score": "0",
+        "team": {
+         "id": "228",
+         "displayName": "León"
+        }
+       }
+      ]
+     }
+    ]
+   }
+  ]
+ }
+}

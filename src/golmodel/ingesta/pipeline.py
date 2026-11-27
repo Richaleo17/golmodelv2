@@ -228,7 +228,20 @@ class Pipeline:
                         continue
                     res["xg"][repo.set_xg(st.conn, p["id"], x.xg_local, x.xg_visitante, x.familia_xg)] += 1
         res["calendario"] = self._calendario(st)
+        res["espn"] = self._calendario_espn(st, forzar=True)          # Liguilla, fechas tentativas y resultados que football-data no trae
         return res
+
+    def _calendario_espn(self, st: Estado, *, forzar: bool = False) -> dict | None:
+        """Calendario y resultados con ESPN (servicios/calendario_espn.py). Opcional: un fallo no tumba la etapa."""
+        if self.espn is None or not (self.cfg.get("calendario_espn") or {}).get("activo", True):
+            return None
+        from golmodel.servicios import calendario_espn
+        try:
+            with st.conn.transaction():
+                return calendario_espn.conciliar(st.conn, self.espn, self.cfg, st.ahora, forzar=forzar)
+        except Exception as e:                                    # noqa: BLE001
+            log.warning("calendario ESPN falló", exc_info=True)
+            return {"error": f"{type(e).__name__}: {e}"[:200]}
 
     def _calendario(self, st: Estado) -> dict:
         d0 = st.ahora.date() - timedelta(days=4)
@@ -349,6 +362,9 @@ class Pipeline:
                                 (p["id"], eid, a.jugador, a.titular, a.confirmada, r.proveedor, st.ahora))
                 res["jugadores"] += 1
         res["nota"] = "las alineaciones se guardan y avisan en el panel (titulares habituales ausentes); no modifican las probabilidades"
+        cal = self._calendario_espn(st)                               # cada `calendario_espn.refresco_h` (el job pasa cada 10 min)
+        if cal is not None:
+            res["calendario_espn"] = cal
         a = (self.cfg.get("alineaciones") or {}).get("espn") or {}
         if self.espn is not None and a.get("activo", True):
             from golmodel.servicios import alineaciones as _al
