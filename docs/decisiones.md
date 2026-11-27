@@ -527,5 +527,29 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   salió en parlays para un Cruz Azul-León el viernes 27 a las 18:00 que no existe (ESPN: León 0-4 Cruz Azul fue el jueves 26 a las 21:10;
   la vuelta es el domingo 29 a las 21:00).
 * **Cada pierna trae alternativas** (otras 2 jugadas del mismo partido) para cambiarla si la casa no la ofrece.
-* **Pendiente (no se tocó):** la Liguilla 2026 tiene partidos duplicados o con fecha cambiada (23204/23205 del 24-nov, 23208/23209 del
-  27-nov) y ningún partido de Liguilla tiene resultado (football-data no los trae: Toluca 2-0 Atlas del 25-nov sigue «programado»).
+* **Liguilla:** partidos duplicados, fechas tentativas y sin resultados → resuelto en 2026-11-27 (c).
+
+### 2026-11-27 (c) · Calendario y resultados con ESPN (Liguilla de Liga MX)
+
+* **Motivo:** el usuario vio mal los partidos de mañana. La Liguilla tenía:
+  - duplicados con fechas tentativas de The Odds API: publica el cruce con una fecha provisional y luego con la real; a más de 36 h se
+    creaba otro partido. León-Cruz Azul y Pachuca-Chivas el 24-nov y el 26-nov; Cruz Azul-León el 27 y el 29;
+  - Chivas-Pachuca el viernes 27 a las 18:00 cuando es el domingo 29 a las 19:07;
+  - ningún resultado: football-data no trae la Liguilla. Toluca 2-0 Atlas y Monterrey 0-0 América del 25-nov seguían «programados».
+* **Causa extra:** ningún partido de Liga MX tenía id de ESPN. Las alineaciones pedían el scoreboard de ESPN por día UTC, y ESPN agrupa
+  por día de Nueva York. Un partido de las 19:00 CDMX ya es «mañana» en UTC y no se encontraba. Pasaba igual con MLS y Brasileirão.
+* **Cambio:** `servicios/calendario_espn.py`.
+  - Por liga cubierta por ESPN, revisa 5 días atrás y 7 adelante (día de Nueva York).
+  - Empareja uno a uno cada evento con nuestro partido del mismo local y visitante a ≤ 10 días: primero el que ya tiene ese espn_id; si
+    no, el más cercano en hora.
+  - Al emparejado le pone el espn_id, la hora, el estado y el marcador. Nunca pisa un resultado distinto: lo registra como conflicto.
+  - Un partido no emparejado del mismo cruce, sin evento de ESPN a ±6 h en un día que ESPN sí respondió, queda 'cancelado'.
+  - Un aplazado que ESPN conserva con su fecha vieja no regresa un partido ya reprogramado.
+  - Corre en la actualización completa y, como máximo cada 3 h, en el job de alineaciones de cada 10 min (`calendario_espn` en config).
+  - Las alineaciones de ESPN ahora piden el día de Nueva York.
+* **Simulación sobre producción (22-nov → 4-dic, 99 partidos sin terminar de 8 ligas):**
+  - Liga MX: los 4 resultados de la ida (Toluca 2-0 Atlas, Monterrey 0-0 América, Pachuca 2-1 Chivas, León 0-4 Cruz Azul).
+  - Liga MX: Chivas-Pachuca al domingo 29 a las 19:07; 3 duplicados cancelados.
+  - Dos resultados que también faltaban: San Jose 2-1 Houston (MLS, 25-nov) y São Paulo 3-1 Remo (26-nov).
+  - Premier, LaLiga, Serie A, Ligue 1 y Portugal: ningún cambio; ningún partido real se cancela.
+* **No hace:** no crea partidos que falten ni cambia probabilidades; deja el calendario real para cuotas, predicciones y parlays.

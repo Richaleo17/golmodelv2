@@ -496,6 +496,16 @@ calibracion_kpi:
   l2: 5.0                          # tirón hacia «sin ajuste» (a=0, b=1): con pocos datos casi no se mueve
   mejora_min: 0.002                # mejora mínima del Brier en prueba para activarlo
 
+# Calendario y resultados con ESPN (servicios/calendario_espn.py, sin llave ni costo). Se agregó el 2026-11-27 por la Liguilla: partidos
+# duplicados con fechas tentativas de The Odds API y sin resultados (football-data no la trae). Corre en la actualización completa y, a lo
+# más cada `refresco_h`, en el job de alineaciones. Empareja por local y visitante; un duplicado sin evento de ESPN ese día queda 'cancelado'.
+calendario_espn:
+  activo: true
+  dias_atras: 5                # días de ESPN que se revisan hacia atrás (resultados) …
+  dias_adelante: 7             # … y hacia adelante (fechas y horas)
+  ventana_dias: 10             # distancia máxima entre nuestro partido y el evento de ESPN para considerarlos el mismo cruce
+  refresco_h: 3
+
 # Alineaciones oficiales y plantillas (ESPN, sin llave). ESPN NO publica lesiones de fútbol: una «ausencia» es un principal (≥ 60% de
 # titularidades) que no está en la convocatoria publicada o está en la banca. Avisa en el panel y baja la confianza; no mueve probabilidades.
 alineaciones:
