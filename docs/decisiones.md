@@ -479,3 +479,20 @@ Qué meter y Soñadoras en pestañas, con piernas de todos los deportes. Los nom
   las mismas piernas en el día). Con eso la revisión diaria mide exactamente lo que se vio, incluidas NFL/NBA/tenis.
 * **Previa + consulta general (`auto.previa.adelantar_general_min: 60`):** si a la consulta general de cuotas le falta < 60 min, la previa
   la hace (todas las ligas) y cuenta como general. El 24-nov corrió una general 3 min después de la previa de las 13:10 (28 créditos de más).
+
+### 2026-11-27 · Tenis Challenger: se probaron dos cambios y NO se adoptan
+
+* **Motivo:** el 26-nov el usuario perdió 5 de 8 favoritos Challenger de 70%+ (Caliente los tenía igual: −188 a −1400). Hipótesis: datos
+  viejos (desde el 25-may-2026 los Challenger llegan solo por LiveScore, ~40% menos partidos porque no trae qualys; nunca hubo ITF) y
+  sin momio (The Odds API no cubre Challenger: probabilidad = Elo puro).
+* **Medición** (`scripts/validar_tenis_challenger.py`, mismo Elo de la app, ATP Sackmann 2019-may 2026): simulando el mismo hueco (corte
+  2025-06-01, después solo cuadro principal Challenger y sin ITF), evaluado en Challenger 2025-07 → 2026-05 con ambos jugadores ≥ 15
+  partidos:
+  - Favoritos 70%+: **76.9% de acierto** (823 partidos, esperado 75.7%). Por meses tras el corte: 1-3 → 77.0%, 4-6 → 72.7% (198),
+    7-12 → 79.0%. Sin degradación sistemática.
+  - **Agregar ITF hasta el corte:** Brier de todos los partidos 0.2249 → 0.2259-0.2274 (peor). Solo ayuda si llega ITF DESPUÉS del
+    corte (con datos completos, Brier 0.2262 → 0.2250), y no hay fuente gratuita de ITF (LiveScore solo lista Challenger/Davis/BJK).
+  - **Marcar «datos incompletos» si alguno tiene < 3/5/8 partidos en 90 días:** no separa a los que fallan (con < 5: 77.8% de acierto
+    contra 76.0% con ≥ 5).
+* **Decisión:** no se cambia el modelo ni la pantalla de tenis. El 26-nov fue varianza (~1-2% de probabilidad con 6 esperados). Si
+  aparece una fuente de ITF posterior a mayo, repetir la medición con datos completos (ahí sí mejoraba).
