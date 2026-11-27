@@ -58,7 +58,7 @@
   deporte: futbol
   liga: UEFA Champions League (solo mercado)
   equipo: Galatasaray vs Aston Villa
-  resultado: 1-0 al 90+4' (ESPN; PROVISIONAL, confirmar final en la revisión diaria)
+  resultado: 1-0 final (confirmado en partidos el 25-nov)
   piernas:
     - {seleccion: "Más de 1.5 goles", p: 0.82, acierto: false}
     - {seleccion: "Aston Villa anota", p: 0.84, acierto: false}
@@ -94,3 +94,20 @@
   resultado: perdido (1 de 4 piernas acertada)
   p_modelo: 0.175           # conjunta real por matriz; momio justo 5.72 → EV −21% antes de jugar
   nota: Gana Bodø acertó; ambos anotan (x2) y Villa más de 1.5 fallaron.
+
+# ---------------- Tenis Challenger 26-nov (apuestas del usuario en Caliente; la app los mostraba «solo modelo», 70%+) ----------------
+- fecha: 2026-11-26
+  deporte: tenis
+  liga: ATP Challenger (Florianópolis, Ankara, Monastir 2)
+  equipo: 8 favoritos «Gana» en parlays de Caliente
+  resultado: 3 de 8 (ganaron Roncadelli, La Serna y Justo; perdieron Gulin vs Ursu, Bar Biryukov vs Pankin, Coulibaly vs Tabacco,
+             Alcalá Gurri vs E. Ribeiro y Moller vs Zanellato)
+  p_modelo: 0.78             # promedio implícito de Caliente (−188 a −1400); la app también los daba 70%+
+  en_modelo: true
+  nota: >
+    Sin momio en la app (The Odds API no cubre Challenger): probabilidad = Elo puro. Desde el corte de Sackmann (25-may-2026) los
+    Challenger llegan solo por LiveScore (~40% menos partidos: sin qualys) y nunca hubo ITF. Varios ganadores tenían pocos datos
+    recientes (Zanellato 0 partidos registrados entre el 26-jun y el 25-nov). Se midió con scripts/validar_tenis_challenger.py: con ese
+    mismo hueco de datos, los favoritos Challenger de 70%+ aciertan 76.9% (823 partidos, esperado 75.7%), no se degradan con los meses
+    y NI agregar ITF NI filtrar por pocos partidos recientes mejora. 3 de 8 con ~6 esperados pasa ~1-2% de las veces: día malo, no
+    falla del modelo. No se cambia nada (ver decisiones.md 2026-11-27).
